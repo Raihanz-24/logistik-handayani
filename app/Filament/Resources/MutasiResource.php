@@ -14,6 +14,13 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
+// ===== Tambahan untuk fitur Export =====
+use App\Filament\Exports\MutasiExporter;
+use Filament\Tables\Actions\ExportAction;
+use Filament\Tables\Actions\ExportBulkAction;
+use Filament\Tables\Actions\BulkActionGroup;
+use Filament\Actions\Exports\Enums\ExportFormat;
+use Filament\Tables\Filters\Filter;
 
 class MutasiResource extends Resource
 {
@@ -132,16 +139,57 @@ class MutasiResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-
             ])
             ->filters([
-                //
+                // === Filter rentang tanggal (dipakai tabel & export) ===
+                Filter::make('rentang_tanggal')
+                    ->label('Rentang Tanggal')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')
+                            ->label('Dari tanggal')
+                            ->native(false)
+                            ->displayFormat('Y-m-d'),
+                        Forms\Components\DatePicker::make('to')
+                            ->label('Sampai tanggal')
+                            ->native(false)
+                            ->displayFormat('Y-m-d'),
+                    ])
+                    ->query(function (Builder $query, array $data) {
+                        $from = $data['from'] ?? null;
+                        $to   = $data['to'] ?? null;
+
+                        if ($from) {
+                            $query->whereDate('tanggal', '>=', $from);
+                        }
+                        if ($to) {
+                            $query->whereDate('tanggal', '<=', $to);
+                        }
+
+                        return $query;
+                    }),
+            ])
+            ->headerActions([
+                // === Export to Excel (background) ===
+                ExportAction::make('export-excel')
+                    ->label('Export Excel')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('success')
+                    ->exporter(MutasiExporter::class)
+                    ->formats([ExportFormat::Xlsx])
+                    ->fileName(fn() => 'mutasi_' . now()->format('Ymd_His')),
             ])
             ->actions([
                 //
             ])
             ->bulkActions([
-                //
+                BulkActionGroup::make([
+                    ExportBulkAction::make('export-selected')
+                        ->label('Export Terpilih')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->exporter(MutasiExporter::class)
+                        ->formats([ExportFormat::Xlsx])
+                        ->fileName(fn() => 'mutasi_terpilih_' . now()->format('Ymd_His')),
+                ]),
             ]);
     }
 
