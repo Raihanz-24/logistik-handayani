@@ -59,4 +59,9 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->roles->isNotEmpty();
     }
+
+    public function mutasiDibuat()
+    {
+        return $this->hasMany(\App\Models\Mutasi::class, 'created_by'); // untuk delete user
+    }
 }

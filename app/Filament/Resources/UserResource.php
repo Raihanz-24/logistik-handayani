@@ -3,19 +3,18 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\UserResource\Pages;
-use App\Filament\Resources\UserResource\RelationManagers;
 use App\Filament\Resources\UserResource\RelationManagers\MutasiRelationManager;
+use App\Models\Mutasi;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
@@ -41,6 +40,7 @@ class UserResource extends Resource
             'Email' => $record->email,
         ];
     }
+
     public static function getGlobalSearchResultActions(Model $record): array
     {
         return [
@@ -62,12 +62,14 @@ class UserResource extends Resource
                             ->unique(ignoreRecord: true)
                             ->required()
                             ->maxLength(255),
+
                         Forms\Components\TextInput::make('email')
                             ->label('Email')
                             ->unique(ignoreRecord: true)
                             ->email()
                             ->required()
                             ->maxLength(255),
+
                         Forms\Components\TextInput::make('password')
                             ->password()
                             ->required()
@@ -79,6 +81,7 @@ class UserResource extends Resource
                             ->dehydrated(fn(?string $state): bool => filled($state))
                             ->required(fn(string $operation): bool => $operation === 'create')
                             ->minLength(8),
+
                         Forms\Components\Select::make('roles')
                             ->label('Peran')
                             ->relationship('roles', 'name')
@@ -96,11 +99,9 @@ class UserResource extends Resource
                                     return [$role->id => $displayName];
                                 });
                             })
-
-                            ->hidden(fn() => !auth()->user()?->hasAnyRole(['super_admin']))
+                            ->hidden(fn() => ! auth()->user()?->hasAnyRole(['super_admin']))
                             ->required(),
-
-                    ])
+                    ]),
             ]);
     }
 
@@ -114,23 +115,28 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('name')
                     ->label('Nama')
                     ->searchable(),
+
                 Tables\Columns\TextColumn::make('email')
                     ->searchable(),
+
                 Tables\Columns\TextColumn::make('roles.name')
-                    ->hidden(fn() => !auth()->user()?->hasAnyRole(['super_admin']))
+                    ->hidden(fn() => ! auth()->user()?->hasAnyRole(['super_admin']))
                     ->label('Peran')
                     ->formatStateUsing(fn($state) => Str::headline($state))
                     ->searchable(),
+
                 Tables\Columns\TextColumn::make('email_verified_at')
                     ->label('Terverifikasi')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Dibuat')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label('Diperbarui')
                     ->dateTime()
@@ -142,13 +148,43 @@ class UserResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make()
-                    ->modalHeading(fn($record) => 'Hapus Pengguna: ' . $record->email),
 
+                Tables\Actions\DeleteAction::make()
+                    ->modalHeading(fn($record) => 'Hapus Pengguna: ' . $record->email)
+                    ->before(function (User $record, Tables\Actions\DeleteAction $action) {
+                        // Cek apakah user pernah melakukan mutasi (created_by)
+                        $pernahMutasi = Mutasi::where('created_by', $record->id)->exists();
+
+                        if ($pernahMutasi) {
+                            Notification::make()
+                                ->title('Tidak bisa menghapus pengguna')
+                                ->body('User tidak dapat dihapus karena sudah melakukan mutasi.')
+                                ->warning()
+                                ->send();
+
+                            $action->cancel(); // batalkan delete, jadi tidak ada error SQL
+                        }
+                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->before(function ($records, Tables\Actions\DeleteBulkAction $action) {
+                            // $records biasanya Collection dari User
+                            $userIds = $records->pluck('id');
+
+                            $adaYangPernahMutasi = Mutasi::whereIn('created_by', $userIds)->exists();
+
+                            if ($adaYangPernahMutasi) {
+                                Notification::make()
+                                    ->title('Tidak bisa menghapus pengguna')
+                                    ->body('Ada user yang sudah melakukan mutasi, jadi proses hapus dibatalkan.')
+                                    ->warning()
+                                    ->send();
+
+                                $action->cancel();
+                            }
+                        }),
                 ]),
             ]);
     }
