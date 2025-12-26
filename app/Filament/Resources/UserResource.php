@@ -3,104 +3,118 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\UserResource\Pages;
-use App\Filament\Resources\UserResource\RelationManagers\MutasiRelationManager;
-use App\Models\Mutasi;
 use App\Models\User;
-use Filament\Actions\Action;
-use Filament\Forms;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
-use Filament\Notifications\Notification;
+use Filament\Forms\Components\Section;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Select;
 use Filament\Resources\Resource;
-use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
-use Spatie\Permission\Models\Role;
-use Str;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Actions\EditAction;
+use Filament\Tables\Actions\DeleteAction;
+use Filament\Tables\Actions\BulkActionGroup;
+use Filament\Tables\Actions\DeleteBulkAction;
+use Filament\Notifications\Notification;
+use Illuminate\Validation\Rules\Password;
 
 class UserResource extends Resource
 {
     protected static ?string $model = User::class;
+
+    // Sidebar
     protected static ?string $navigationGroup = 'Master Data';
+    protected static ?int $navigationSort = 9999; // makin besar = makin bawah
+    protected static ?string $navigationIcon = 'heroicon-o-users';
     protected static ?string $navigationLabel = 'Pengguna';
-    protected static ?string $pluralLabel = 'Pengguna';
-    protected static ?string $slug = 'pengguna';
 
-    public static function getGloballySearchableAttributes(): array
+    public static function getModelLabel(): string
     {
-        return ['name', 'email'];
+        return 'Pengguna';
     }
 
-    public static function getGlobalSearchResultDetails(Model $record): array
+    public static function getPluralModelLabel(): string
     {
-        return [
-            'Nama' => $record->name,
-            'Email' => $record->email,
-        ];
+        return 'Pengguna';
     }
 
-    public static function getGlobalSearchResultActions(Model $record): array
+    /**
+     * Kalau return string => user TIDAK boleh dihapus, dan string tsb akan jadi pesan modal.
+     * Kalau return null => user boleh dihapus.
+     */
+    public static function cannotDeleteReason(User $user): ?string
     {
-        return [
-            Action::make('lihat')
-                ->url(static::getUrl('edit', ['record' => $record])),
-        ];
+        // Opsional: cegah hapus diri sendiri
+        if (auth()->check() && $user->id === auth()->id()) {
+            return 'Akun yang sedang dipakai login tidak dapat dihapus.';
+        }
+
+        // Cek riwayat mutasi
+        $hasMutasi =
+            $user->mutasi()->exists() ||
+            $user->mutasiDibuat()->exists();
+
+        if ($hasMutasi) {
+            return 'User tidak dapat di hapus karena memiliki riwayat mutasi, silahkan hubungi developer jika diperlukan.';
+        }
+
+        return null;
     }
 
     public static function form(Form $form): Form
     {
+        $guardName = config('auth.defaults.guard', 'web');
+
         return $form
             ->schema([
-                Section::make('Informasi Pengguna')
+                Section::make('Data Pengguna')
                     ->columns(2)
-                    ->collapsible()
                     ->schema([
-                        Forms\Components\TextInput::make('name')
+                        TextInput::make('name')
                             ->label('Nama')
-                            ->unique(ignoreRecord: true)
                             ->required()
                             ->maxLength(255),
 
-                        Forms\Components\TextInput::make('email')
+                        TextInput::make('email')
                             ->label('Email')
-                            ->unique(ignoreRecord: true)
                             ->email()
                             ->required()
-                            ->maxLength(255),
-
-                        Forms\Components\TextInput::make('password')
-                            ->password()
-                            ->required()
                             ->maxLength(255)
+                            ->unique(ignoreRecord: true),
+
+                        TextInput::make('password')
+                            ->label('Password')
                             ->password()
                             ->revealable()
-                            ->required()
-                            ->dehydrateStateUsing(fn(string $state): string => Hash::make($state))
-                            ->dehydrated(fn(?string $state): bool => filled($state))
-                            ->required(fn(string $operation): bool => $operation === 'create')
-                            ->minLength(8),
+                            ->confirmed() // butuh field password_confirmation
+                            ->rules([Password::min(8)->numbers()->symbols()])
+                            ->required(fn(string $operation) => $operation === 'create')
+                            // edit: jangan overwrite password kalau kosong
+                            ->dehydrated(fn($state) => filled($state)),
 
-                        Forms\Components\Select::make('roles')
-                            ->label('Peran')
-                            ->relationship('roles', 'name')
+                        TextInput::make('password_confirmation')
+                            ->label('Konfirmasi Password')
+                            ->password()
+                            ->revealable()
+                            ->dehydrated(false)
+                            ->required(fn(string $operation) => $operation === 'create'),
+                    ]),
+
+                Section::make('Role Akses')
+                    ->description('Pengguna wajib punya minimal 1 role agar bisa akses panel.')
+                    ->schema([
+                        Select::make('roles')
+                            ->label('Roles')
+                            ->relationship(
+                                name: 'roles',
+                                titleAttribute: 'name',
+                                modifyQueryUsing: fn($query) => $query->where('guard_name', $guardName),
+                            )
                             ->multiple()
                             ->preload()
                             ->searchable()
-                            ->options(function () {
-                                $user = Auth::user();
-                                $roles = $user->hasRole('super_admin')
-                                    ? Role::all()
-                                    : Role::where('name', '!=', 'super_admin')->get();
-
-                                return $roles->mapWithKeys(function ($role) {
-                                    $displayName = ucwords(str_replace('_', ' ', $role->name));
-                                    return [$role->id => $displayName];
-                                });
-                            })
-                            ->hidden(fn() => ! auth()->user()?->hasAnyRole(['super_admin']))
-                            ->required(),
+                            ->required()
+                            ->helperText("Guard: {$guardName}"),
                     ]),
             ]);
     }
@@ -108,100 +122,103 @@ class UserResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->paginationPageOptions([5, 25, 50, 100, 250])
-            ->defaultPaginationPageOption(5)
-            ->defaultSort('id', direction: 'desc')
             ->columns([
-                Tables\Columns\TextColumn::make('name')
+                TextColumn::make('name')
                     ->label('Nama')
-                    ->searchable(),
+                    ->searchable()
+                    ->sortable(),
 
-                Tables\Columns\TextColumn::make('email')
-                    ->searchable(),
+                TextColumn::make('email')
+                    ->label('Email')
+                    ->searchable()
+                    ->sortable(),
 
-                Tables\Columns\TextColumn::make('roles.name')
-                    ->hidden(fn() => ! auth()->user()?->hasAnyRole(['super_admin']))
-                    ->label('Peran')
-                    ->formatStateUsing(fn($state) => Str::headline($state))
-                    ->searchable(),
+                TextColumn::make('roles.name')
+                    ->label('Roles')
+                    ->badge()
+                    ->separator(', ')
+                    ->sortable(),
 
-                Tables\Columns\TextColumn::make('email_verified_at')
-                    ->label('Terverifikasi')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('created_at')
+                TextColumn::make('created_at')
                     ->label('Dibuat')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('updated_at')
-                    ->label('Diperbarui')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-            ])
-            ->filters([
-                //
+                    ->dateTime('d M Y H:i')
+                    ->sortable(),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                EditAction::make(),
 
-                Tables\Actions\DeleteAction::make()
-                    ->modalHeading(fn($record) => 'Hapus Pengguna: ' . $record->email)
-                    ->before(function (User $record, Tables\Actions\DeleteAction $action) {
-                        // Cek apakah user pernah melakukan mutasi (created_by)
-                        $pernahMutasi = Mutasi::where('created_by', $record->id)->exists();
+                // Delete tetap clickable, tapi kalau tidak boleh hapus -> modal info
+                DeleteAction::make()
+                    ->label('Hapus')
+                    ->requiresConfirmation()
+                    ->modalHeading(function (User $record): string {
+                        return static::cannotDeleteReason($record)
+                            ? 'Pengguna tidak dapat dihapus'
+                            : 'Hapus pengguna';
+                    })
+                    ->modalDescription(function (User $record): string {
+                        return static::cannotDeleteReason($record)
+                            ?: 'Apakah Anda yakin ingin menghapus pengguna ini?';
+                    })
+                    ->modalSubmitActionLabel(function (User $record): string {
+                        return static::cannotDeleteReason($record) ? 'Tutup' : 'Hapus';
+                    })
+                    ->modalCancelActionLabel('Batal')
+                    ->action(function (User $record): void {
+                        $reason = static::cannotDeleteReason($record);
 
-                        if ($pernahMutasi) {
-                            Notification::make()
-                                ->title('Tidak bisa menghapus pengguna')
-                                ->body('User tidak dapat dihapus karena sudah melakukan mutasi.')
-                                ->warning()
-                                ->send();
-
-                            $action->cancel(); // batalkan delete, jadi tidak ada error SQL
+                        // Tidak menghapus, hanya tampilkan modal info (karena requiresConfirmation sudah memunculkan modal)
+                        if ($reason) {
+                            return;
                         }
+
+                        $record->delete();
+
+                        Notification::make()
+                            ->title('Berhasil')
+                            ->body('Pengguna berhasil dihapus.')
+                            ->success()
+                            ->send();
                     }),
             ])
             ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make()
-                        ->before(function ($records, Tables\Actions\DeleteBulkAction $action) {
-                            // $records biasanya Collection dari User
-                            $userIds = $records->pluck('id');
+                BulkActionGroup::make([
+                    // Bulk delete: aman — skip yang tidak boleh dihapus
+                    DeleteBulkAction::make()
+                        ->label('Hapus terpilih')
+                        ->requiresConfirmation()
+                        ->action(function ($records): void {
+                            $deleted = 0;
+                            $skipped = 0;
 
-                            $adaYangPernahMutasi = Mutasi::whereIn('created_by', $userIds)->exists();
+                            foreach ($records as $user) {
+                                $reason = static::cannotDeleteReason($user);
 
-                            if ($adaYangPernahMutasi) {
-                                Notification::make()
-                                    ->title('Tidak bisa menghapus pengguna')
-                                    ->body('Ada user yang sudah melakukan mutasi, jadi proses hapus dibatalkan.')
-                                    ->warning()
-                                    ->send();
+                                if ($reason) {
+                                    $skipped++;
+                                    continue;
+                                }
 
-                                $action->cancel();
+                                $user->delete();
+                                $deleted++;
                             }
+
+                            Notification::make()
+                                ->title('Selesai')
+                                ->body("Berhasil hapus: {$deleted}. Dilewati: {$skipped}.")
+                                ->success()
+                                ->send();
                         }),
                 ]),
             ]);
     }
 
-    public static function getRelations(): array
-    {
-        return [
-            MutasiRelationManager::class,
-        ];
-    }
-
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListUsers::route('/'),
-            'create' => Pages\CreateUser::route('/buat'),
-            'edit' => Pages\EditUser::route('/{record}/ubah'),
+            'index'  => Pages\ListUsers::route('/'),
+            'create' => Pages\CreateUser::route('/create'),
+            'edit'   => Pages\EditUser::route('/{record}/edit'),
         ];
     }
 }
