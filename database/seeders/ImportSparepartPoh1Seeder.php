@@ -12,134 +12,144 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class ImportSparepartPoh1Seeder extends Seeder
 {
-    private string $sheetName = 'Week  (4)';
+    /**
+     * ====== CONFIG ======
+     */
+    private string $sheetName  = 'Week  (4)';          // ganti kalau sheet name beda
+    private string $gudangName = 'Gudang POH 1';       // nama lokasi gudang utama (stok asal/tujuan)
+    private string $fileName   = 'sparepart_poh1.xlsx';// nama file excel di database/seeders/data/
 
-    // Nama lokasi gudang utama untuk POH 1 (sesuaikan kalau mau)
-    private string $gudangName = 'Gudang POH 1';
+    /**
+     * Kolom fixed sesuai file excel kamu:
+     * A: No, B: Nama Barang, C: Satuan, D: KATEGORI, E: Stock Awal, F: Tanggal Buffer Stock, G: Jumlah Buffer
+     */
+    private string $colNo         = 'A';
+    private string $colNama       = 'B';
+    private string $colSatuan     = 'C';
+    private string $colKategori   = 'D';
+    private string $colStockAwal  = 'E';
+    private string $colBufferDate = 'F';
+    private string $colBufferQty  = 'G';
 
     public function run(): void
     {
-        $filePath = database_path('seeders/data/sparepart_poh1.xlsx');
+        $filePath = database_path('seeders/data/' . $this->fileName);
 
         if (! file_exists($filePath)) {
             $this->command?->error("File tidak ditemukan: {$filePath}");
             return;
         }
 
-        // Validasi tabel minimal
-        foreach (['mutasis', 'produks', 'lokasis', 'produk_lokasi'] as $tbl) {
-            if (! Schema::hasTable($tbl)) {
-                $this->command?->error("Tabel {$tbl} tidak ditemukan.");
+        // Pastikan tabel ada
+        $tables = ['mutasis', 'produks', 'lokasis', 'produk_lokasi'];
+        foreach ($tables as $t) {
+            if (! Schema::hasTable($t)) {
+                $this->command?->error("Tabel '{$t}' tidak ditemukan.");
                 return;
             }
         }
 
+        // Kolom table
+        $mutasiCols = Schema::getColumnListing('mutasis');
         $produkCols = Schema::getColumnListing('produks');
         $lokasiCols = Schema::getColumnListing('lokasis');
+        $pivotCols  = Schema::getColumnListing('produk_lokasi');
 
-        if (! in_array('nama_produk', $produkCols)) {
-            $this->command?->error("Kolom 'nama_produk' tidak ada di tabel produks.");
+        // Validasi kolom minimal yang kita butuhkan
+        if (!in_array('nama_produk', $produkCols)) {
+            $this->command?->error("Kolom 'nama_produk' tidak ada di tabel 'produks'.");
             return;
         }
-        if (! in_array('nama_lokasi', $lokasiCols)) {
-            $this->command?->error("Kolom 'nama_lokasi' tidak ada di tabel lokasis.");
+        if (!in_array('nama_lokasi', $lokasiCols)) {
+            $this->command?->error("Kolom 'nama_lokasi' tidak ada di tabel 'lokasis'.");
+            return;
+        }
+        if (!in_array('stok', $pivotCols)) {
+            $this->command?->error("Kolom 'stok' tidak ada di tabel 'produk_lokasi'.");
             return;
         }
 
-        // Ambil user untuk created_by, approved_by, user_id
-        $superAdmin = User::where('email', 'superadmin@example.com')->first()
+        // User untuk pencatat/approver
+        $user = User::where('email', 'superadmin@example.com')->first()
             ?? User::orderBy('id')->first();
 
-        if (! $superAdmin) {
-            $this->command?->error("User tidak ditemukan. Buat minimal 1 user dulu.");
+        if (! $user) {
+            $this->command?->error("Tidak ada user. Buat minimal 1 user dulu.");
             return;
         }
 
-        $dicatatOlehId = $superAdmin->id;
-        $approvedById  = $superAdmin->id;
+        $dicatatOlehId = $user->id;
+        $approvedById  = $user->id;
 
-        // Pastikan gudang POH 1 ada
-        $gudangId = $this->getOrCreateLokasi($this->gudangName);
+        // Pastikan gudang utama ada
+        $gudangId = $this->getOrCreateLokasi($this->gudangName, $lokasiCols);
 
         // Load spreadsheet
         $spreadsheet = IOFactory::load($filePath);
         $sheet = $spreadsheet->getSheetByName($this->sheetName) ?? $spreadsheet->getActiveSheet();
 
-        // Ambil semua data sebagai array [rowIndex => [colLetter => value]]
         $rows = $sheet->toArray(null, true, true, true);
 
-        // Temukan baris header yang berisi "Nama Barang"
+        // Cari row header: kolom B == "Nama Barang"
         [$headerRow, $subHeaderRow] = $this->findHeaderRows($rows);
-        if (! $headerRow) {
+        if (! $headerRow || ! $subHeaderRow) {
             $this->command?->error("Header 'Nama Barang' tidak ditemukan.");
             return;
         }
 
-        // Peta kolom fixed (berdasarkan file kamu)
-        // A: No, B: Nama Barang, C: Satuan, D: KATEGORI, E: Stock Awal, F: Tanggal Buffer Stock, G: Jumlah buffer
-        $colNo         = 'A';
-        $colNama       = 'B';
-        $colSatuan     = 'C';
-        $colKategori   = 'D';
-        $colStockAwal  = 'E';
-        $colBufferDate = 'F';
-        $colBufferQty  = 'G';
-
-        // Cari kolom "Ending Stock" di header
+        // Cari kolom "Ending Stock"
         $endingCol = $this->findEndingStockCol($rows[$headerRow]);
         if (! $endingCol) {
             $this->command?->error("Kolom 'Ending Stock' tidak ditemukan.");
             return;
         }
 
-        // Tentukan pasangan kolom tanggal (mulai dari H sampai sebelum Ending Stock)
-        // Format: [ ['dateCol' => 'H', 'locCol' => 'H', 'qtyCol' => 'I', 'date' => DateTimeInterface], ... ]
-        $datePairs = $this->buildDatePairs($rows[$headerRow], $subHeaderRow, $endingCol);
+        // Bangun daftar pasangan tanggal (Lokasi, Jumlah) dari H.. sebelum Ending Stock
+        $datePairs = $this->buildDatePairs($rows[$headerRow], $endingCol);
 
-        // Data dimulai setelah sub header
+        // Data dimulai setelah subheader
         $startRow = $subHeaderRow + 1;
+
+        $madeMutasi = 0;
+        $skippedOut = 0;
 
         DB::transaction(function () use (
             $rows,
             $startRow,
-            $endingCol,
             $datePairs,
-            $colNo,
-            $colNama,
-            $colSatuan,
-            $colKategori,
-            $colStockAwal,
-            $colBufferDate,
-            $colBufferQty,
+            $produkCols,
+            $lokasiCols,
+            $mutasiCols,
             $gudangId,
             $dicatatOlehId,
             $approvedById,
-            $produkCols
+            &$madeMutasi,
+            &$skippedOut
         ) {
-            $mutasiCreated = 0;
-
             foreach ($rows as $rIndex => $row) {
                 if ($rIndex < $startRow) continue;
 
-                $namaBarang = trim((string) ($row[$colNama] ?? ''));
+                $namaBarang = trim((string) ($row[$this->colNama] ?? ''));
                 if ($namaBarang === '') continue;
 
-                // 1) Produk
-                $produkId = $this->getOrCreateProduk($namaBarang, $row[$colSatuan] ?? null, $row[$colKategori] ?? null, $produkCols);
+                // Produk
+                $produkId = $this->getOrCreateProduk(
+                    $namaBarang,
+                    $row[$this->colSatuan] ?? null,
+                    $row[$this->colKategori] ?? null,
+                    $produkCols
+                );
 
-                // 2) Set stok awal gudang di pivot produk_lokasi
-                $stockAwal = (int) ($row[$colStockAwal] ?? 0);
-                $this->upsertPivotStock($produkId, $gudangId, $stockAwal);
+                // Set stok awal gudang (overwrite aman)
+                $stockAwalGudang = (int) ($row[$this->colStockAwal] ?? 0);
+                $this->upsertPivotStock($produkId, $gudangId, $stockAwalGudang);
 
-                // 3) Kumpulkan transaksi untuk produk ini (masuk + keluar) lalu urutkan by tanggal
+                // Kumpulkan transaksi produk ini
                 $tx = [];
 
-                // 3a) Mutasi masuk dari Buffer Stock (jika ada)
-                $bufferDateVal = $row[$colBufferDate] ?? null;
-                $bufferQtyVal  = $row[$colBufferQty] ?? null;
-
-                $bufferDate = $this->parseExcelDateValue($bufferDateVal);
-                $bufferQty  = is_null($bufferQtyVal) ? 0 : (int) $bufferQtyVal;
+                // Buffer Stock (mutasi masuk)
+                $bufferDate = $this->parseExcelDateValue($row[$this->colBufferDate] ?? null);
+                $bufferQty  = (int) ($row[$this->colBufferQty] ?? 0);
 
                 if ($bufferDate && $bufferQty > 0) {
                     $tx[] = [
@@ -148,23 +158,23 @@ class ImportSparepartPoh1Seeder extends Seeder
                         'jenis' => 'masuk',
                         'jumlah' => $bufferQty,
                         'tujuan_lokasi_id' => null,
-                        'tujuan_lokasi_name' => null,
                         'keterangan' => 'Buffer Stock (Import Excel)',
                     ];
                 }
 
-                // 3b) Mutasi keluar per tanggal (Lokasi + Jumlah)
+                // Mutasi keluar per tanggal: pasangan (Lokasi, Jumlah)
                 foreach ($datePairs as $pair) {
                     $tanggal = $pair['date']->format('Y-m-d');
+
                     $locText = trim((string) ($row[$pair['locCol']] ?? ''));
                     $qtyVal  = $row[$pair['qtyCol']] ?? null;
 
-                    if (is_null($qtyVal) || (string)$qtyVal === '') continue;
+                    if ($qtyVal === null || $qtyVal === '') continue;
 
                     $qty = (int) $qtyVal;
                     if ($qty <= 0) continue;
 
-                    // Parse lokasi: bisa “Bali 17” atau format multi: “Cafe = 1, Sulawesi 21 = 1”
+                    // Lokasi bisa multi: "Cafe = 1, Sulawesi 21 = 1"
                     $parsed = $this->parseLokasiMulti($locText, $qty);
 
                     foreach ($parsed as $p) {
@@ -172,9 +182,9 @@ class ImportSparepartPoh1Seeder extends Seeder
                         $lokasiQty  = $p['qty'];
                         if ($lokasiQty <= 0) continue;
 
-                        $tujuanId = $this->getOrCreateLokasi($lokasiName);
+                        $tujuanId = $this->getOrCreateLokasi($lokasiName, $lokasiCols);
 
-                        // Pastikan pivot tujuan ada (stok awal 0)
+                        // pastikan pivot tujuan ada (minimal 0)
                         $this->upsertPivotStock($produkId, $tujuanId, $this->getPivotStock($produkId, $tujuanId));
 
                         $tx[] = [
@@ -183,7 +193,6 @@ class ImportSparepartPoh1Seeder extends Seeder
                             'jenis' => 'keluar',
                             'jumlah' => $lokasiQty,
                             'tujuan_lokasi_id' => $tujuanId,
-                            'tujuan_lokasi_name' => $lokasiName,
                             'keterangan' => 'Issued (Import Excel)',
                         ];
                     }
@@ -193,85 +202,124 @@ class ImportSparepartPoh1Seeder extends Seeder
                     continue;
                 }
 
-                // Sort transaksi produk ini by tanggal lalu priority (masuk sebelum keluar di tanggal sama)
+                // Urutkan transaksi per produk berdasarkan tanggal
                 usort($tx, function ($a, $b) {
-                    $d1 = $a['tanggal'] <=> $b['tanggal'];
-                    if ($d1 !== 0) return $d1;
+                    $d = $a['tanggal'] <=> $b['tanggal'];
+                    if ($d !== 0) return $d;
                     return ($a['priority'] ?? 0) <=> ($b['priority'] ?? 0);
                 });
 
-                // 4) Apply transaksi berurutan: update pivot + create mutasi approved + isi stok_awal/stok_akhir
+                // Apply transaksi satu per satu agar stok benar
                 $seq = 1;
                 foreach ($tx as $t) {
-                    $stokAwalGudang = $this->getPivotStockForUpdate($produkId, $gudangId);
+                    $tanggal = $t['tanggal'];
+                    $jumlah  = (int) $t['jumlah'];
+
+                    // Ambil stok gudang dengan lock
+                    $stokAwal = $this->getPivotStockForUpdate($produkId, $gudangId);
 
                     if ($t['jenis'] === 'masuk') {
-                        $stokAkhirGudang = $stokAwalGudang + $t['jumlah'];
-                        $this->upsertPivotStock($produkId, $gudangId, $stokAkhirGudang);
+                        // masuk: tambah stok gudang
+                        $stokAkhir = $stokAwal + $jumlah;
+                        $this->upsertPivotStock($produkId, $gudangId, $stokAkhir);
 
-                        $noRef = "IMP-POH1-{$t['tanggal']}-MASUK-{$produkId}-{$seq}";
-                        $this->createApprovedMutasi(
-                            $t['tanggal'],
-                            'masuk',
-                            $t['jumlah'],
-                            $noRef,
-                            $t['keterangan'],
-                            $dicatatOlehId,
-                            $produkId,
-                            $gudangId,
-                            null,
-                            $approvedById,
-                            $stokAwalGudang,
-                            $stokAkhirGudang
+                        $noRef = $this->makeNoRef("IMP-POH1", $tanggal, "MASUK", $produkId, $seq);
+
+                        $this->createApprovedMutasiSafe(
+                            $mutasiCols,
+                            [
+                                'tanggal' => $tanggal,
+                                'jenis_mutasi' => 'masuk',
+                                'jumlah' => $jumlah,
+                                'keterangan' => $t['keterangan'] ?? null,
+                                'no_ref' => $noRef,
+                                'status' => 'approved',
+                                'user_id' => $dicatatOlehId,
+                                'produk_id' => $produkId,
+                                'lokasi_id' => $gudangId,          // untuk masuk = gudang tujuan
+                                'lokasi_tujuan_id' => null,
+                                'created_by' => $dicatatOlehId,
+                                'approved_by' => $approvedById,
+                                'approved_at' => $tanggal . ' 23:59:59',
+                                'stok_awal' => $stokAwal,
+                                'stok_akhir' => $stokAkhir,
+                            ]
                         );
+
+                        $madeMutasi++;
                     } else {
-                        // keluar
-                        if ($stokAwalGudang < $t['jumlah']) {
-                            // kalau stok kurang, tetap skip agar seeder tidak fail total
-                            // kamu bisa ubah menjadi throw jika mau strict
+                        // keluar: kurangi stok gudang, tambah stok tujuan
+                        $tujuanId = (int) ($t['tujuan_lokasi_id'] ?? 0);
+
+                        if ($tujuanId <= 0) {
+                            // tidak ada tujuan -> skip
+                            $skippedOut++;
+                            $seq++;
                             continue;
                         }
 
-                        $stokAkhirGudang = $stokAwalGudang - $t['jumlah'];
-                        $this->upsertPivotStock($produkId, $gudangId, $stokAkhirGudang);
+                        if ($stokAwal < $jumlah) {
+                            // stok kurang -> skip (supaya seeder tidak fail total)
+                            $skippedOut++;
+                            $seq++;
+                            continue;
+                        }
 
-                        // tambah stok tujuan
-                        $tujuanId = (int) $t['tujuan_lokasi_id'];
+                        $stokAkhir = $stokAwal - $jumlah;
+                        $this->upsertPivotStock($produkId, $gudangId, $stokAkhir);
+
+                        // tambah stok tujuan (lock)
                         $stokTujuanAwal = $this->getPivotStockForUpdate($produkId, $tujuanId);
-                        $this->upsertPivotStock($produkId, $tujuanId, $stokTujuanAwal + $t['jumlah']);
+                        $this->upsertPivotStock($produkId, $tujuanId, $stokTujuanAwal + $jumlah);
 
-                        $noRef = "IMP-POH1-{$t['tanggal']}-KELUAR-{$produkId}-{$seq}";
-                        $this->createApprovedMutasi(
-                            $t['tanggal'],
-                            'keluar',
-                            $t['jumlah'],
-                            $noRef,
-                            $t['keterangan'],
-                            $dicatatOlehId,
-                            $produkId,
-                            $gudangId,
-                            $tujuanId,
-                            $approvedById,
-                            $stokAwalGudang,
-                            $stokAkhirGudang
+                        $noRef = $this->makeNoRef("IMP-POH1", $tanggal, "KELUAR", $produkId, $seq);
+
+                        $this->createApprovedMutasiSafe(
+                            $mutasiCols,
+                            [
+                                'tanggal' => $tanggal,
+                                'jenis_mutasi' => 'keluar',
+                                'jumlah' => $jumlah,
+                                'keterangan' => $t['keterangan'] ?? null,
+                                'no_ref' => $noRef,
+                                'status' => 'approved',
+                                'user_id' => $dicatatOlehId,
+                                'produk_id' => $produkId,
+                                'lokasi_id' => $gudangId,          // untuk keluar = gudang asal
+                                'lokasi_tujuan_id' => $tujuanId,
+                                'created_by' => $dicatatOlehId,
+                                'approved_by' => $approvedById,
+                                'approved_at' => $tanggal . ' 23:59:59',
+                                'stok_awal' => $stokAwal,
+                                'stok_akhir' => $stokAkhir,
+                            ]
                         );
+
+                        $madeMutasi++;
                     }
 
-                    $mutasiCreated++;
                     $seq++;
                 }
             }
-
-            // Optional: info
-            // $this->command?->info("Selesai import. Mutasi dibuat: {$mutasiCreated}");
         });
+
+        $this->command?->info("✅ Import selesai.");
+        $this->command?->info("Mutasi dibuat/diupdate: {$madeMutasi}");
+        if ($skippedOut > 0) {
+            $this->command?->warn("Mutasi keluar di-skip (stok kurang/tujuan kosong): {$skippedOut}");
+        }
     }
 
+    /**
+     * =======================
+     * HEADER PARSING
+     * =======================
+     */
     private function findHeaderRows(array $rows): array
     {
         $headerRow = null;
         foreach ($rows as $i => $row) {
-            $val = trim((string)($row['B'] ?? ''));
+            $val = trim((string)($row[$this->colNama] ?? ''));
             if (strcasecmp($val, 'Nama Barang') === 0) {
                 $headerRow = $i;
                 break;
@@ -290,15 +338,13 @@ class ImportSparepartPoh1Seeder extends Seeder
         return null;
     }
 
-    private function buildDatePairs(array $headerRow, int $subHeaderRow, string $endingCol): array
+    private function buildDatePairs(array $headerRow, string $endingCol): array
     {
         $pairs = [];
 
-        // Kolom tanggal dimulai dari H pada file kamu (setelah G)
-        $start = 'H';
-
-        $col = $start;
-        while ($this->colLessThan($col, $endingCol)) {
+        // Di file kamu mulai dari H, pola: (Lokasi, Jumlah) per tanggal
+        $col = 'H';
+        while ($this->colToIndex($col) < $this->colToIndex($endingCol)) {
             $dateVal = $headerRow[$col] ?? null;
             $date = $this->parseExcelDateValue($dateVal);
 
@@ -320,14 +366,17 @@ class ImportSparepartPoh1Seeder extends Seeder
         return $pairs;
     }
 
+    /**
+     * =======================
+     * EXCEL VALUE PARSING
+     * =======================
+     */
     private function parseExcelDateValue($value): ?\DateTimeInterface
     {
-        if (is_null($value) || $value === '') return null;
+        if ($value === null || $value === '') return null;
 
-        // Kalau sudah DateTime
         if ($value instanceof \DateTimeInterface) return $value;
 
-        // Excel serial number
         if (is_numeric($value)) {
             try {
                 return ExcelDate::excelToDateTimeObject($value);
@@ -336,7 +385,6 @@ class ImportSparepartPoh1Seeder extends Seeder
             }
         }
 
-        // String date
         $str = trim((string)$value);
         if ($str === '') return null;
 
@@ -347,18 +395,27 @@ class ImportSparepartPoh1Seeder extends Seeder
         }
     }
 
-    private function normalizeLokasi(string $name): string
+    private function normalizeText(string $text): string
     {
-        $name = trim($name);
-        $name = str_replace(';', '', $name);
-        $name = preg_replace('/\s+/', ' ', $name);
-
-        // perbaiki typo umum di file kamu
-        $name = str_ireplace('Su;lawesi', 'Sulawesi', $name);
-
-        return trim($name);
+        $text = trim($text);
+        $text = preg_replace('/\s+/', ' ', $text);
+        return $text ?: '';
     }
 
+    private function normalizeLokasi(string $name): string
+    {
+        $name = $this->normalizeText($name);
+        $name = str_replace([';', "\t"], ['', ' '], $name);
+
+        // perbaiki typo umum
+        $name = str_ireplace('Su;lawesi', 'Sulawesi', $name);
+
+        return $this->normalizeText($name);
+    }
+
+    /**
+     * Lokasi cell bisa multi: "Cafe = 1, Sulawesi 21 = 1"
+     */
     private function parseLokasiMulti(string $lokasiCell, int $qtyTotal): array
     {
         $lokasiCell = $this->normalizeLokasi($lokasiCell);
@@ -367,9 +424,7 @@ class ImportSparepartPoh1Seeder extends Seeder
             return [['lokasi' => 'Pemakaian', 'qty' => $qtyTotal]];
         }
 
-        // format multi: "Cafe = 1, Sulawesi 21 =1"
         preg_match_all('/([^=,]+?)\s*=\s*(\d+)/', $lokasiCell, $m, PREG_SET_ORDER);
-
         if (!empty($m)) {
             $out = [];
             foreach ($m as $x) {
@@ -381,55 +436,139 @@ class ImportSparepartPoh1Seeder extends Seeder
             return $out;
         }
 
-        // single
         return [[
             'lokasi' => $lokasiCell,
             'qty' => $qtyTotal,
         ]];
     }
 
+    /**
+     * =======================
+     * KODE GENERATOR (AMAN)
+     * =======================
+     */
+    private function makeKode(string $prefix, string $name, string $table, string $column, int $maxLen = 30): string
+    {
+        $base = strtoupper(trim($name));
+        $base = preg_replace('/[^A-Z0-9]+/', '_', $base);
+        $base = trim($base, '_');
+        if ($base === '') $base = $prefix;
+
+        $base = substr($base, 0, $maxLen);
+        $kode = $base;
+
+        $i = 1;
+        while (DB::table($table)->where($column, $kode)->exists()) {
+            $suffix = '_' . $i;
+            $kode = substr($base, 0, $maxLen - strlen($suffix)) . $suffix;
+            $i++;
+            if ($i > 999) {
+                $kode = substr($base, 0, $maxLen - 8) . '_' . substr(uniqid(), -8);
+                break;
+            }
+        }
+
+        return $kode;
+    }
+
+    private function makeNoRef(string $prefix, string $tanggal, string $jenis, int $produkId, int $seq): string
+    {
+        // deterministik => idempotent
+        return "{$prefix}-{$tanggal}-{$jenis}-{$produkId}-{$seq}";
+    }
+
+    /**
+     * =======================
+     * CREATE / GET MASTER
+     * =======================
+     */
     private function getOrCreateProduk(string $nama, $satuan, $kategori, array $produkCols): int
     {
-        $nama = trim($nama);
+        $nama = $this->normalizeText($nama);
+
+        $existing = DB::table('produks')->where('nama_produk', $nama)->first();
+        if ($existing) {
+            // kalau ada kode_produk tapi kosong, isi
+            if (in_array('kode_produk', $produkCols) && empty($existing->kode_produk)) {
+                $kode = $this->makeKode('PRD', $nama, 'produks', 'kode_produk', 30);
+                DB::table('produks')->where('id', $existing->id)->update([
+                    'kode_produk' => $kode,
+                    'updated_at' => now(),
+                ]);
+            }
+            return (int) $existing->id;
+        }
 
         $data = [
             'nama_produk' => $nama,
-            'updated_at' => now(),
             'created_at' => now(),
+            'updated_at' => now(),
         ];
 
-        // optional: simpan satuan/kategori jika kolom ada
-        if ($satuan !== null && in_array('satuan', $produkCols)) {
-            $data['satuan'] = trim((string)$satuan);
+        // optional columns
+        if (in_array('satuan', $produkCols) && $satuan !== null) {
+            $data['satuan'] = $this->normalizeText((string)$satuan);
         }
-        if ($kategori !== null && in_array('kategori', $produkCols)) {
-            $data['kategori'] = trim((string)$kategori);
+        if (in_array('kategori', $produkCols) && $kategori !== null) {
+            $data['kategori'] = $this->normalizeText((string)$kategori);
         }
 
-        DB::table('produks')->updateOrInsert(
-            ['nama_produk' => $nama],
-            $data
-        );
+        // required code if exists
+        if (in_array('kode_produk', $produkCols)) {
+            $data['kode_produk'] = $this->makeKode('PRD', $nama, 'produks', 'kode_produk', 30);
+        }
+
+        // Tambahan: isi kolom NOT NULL tanpa default (kalau ada)
+        $data = $this->fillRequiredColumns('produks', $produkCols, $data, [
+            'kode_produk' => fn() => $data['kode_produk'] ?? $this->makeKode('PRD', $nama, 'produks', 'kode_produk', 30),
+        ]);
+
+        DB::table('produks')->insert($data);
 
         return (int) DB::table('produks')->where('nama_produk', $nama)->value('id');
     }
 
-    private function getOrCreateLokasi(string $namaLokasi): int
+    private function getOrCreateLokasi(string $namaLokasi, array $lokasiCols): int
     {
         $namaLokasi = $this->normalizeLokasi($namaLokasi);
 
-        DB::table('lokasis')->updateOrInsert(
-            ['nama_lokasi' => $namaLokasi],
-            [
-                'nama_lokasi' => $namaLokasi,
-                'updated_at' => now(),
-                'created_at' => now(),
-            ]
-        );
+        $existing = DB::table('lokasis')->where('nama_lokasi', $namaLokasi)->first();
+        if ($existing) {
+            if (in_array('kode_lokasi', $lokasiCols) && empty($existing->kode_lokasi)) {
+                $kode = $this->makeKode('LOK', $namaLokasi, 'lokasis', 'kode_lokasi', 30);
+                DB::table('lokasis')->where('id', $existing->id)->update([
+                    'kode_lokasi' => $kode,
+                    'updated_at' => now(),
+                ]);
+            }
+            return (int) $existing->id;
+        }
+
+        $data = [
+            'nama_lokasi' => $namaLokasi,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        if (in_array('kode_lokasi', $lokasiCols)) {
+            $data['kode_lokasi'] = $this->makeKode('LOK', $namaLokasi, 'lokasis', 'kode_lokasi', 30);
+        }
+
+        // Isi kolom wajib lain bila ada
+        $data = $this->fillRequiredColumns('lokasis', $lokasiCols, $data, [
+            'kode_lokasi' => fn() => $data['kode_lokasi'] ?? $this->makeKode('LOK', $namaLokasi, 'lokasis', 'kode_lokasi', 30),
+        ]);
+
+        DB::table('lokasis')->insert($data);
 
         return (int) DB::table('lokasis')->where('nama_lokasi', $namaLokasi)->value('id');
     }
 
+    /**
+     * =======================
+     * PIVOT STOCK
+     * =======================
+     */
     private function getPivotStock(int $produkId, int $lokasiId): int
     {
         $row = DB::table('produk_lokasi')
@@ -468,58 +607,133 @@ class ImportSparepartPoh1Seeder extends Seeder
         );
     }
 
-    private function createApprovedMutasi(
-        string $tanggal,
-        string $jenis,
-        int $jumlah,
-        string $noRef,
-        string $keterangan,
-        int $userId,
-        int $produkId,
-        int $lokasiId,
-        ?int $lokasiTujuanId,
-        int $approvedById,
-        int $stokAwal,
-        int $stokAkhir
-    ): void {
-        Mutasi::updateOrCreate(
-            ['no_ref' => $noRef],
-            [
-                'tanggal' => $tanggal,
-                'jenis_mutasi' => $jenis,
-                'jumlah' => $jumlah,
-                'keterangan' => $keterangan,
-                'status' => 'approved',
-                'user_id' => $userId,
-                'produk_id' => $produkId,
-                'lokasi_id' => $lokasiId,
-                'lokasi_tujuan_id' => $lokasiTujuanId,
-                'created_by' => $userId,
-                'approved_by' => $approvedById,
-                'approved_at' => now(),
+    /**
+     * =======================
+     * CREATE MUTASI (SAFE)
+     * =======================
+     * Hanya isi kolom yang benar-benar ada di tabel mutasis.
+     */
+    private function createApprovedMutasiSafe(array $mutasiCols, array $payload): void
+    {
+        // Filter payload: hanya kolom yang ada di tabel
+        $data = [];
+        foreach ($payload as $k => $v) {
+            if (in_array($k, $mutasiCols, true)) {
+                $data[$k] = $v;
+            }
+        }
 
-                'stok_awal' => $stokAwal,
-                'stok_akhir' => $stokAkhir,
-            ]
+        // wajib minimal
+        if (!isset($data['no_ref']) || !isset($data['tanggal']) || !isset($data['jenis_mutasi'])) {
+            return;
+        }
+
+        // timestamps kalau ada
+        if (in_array('updated_at', $mutasiCols) && !isset($data['updated_at'])) {
+            $data['updated_at'] = now();
+        }
+        if (in_array('created_at', $mutasiCols) && !isset($data['created_at'])) {
+            $data['created_at'] = now();
+        }
+
+        // updateOrCreate by no_ref agar idempotent
+        Mutasi::updateOrCreate(
+            ['no_ref' => $data['no_ref']],
+            $data
         );
     }
 
+    /**
+     * =======================
+     * FILL REQUIRED COLUMNS
+     * =======================
+     * Isi kolom NOT NULL tanpa default (selain id) dengan nilai aman.
+     * - $generators: callback khusus per kolom (mis: kode_lokasi)
+     */
+    private function fillRequiredColumns(string $table, array $tableCols, array $data, array $generators = []): array
+    {
+        // Ambil kolom wajib dari INFORMATION_SCHEMA
+        $required = $this->getRequiredNoDefaultColumns($table);
+
+        foreach ($required as $col) {
+            if (!in_array($col, $tableCols, true)) continue;
+            if (array_key_exists($col, $data)) continue;
+
+            if (isset($generators[$col]) && is_callable($generators[$col])) {
+                $data[$col] = $generators[$col]();
+                continue;
+            }
+
+            // fallback aman:
+            // - string => "AUTO_xxx"
+            // - int/decimal => 0
+            // kita ambil tipe dari INFORMATION_SCHEMA juga
+            $type = $this->getColumnDataType($table, $col);
+
+            if ($type && preg_match('/int|decimal|float|double/', $type)) {
+                $data[$col] = 0;
+            } elseif ($type && preg_match('/date|time|year/', $type)) {
+                $data[$col] = now();
+            } else {
+                $data[$col] = 'AUTO_' . strtoupper(substr(uniqid(), -8));
+            }
+        }
+
+        return $data;
+    }
+
+    private function getRequiredNoDefaultColumns(string $table): array
+    {
+        $db = DB::getDatabaseName();
+
+        $rows = DB::select("
+            SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT, EXTRA
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+        ", [$db, $table]);
+
+        $required = [];
+        foreach ($rows as $r) {
+            $col = $r->COLUMN_NAME;
+
+            // skip id auto increment
+            if (str_contains(strtolower((string)$r->EXTRA), 'auto_increment')) {
+                continue;
+            }
+
+            // wajib: NOT NULL dan tidak ada default
+            if ((string)$r->IS_NULLABLE === 'NO' && $r->COLUMN_DEFAULT === null) {
+                $required[] = $col;
+            }
+        }
+
+        // timestamps biasanya juga NOT NULL tapi kita sudah isi di data awal
+        return $required;
+    }
+
+    private function getColumnDataType(string $table, string $column): ?string
+    {
+        $db = DB::getDatabaseName();
+
+        $row = DB::selectOne("
+            SELECT DATA_TYPE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
+            LIMIT 1
+        ", [$db, $table, $column]);
+
+        return $row?->DATA_TYPE ?? null;
+    }
+
+    /**
+     * =======================
+     * EXCEL COLUMN UTIL
+     * =======================
+     */
     private function nextCol(string $col): string
     {
         $col = strtoupper($col);
-        $len = strlen($col);
-
-        if ($len === 1) {
-            $c = ord($col);
-            return chr($c + 1);
-        }
-
-        // untuk safety kalau nanti lewat Z (jarang di file ini)
-        $index = 0;
-        for ($i = 0; $i < $len; $i++) {
-            $index = $index * 26 + (ord($col[$i]) - 64);
-        }
-        $index++;
+        $index = $this->colToIndex($col) + 1;
 
         $out = '';
         while ($index > 0) {
@@ -528,11 +742,6 @@ class ImportSparepartPoh1Seeder extends Seeder
             $index = intdiv($index - 1, 26);
         }
         return $out;
-    }
-
-    private function colLessThan(string $a, string $b): bool
-    {
-        return $this->colToIndex($a) < $this->colToIndex($b);
     }
 
     private function colToIndex(string $col): int
