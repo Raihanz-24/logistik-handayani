@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Produk extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'nama_produk',
         'kode_produk',
@@ -35,8 +36,11 @@ class Produk extends Model
 
     public function kategoriProduks(): BelongsToMany
     {
-        return $this->belongsToMany(KategoriProduk::class, 'kategori_produk_produk');
+        return $this->belongsToMany(
+            KategoriProduk::class,
+            'kategori_produk_produk',
+            'produk_id',
+            'kategori_produk_id'
+        )->withTimestamps();
     }
-
 }
-

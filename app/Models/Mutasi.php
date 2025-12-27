@@ -18,21 +18,26 @@ class Mutasi extends Model
         'no_ref',
         'status',
 
-        'user_id',           // dicatat oleh
+        'user_id',
         'produk_id',
-        'lokasi_id',         // lokasi asal
 
-        'lokasi_tujuan_id',  // tujuan (wajib jika keluar)
+        // gudang asal (keluar) / gudang tujuan (masuk)
+        'lokasi_id',
 
-        'stok_awal',         // snapshot stok asal sebelum approve
-        'stok_akhir',        // snapshot stok asal setelah approve
+        // tujuan mutasi keluar
+        'lokasi_tujuan_id',
 
-        'created_by',        // pembuat record
+        // audit
+        'created_by',
         'approved_by',
         'approved_at',
         'cancelled_by',
         'cancelled_at',
         'cancel_reason',
+
+        // snapshot stok gudang yang terdampak (lokasi_id)
+        'stok_awal',
+        'stok_akhir',
     ];
 
     protected $casts = [
@@ -43,8 +48,23 @@ class Mutasi extends Model
 
     public function user(): BelongsTo
     {
-        // default Laravel akan pakai user_id, tapi kita tulis eksplisit biar jelas
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class);
+    }
+
+    public function produk(): BelongsTo
+    {
+        return $this->belongsTo(Produk::class);
+    }
+
+    public function lokasi(): BelongsTo
+    {
+        return $this->belongsTo(Lokasi::class);
+    }
+
+    // ✅ tujuan mutasi keluar
+    public function lokasiTujuan(): BelongsTo
+    {
+        return $this->belongsTo(Lokasi::class, 'lokasi_tujuan_id');
     }
 
     public function createdBy(): BelongsTo
@@ -60,21 +80,5 @@ class Mutasi extends Model
     public function cancelledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cancelled_by');
-    }
-
-    public function produk(): BelongsTo
-    {
-        return $this->belongsTo(Produk::class, 'produk_id');
-    }
-
-    public function lokasi(): BelongsTo
-    {
-        // lokasi asal
-        return $this->belongsTo(Lokasi::class, 'lokasi_id');
-    }
-
-    public function lokasiTujuan(): BelongsTo
-    {
-        return $this->belongsTo(Lokasi::class, 'lokasi_tujuan_id');
     }
 }

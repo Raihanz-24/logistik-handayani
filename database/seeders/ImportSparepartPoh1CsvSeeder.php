@@ -22,7 +22,8 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             return;
         }
 
-        foreach (['mutasis', 'produks', 'lokasis', 'produk_lokasi'] as $t) {
+        // cek tabel
+        foreach (['mutasis', 'produks', 'lokasis', 'produk_lokasi', 'kategori_produks', 'kategori_produk_produk'] as $t) {
             if (! Schema::hasTable($t)) {
                 $this->command?->error("Tabel '{$t}' tidak ditemukan.");
                 return;
@@ -42,6 +43,7 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             return;
         }
 
+        // user
         $user = User::where('email', 'superadmin@example.com')->first()
             ?? User::orderBy('id')->first();
 
@@ -53,14 +55,14 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         $dicatatOlehId = $user->id;
         $approvedById  = $user->id;
 
-        // ===== Read CSV (UTF-8) =====
+        // open csv
         $handle = fopen($filePath, 'r');
         if (! $handle) {
             $this->command?->error("Gagal membuka file: {$filePath}");
             return;
         }
 
-        // Deteksi delimiter (koma / titik-koma)
+        // detect delimiter
         $firstLine = fgets($handle);
         if ($firstLine === false) {
             fclose($handle);
@@ -68,18 +70,16 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             return;
         }
         $delimiter = (substr_count($firstLine, ';') > substr_count($firstLine, ',')) ? ';' : ',';
-
-        // Balik ke awal file
         rewind($handle);
 
-        // Cari header row yang berisi "Nama Barang"
+        // find header row (B == Nama Barang)
         $header = null;
         $subHeader = null;
+
         while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
             $row = $this->trimRow($row);
             if (isset($row[1]) && strcasecmp($row[1], 'Nama Barang') === 0) {
                 $header = $row;
-                // subheader = baris berikutnya
                 $subHeader = fgetcsv($handle, 0, $delimiter);
                 $subHeader = $subHeader ? $this->trimRow($subHeader) : null;
                 break;
@@ -92,8 +92,7 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             return;
         }
 
-        // Index fixed berdasarkan file kamu:
-        // 0 No, 1 Nama Barang, 2 Satuan, 3 KATEGORI, 4 Stock Awal, 5 Tanggal Buffer Stock, 6 Jumlah (buffer)
+        // fixed index
         $idxNama      = 1;
         $idxSatuan    = 2;
         $idxKategori  = 3;
@@ -101,10 +100,10 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         $idxBufDate   = 5;
         $idxBufQty    = 6;
 
-        // Cari index kolom "Ending Stock"
+        // ending stock index
         $endingIdx = null;
         foreach ($header as $i => $v) {
-            if (strcasecmp($v, 'Ending Stock') === 0) {
+            if (strcasecmp(trim((string)$v), 'Ending Stock') === 0) {
                 $endingIdx = $i;
                 break;
             }
@@ -115,11 +114,7 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             return;
         }
 
-        // Bangun pasangan tanggal: mulai dari idx 7 sampai sebelum endingIdx
-        // Pola: [TanggalHeader, Lokasi, Jumlah] => di CSV header: tanggal ada di kolom lokasi pertama untuk tanggal itu.
-        // Pada file kamu: pasangan per tanggal (Lokasi, Jumlah) dan headernya tanggal berada di atas pasangan itu.
-        // Saat CSV: biasanya header jadi: ..., 2025-11-23, Jumlah, 2025-11-24, Jumlah ...
-        // Karena struktur bisa beda tergantung ekspor, kita pakai subHeader untuk deteksi: subHeader biasanya "Lokasi" dan "Jumlah".
+        // build date pairs
         $pairs = [];
         $i = 7;
         while ($i < $endingIdx) {
@@ -127,12 +122,11 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             $sub1 = $subHeader[$i] ?? '';
             $sub2 = $subHeader[$i + 1] ?? '';
 
-            // kita anggap pasangan valid kalau subHeader menunjukkan Lokasi/Jumlah
             if ($dateText && stripos($sub1, 'Lokasi') !== false && stripos($sub2, 'Jumlah') !== false) {
                 $date = $this->parseDate($dateText);
                 if ($date) {
                     $pairs[] = [
-                        'date' => $date,      // Y-m-d
+                        'date' => $date,
                         'locIdx' => $i,
                         'qtyIdx' => $i + 1,
                     ];
@@ -142,7 +136,7 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             $i += 2;
         }
 
-        // Pastikan gudang ada
+        // gudang
         $gudangId = $this->getOrCreateLokasi($this->gudangName, $lokasiCols);
 
         $made = 0;
@@ -151,9 +145,9 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         DB::transaction(function () use (
             $handle,
             $delimiter,
+            $mutasiCols,
             $produkCols,
             $lokasiCols,
-            $mutasiCols,
             $idxNama,
             $idxSatuan,
             $idxKategori,
@@ -173,13 +167,26 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
                 $namaBarang = trim((string)($row[$idxNama] ?? ''));
                 if ($namaBarang === '') continue;
 
+                // kategori
+                $kategoriText = trim((string)($row[$idxKategori] ?? ''));
+                $kategoriId = $this->getOrCreateKategoriProduk($kategoriText);
+
+                // produk
                 $produkId = $this->getOrCreateProduk(
                     $namaBarang,
                     $row[$idxSatuan] ?? null,
-                    $row[$idxKategori] ?? null,
                     $produkCols
                 );
 
+                // attach kategori<->produk (idempotent + timestamps)
+                if ($kategoriId) {
+                    DB::table('kategori_produk_produk')->updateOrInsert(
+                        ['kategori_produk_id' => $kategoriId, 'produk_id' => $produkId],
+                        ['created_at' => now(), 'updated_at' => now()]
+                    );
+                }
+
+                // stok awal gudang
                 $stokAwalGudang = (int)($row[$idxStokAwal] ?? 0);
                 $this->upsertPivotStock($produkId, $gudangId, $stokAwalGudang);
 
@@ -205,7 +212,6 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
                     $qtyVal  = $row[$p['qtyIdx']] ?? null;
 
                     if ($qtyVal === null || $qtyVal === '') continue;
-
                     $qty = (int)$qtyVal;
                     if ($qty <= 0) continue;
 
@@ -216,6 +222,8 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
                         if ($lokasiQty <= 0) continue;
 
                         $tujuanId = $this->getOrCreateLokasi($lokasiName, $lokasiCols);
+
+                        // pastikan pivot tujuan ada
                         $this->upsertPivotStock($produkId, $tujuanId, $this->getPivotStock($produkId, $tujuanId));
 
                         $tx[] = [
@@ -272,7 +280,6 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
                             $seq++;
                             continue;
                         }
-
                         if ($stokAwal < $jumlah) {
                             $skippedOut++;
                             $seq++;
@@ -321,9 +328,8 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         }
     }
 
-    /**
-     * ===== Helpers =====
-     */
+    // ================= Helpers =================
+
     private function trimRow(array $row): array
     {
         foreach ($row as $k => $v) {
@@ -338,10 +344,8 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         $str = trim((string)$value);
         if ($str === '') return null;
 
-        // coba parse format umum (yyyy-mm-dd)
         try {
-            $dt = new \DateTime($str);
-            return $dt->format('Y-m-d');
+            return (new \DateTime($str))->format('Y-m-d');
         } catch (\Throwable $e) {
             return null;
         }
@@ -382,6 +386,60 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         return [['lokasi' => $lokasiCell, 'qty' => $qtyTotal]];
     }
 
+    private function slugify(string $text): string
+    {
+        $text = trim(mb_strtolower($text));
+        $text = preg_replace('/[^a-z0-9]+/u', '-', $text);
+        $text = trim($text, '-');
+        return $text ?: 'tanpa-kategori';
+    }
+
+    private function getOrCreateKategoriProduk(?string $namaKategori): ?int
+    {
+        $namaKategori = $this->normalizeText((string)$namaKategori);
+        if ($namaKategori === '') return null;
+
+        $existing = DB::table('kategori_produks')->where('nama', $namaKategori)->first();
+        if ($existing) {
+            if (empty($existing->slug)) {
+                $slug = $this->slugify($namaKategori);
+                $slug = $this->uniqueSlug($slug);
+
+                DB::table('kategori_produks')->where('id', $existing->id)->update([
+                    'slug' => $slug,
+                    'updated_at' => now(),
+                ]);
+            }
+            return (int) $existing->id;
+        }
+
+        $slug = $this->uniqueSlug($this->slugify($namaKategori));
+
+        DB::table('kategori_produks')->insert([
+            'nama' => $namaKategori,
+            'slug' => $slug,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (int) DB::table('kategori_produks')->where('slug', $slug)->value('id');
+    }
+
+    private function uniqueSlug(string $slugBase): string
+    {
+        $slug = $slugBase;
+        $i = 1;
+        while (DB::table('kategori_produks')->where('slug', $slug)->exists()) {
+            $slug = $slugBase . '-' . $i;
+            $i++;
+            if ($i > 999) {
+                $slug = $slugBase . '-' . substr(uniqid(), -6);
+                break;
+            }
+        }
+        return $slug;
+    }
+
     private function makeKode(string $prefix, string $name, string $table, string $column, int $maxLen = 30): string
     {
         $base = strtoupper(trim($name));
@@ -406,19 +464,26 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         return $kode;
     }
 
-    private function getOrCreateProduk(string $nama, $satuan, $kategori, array $produkCols): int
+    private function getOrCreateProduk(string $nama, $satuan, array $produkCols): int
     {
         $nama = $this->normalizeText($nama);
+        $satuanVal = $satuan !== null ? $this->normalizeText((string)$satuan) : null;
 
         $existing = DB::table('produks')->where('nama_produk', $nama)->first();
         if ($existing) {
-            if (in_array('kode_produk', $produkCols) && empty($existing->kode_produk)) {
-                $kode = $this->makeKode('PRD', $nama, 'produks', 'kode_produk', 30);
-                DB::table('produks')->where('id', $existing->id)->update([
-                    'kode_produk' => $kode,
-                    'updated_at' => now(),
-                ]);
+            $updates = ['updated_at' => now()];
+
+            if (in_array('kode_produk', $produkCols, true) && empty($existing->kode_produk)) {
+                $updates['kode_produk'] = $this->makeKode('PRD', $nama, 'produks', 'kode_produk', 30);
             }
+            if (in_array('satuan', $produkCols, true) && !empty($satuanVal) && empty($existing->satuan)) {
+                $updates['satuan'] = $satuanVal;
+            }
+
+            if (count($updates) > 1) {
+                DB::table('produks')->where('id', $existing->id)->update($updates);
+            }
+
             return (int)$existing->id;
         }
 
@@ -428,14 +493,11 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             'updated_at' => now(),
         ];
 
-        if (in_array('kode_produk', $produkCols)) {
+        if (in_array('kode_produk', $produkCols, true)) {
             $data['kode_produk'] = $this->makeKode('PRD', $nama, 'produks', 'kode_produk', 30);
         }
-        if (in_array('satuan', $produkCols) && $satuan !== null) {
-            $data['satuan'] = $this->normalizeText((string)$satuan);
-        }
-        if (in_array('kategori', $produkCols) && $kategori !== null) {
-            $data['kategori'] = $this->normalizeText((string)$kategori);
+        if (in_array('satuan', $produkCols, true) && !empty($satuanVal)) {
+            $data['satuan'] = $satuanVal;
         }
 
         $data = $this->fillRequiredColumns('produks', $produkCols, $data, [
@@ -453,7 +515,7 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
 
         $existing = DB::table('lokasis')->where('nama_lokasi', $namaLokasi)->first();
         if ($existing) {
-            if (in_array('kode_lokasi', $lokasiCols) && empty($existing->kode_lokasi)) {
+            if (in_array('kode_lokasi', $lokasiCols, true) && empty($existing->kode_lokasi)) {
                 $kode = $this->makeKode('LOK', $namaLokasi, 'lokasis', 'kode_lokasi', 30);
                 DB::table('lokasis')->where('id', $existing->id)->update([
                     'kode_lokasi' => $kode,
@@ -469,7 +531,7 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
             'updated_at' => now(),
         ];
 
-        if (in_array('kode_lokasi', $lokasiCols)) {
+        if (in_array('kode_lokasi', $lokasiCols, true)) {
             $data['kode_lokasi'] = $this->makeKode('LOK', $namaLokasi, 'lokasis', 'kode_lokasi', 30);
         }
 
@@ -517,9 +579,7 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
     {
         $data = [];
         foreach ($payload as $k => $v) {
-            if (in_array($k, $mutasiCols, true)) {
-                $data[$k] = $v;
-            }
+            if (in_array($k, $mutasiCols, true)) $data[$k] = $v;
         }
 
         if (!isset($data['no_ref'])) return;
@@ -570,12 +630,8 @@ class ImportSparepartPoh1CsvSeeder extends Seeder
         $required = [];
         foreach ($rows as $r) {
             $col = $r->COLUMN_NAME;
-
             if (str_contains(strtolower((string)$r->EXTRA), 'auto_increment')) continue;
-
-            if ((string)$r->IS_NULLABLE === 'NO' && $r->COLUMN_DEFAULT === null) {
-                $required[] = $col;
-            }
+            if ((string)$r->IS_NULLABLE === 'NO' && $r->COLUMN_DEFAULT === null) $required[] = $col;
         }
 
         return $required;
