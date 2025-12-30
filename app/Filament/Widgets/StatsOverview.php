@@ -2,6 +2,9 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Resources\LokasiResource;
+use App\Filament\Resources\ProdukResource;
+use App\Filament\Resources\UserResource;
 use App\Models\Lokasi;
 use App\Models\Produk;
 use App\Models\User;
@@ -13,23 +16,25 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
 class StatsOverview extends BaseWidget
 {
     use HasWidgetShield, InteractsWithPageFilters;
+
     protected ?string $heading = 'Statistik';
     protected static ?int $sort = 0;
+
     protected function getStats(): array
     {
-        $filters = $this->filters;
+        $filters = $this->filters ?? [];
 
         $produkQuery = Produk::query();
-        $userQuery = User::query();
+        $userQuery   = User::query();
         $lokasiQuery = Lokasi::query();
 
-        if ($filters['startDate'] ?? null) {
+        if (!empty($filters['startDate'])) {
             $produkQuery->whereDate('created_at', '>=', $filters['startDate']);
             $userQuery->whereDate('created_at', '>=', $filters['startDate']);
             $lokasiQuery->whereDate('created_at', '>=', $filters['startDate']);
         }
 
-        if ($filters['endDate'] ?? null) {
+        if (!empty($filters['endDate'])) {
             $produkQuery->whereDate('created_at', '<=', $filters['endDate']);
             $userQuery->whereDate('created_at', '<=', $filters['endDate']);
             $lokasiQuery->whereDate('created_at', '<=', $filters['endDate']);
@@ -37,17 +42,16 @@ class StatsOverview extends BaseWidget
 
         return [
             Stat::make('Total Produk', $produkQuery->count())
-                ->url(route('filament.admin.resources.produk.index'))
-                ->description('klik untuk melihat semua produk'),
+                ->url(ProdukResource::getUrl('index'))
+                ->description('Klik untuk melihat semua produk'),
 
             Stat::make('Total Pengguna', $userQuery->count())
-                ->url(route('filament.admin.resources.pengguna.index'))
-                ->description('klik untuk melihat semua pengguna'),
+                ->url(UserResource::getUrl('index')) // ✅ FIX: tidak hardcode route
+                ->description('Klik untuk melihat semua pengguna'),
 
             Stat::make('Total Lokasi', $lokasiQuery->count())
-                ->url(route('filament.admin.resources.lokasi.index'))
-                ->description('klik untuk melihat semua lokasi'),
+                ->url(LokasiResource::getUrl('index'))
+                ->description('Klik untuk melihat semua lokasi'),
         ];
     }
-
 }
