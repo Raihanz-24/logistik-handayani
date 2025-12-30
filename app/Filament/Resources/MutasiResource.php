@@ -18,6 +18,13 @@ use Illuminate\Support\Facades\DB;
 use Filament\Notifications\Notification;
 use Filament\Tables\Filters\Filter;
 
+// import
+use Filament\Tables\Actions\Action;
+use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\TextInput;
+use Illuminate\Support\Facades\Storage;
+use App\Services\MutasiPoh1ImportService;
+
 // ===== Export =====
 use App\Filament\Exports\MutasiExporter;
 use Filament\Tables\Actions\ExportAction;
@@ -354,6 +361,43 @@ class MutasiResource extends Resource
                     ]),
             ])
             ->headerActions([
+                Action::make('import-poh1')
+                    ->label('Import POH 1 (Excel/CSV)')
+                    ->icon('heroicon-o-arrow-up-tray')
+                    ->color('warning')
+                    ->form([
+                        FileUpload::make('file')
+                            ->label('File (CSV / XLSX)')
+                            ->disk('local')
+                            ->directory('imports')
+                            ->required(),
+
+                        TextInput::make('gudang')
+                            ->label('Nama Gudang Asal')
+                            ->default('Gudang POH 1')
+                            ->required(),
+                    ])
+                    ->action(function (array $data) {
+                        $relativePath = $data['file']; // ex: imports/xxxx.csv
+                        $fullPath = Storage::disk('local')->path($relativePath);
+
+                        $result = app(MutasiPoh1ImportService::class)
+                            ->import($fullPath, $data['gudang'], auth()->id());
+
+                        $msg = "Selesai. Baris diproses: {$result['rows']}, Mutasi dibuat: {$result['mutasi_created']}, Produk: {$result['produk_upserted']}, Lokasi baru: {$result['lokasi_created']}.";
+
+                        if (!empty($result['errors'])) {
+                            $msg .= " Error: " . count($result['errors']) . " baris (cek log / coba perbaiki baris tersebut).";
+                        }
+
+                        Notification::make()
+                            ->title('Import selesai')
+                            ->body($msg)
+                            ->success()
+                            ->send();
+                    }),
+
+
                 ExportAction::make('export-excel')
                     ->label('Export Excel')
                     ->icon('heroicon-o-arrow-down-tray')
