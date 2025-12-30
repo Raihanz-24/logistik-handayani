@@ -3,57 +3,45 @@
 namespace App\Filament\Resources\MutasiResource\Pages;
 
 use App\Filament\Resources\MutasiResource;
-use App\Models\Lokasi;
-use App\Models\Produk;
-use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
-use Illuminate\Contracts\Support\Htmlable;
+use Filament\Support\Exceptions\Halt;
 
 class CreateMutasi extends CreateRecord
 {
     protected static string $resource = MutasiResource::class;
 
-    public function getTitle(): string|Htmlable
-    {
-        return 'Buat Mutasi';
-    }
-    protected function getRedirectUrl(): string
-    {
-        return $this->getResource()::getUrl('index');
-    }
-
     protected function beforeCreate(): void
     {
-        if ($this->data['status'] !== 'approved')
+        $data = $this->form->getState();
+
+        if (($data['jenis_mutasi'] ?? null) !== 'keluar') {
             return;
+        }
 
-        $produkId = $this->data['produk_id'];
-        $lokasiId = $this->data['lokasi_id'];
-        $jumlah = $this->data['jumlah'];
-        $jenis = $this->data['jenis_mutasi'];
+        $produkId = (int) ($data['produk_id'] ?? 0);
+        $lokasiId = (int) ($data['lokasi_id'] ?? 0);
+        $jumlah   = (int) ($data['jumlah'] ?? 0);
 
-        $produk = Produk::find($produkId);
-        $lokasi = Lokasi::find($lokasiId);
+        if (! $produkId || ! $lokasiId || $jumlah <= 0) {
+            return;
+        }
 
-        $stokSekarang = $produk->lokasi()->where('lokasi_id', $lokasi->id)->first()?->pivot->stok ?? 0;
+        $stok = MutasiResource::getStokTersedia($produkId, $lokasiId);
 
-        $stokBaru = $jenis === 'masuk'
-            ? $stokSekarang + $jumlah
-            : $stokSekarang - $jumlah;
-
-        if ($stokBaru < 0) {
+        if ($jumlah > $stok) {
             Notification::make()
-                ->title('Gagal menyimpan')
-                ->body('Stok tidak cukup untuk disetujui.')
+                ->title('Stok tidak mencukupi')
+                ->body("Pengajuan tidak bisa disubmit. Stok tersedia (dikurangi pending): {$stok}, diminta: {$jumlah}.")
                 ->danger()
                 ->send();
 
-            $this->halt(); // menghentikan proses create
+            throw new Halt();
         }
+    }
 
-        $produk->lokasi()->syncWithoutDetaching([
-            $lokasi->id => ['stok' => $stokBaru],
-        ]);
+    protected function getRedirectUrl(): string
+    {
+        return MutasiResource::getUrl('index');
     }
 }

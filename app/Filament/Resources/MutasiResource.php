@@ -4,6 +4,8 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\MutasiResource\Pages;
 use App\Models\Mutasi;
+use App\Models\Produk;
+use Closure;
 use Filament\Forms;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
@@ -47,6 +49,31 @@ class MutasiResource extends Resource
         ]);
     }
 
+    /**
+     * Stok tersedia = stok fisik (produk_lokasi) - total pending keluar (mutasis)
+     */
+    public static function getStokTersedia(?int $produkId, ?int $lokasiId, ?int $excludeMutasiId = null): int
+    {
+        if (! $produkId || ! $lokasiId) {
+            return 0;
+        }
+
+        $stokFisik = (int) (DB::table('produk_lokasi')
+            ->where('produk_id', $produkId)
+            ->where('lokasi_id', $lokasiId)
+            ->value('stok') ?? 0);
+
+        $reserved = (int) Mutasi::query()
+            ->where('status', 'pending')
+            ->where('jenis_mutasi', 'keluar')
+            ->where('produk_id', $produkId)
+            ->where('lokasi_id', $lokasiId)
+            ->when($excludeMutasiId, fn($q) => $q->where('id', '!=', $excludeMutasiId))
+            ->sum('jumlah');
+
+        return max(0, $stokFisik - $reserved);
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -76,6 +103,7 @@ class MutasiResource extends Resource
                         ])
                         ->native(false)
                         ->required()
+                        ->live()
                         ->reactive()
                         ->afterStateUpdated(function ($state, Forms\Set $set) {
                             if ($state !== 'keluar') {
@@ -84,13 +112,33 @@ class MutasiResource extends Resource
                         })
                         ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
+                    /**
+                     * ✅ Produk: tidak preload semua
+                     * - User harus ketik minimal 2 karakter (di-handle manual)
+                     * - hasil max 10
+                     */
                     Forms\Components\Select::make('produk_id')
                         ->label('Produk')
                         ->relationship('produk', 'nama_produk')
+                        ->preload()          // ✅ tampil semua (preload)
+                        ->native(false)
+                        ->searchable()       // tetap bisa search (client-side)
+                        ->required()
+                        ->live()
+                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+
+
+                    Forms\Components\Select::make('lokasi_id')
+                        ->label(fn(Forms\Get $get) => $get('jenis_mutasi') === 'masuk'
+                            ? 'Gudang Tujuan'
+                            : 'Gudang Asal')
+                        ->relationship('lokasi', 'nama_lokasi')
                         ->preload()
                         ->native(false)
                         ->searchable()
                         ->required()
+                        ->live()
+                        ->reactive()
                         ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\TextInput::make('jumlah')
@@ -98,6 +146,36 @@ class MutasiResource extends Resource
                         ->required()
                         ->numeric()
                         ->minValue(1)
+                        ->live()
+                        ->helperText(function (Forms\Get $get) {
+                            if ($get('jenis_mutasi') !== 'keluar') return null;
+
+                            $produkId = (int) ($get('produk_id') ?? 0);
+                            $lokasiId = (int) ($get('lokasi_id') ?? 0);
+
+                            if (! $produkId || ! $lokasiId) {
+                                return 'Pilih Produk dan Gudang Asal untuk melihat stok tersedia.';
+                            }
+
+                            $stok = static::getStokTersedia($produkId, $lokasiId);
+                            return "Stok tersedia (dikurangi pending): {$stok}";
+                        })
+                        ->rules([
+                            fn(Forms\Get $get) => function (string $attribute, $value, Closure $fail) use ($get) {
+                                if ($get('jenis_mutasi') !== 'keluar') return;
+
+                                $produkId = (int) ($get('produk_id') ?? 0);
+                                $lokasiId = (int) ($get('lokasi_id') ?? 0);
+                                if (! $produkId || ! $lokasiId) return;
+
+                                $minta = (int) $value;
+                                $stok = static::getStokTersedia($produkId, $lokasiId);
+
+                                if ($minta > $stok) {
+                                    $fail("Stok tidak mencukupi. Stok tersedia (dikurangi pending): {$stok}.");
+                                }
+                            },
+                        ])
                         ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\TextInput::make('no_ref')
@@ -109,18 +187,6 @@ class MutasiResource extends Resource
                         ->label('Keterangan')
                         ->maxLength(255)
                         ->columnSpanFull()
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
-
-                    Forms\Components\Select::make('lokasi_id')
-                        ->label(fn(Forms\Get $get) => $get('jenis_mutasi') === 'masuk'
-                            ? 'Gudang Tujuan'
-                            : 'Gudang Asal')
-                        ->relationship('lokasi', 'nama_lokasi')
-                        ->preload()
-                        ->native(false)
-                        ->searchable()
-                        ->required()
-                        ->reactive()
                         ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\Select::make('lokasi_tujuan_id')
@@ -209,14 +275,10 @@ class MutasiResource extends Resource
                 Tables\Columns\TextColumn::make('asal_display')
                     ->label('Asal')
                     ->getStateUsing(function (Mutasi $record): string {
-                        if ($record->jenis_mutasi === 'masuk') {
-                            return '-';
-                        }
+                        if ($record->jenis_mutasi === 'masuk') return '-';
                         return $record->lokasi?->nama_lokasi ?? '-';
                     })
-                    ->sortable(query: function (Builder $query, string $direction) {
-                        return $query->orderBy('lokasi_id', $direction);
-                    }),
+                    ->sortable(query: fn(Builder $query, string $direction) => $query->orderBy('lokasi_id', $direction)),
 
                 Tables\Columns\TextColumn::make('tujuan_display')
                     ->label('Tujuan')
@@ -319,7 +381,7 @@ class MutasiResource extends Resource
                                 }
 
                                 $produkId = (int) $record->produk_id;
-                                $lokasiGudangId = (int) $record->lokasi_id; // untuk masuk = gudang tujuan, untuk keluar = gudang asal
+                                $lokasiGudangId = (int) $record->lokasi_id;
                                 $jumlah = (int) $record->jumlah;
 
                                 $pivotGudang = DB::table('produk_lokasi')
@@ -341,7 +403,6 @@ class MutasiResource extends Resource
 
                                     $stokAkhir = $stokAwal - $jumlah;
                                 } else {
-                                    // masuk -> tambah stok di gudang tujuan (lokasi_id)
                                     $stokAkhir = $stokAwal + $jumlah;
                                 }
 
@@ -354,7 +415,6 @@ class MutasiResource extends Resource
                                     ]
                                 );
 
-                                // transfer internal (keluar + tujuan)
                                 if ($record->jenis_mutasi === 'keluar' && $record->lokasi_tujuan_id) {
                                     $lokasiTujuanId = (int) $record->lokasi_tujuan_id;
 
@@ -462,7 +522,7 @@ class MutasiResource extends Resource
         return [
             'index' => Pages\ListMutasis::route('/'),
             'create' => Pages\CreateMutasi::route('/buat'),
-            'edit' => Pages\EditMutasi::route('/{record}/ubah'),
+            // edit dihapus sesuai permintaan
         ];
     }
 }
