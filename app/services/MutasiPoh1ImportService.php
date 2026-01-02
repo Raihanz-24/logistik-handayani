@@ -11,43 +11,43 @@ use Illuminate\Support\Str;
 
 class MutasiPoh1ImportService
 {
+    /**
+     * Import workbook POH1 (XLSX) - multi sheet Week 1..5
+     * - Produk dicocokkan berdasarkan nama_produk
+     * - Membuat mutasi approved untuk:
+     *   - Buffer Stock (masuk)
+     *   - Issued harian (keluar + transfer ke lokasi tujuan)
+     * - Mengupdate stok produk_lokasi untuk gudang & tujuan
+     */
     public function import(string $absolutePath, string $gudangName, int $actorUserId): array
     {
         $ext = strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION));
 
-        $rows = match ($ext) {
-            'csv'  => $this->readCsv($absolutePath),
-            'xlsx' => $this->readXlsxOrFail($absolutePath),
-            default => throw new \RuntimeException('Format tidak didukung. Gunakan CSV atau XLSX.'),
-        };
-
-        if (count($rows) < 8) {
-            throw new \RuntimeException('File terlalu sedikit baris / tidak sesuai format.');
+        if ($ext !== 'xlsx') {
+            throw new \RuntimeException('File harus XLSX untuk format workbook Week 1..5 ini.');
         }
 
-        // cari row header: yang kolom 1 = "No." dan kolom 2 berisi "Nama Barang"
-        [$headerRowIndex, $subHeaderRowIndex] = $this->findHeaderRows($rows);
-
-        $header = $rows[$headerRowIndex];
-        $subHeader = $rows[$subHeaderRowIndex];
-
-        $idxNo        = $this->findIndex($header, 'No.');
-        $idxNama      = $this->findIndexContains($header, 'Nama Barang');
-        $idxSatuan    = $this->findIndex($header, 'Satuan');
-        $idxKategori  = $this->findIndexContains($header, 'KATEGORI');
-        $idxStockAwal = $this->findIndexContains($header, 'Stock Awal');
-        $idxBufDate   = $this->findIndexContains($header, 'Tanggal Buffer Stock');
-        $idxBufQty    = $this->findIndex($header, 'Jumlah'); // jumlah buffer (di header row)
-        $idxEnding    = $this->findIndexContains($header, 'Ending Stock');
-
-        if ($idxNama === null || $idxStockAwal === null || $idxEnding === null) {
-            throw new \RuntimeException('Header tidak terbaca. Pastikan format sama seperti file POH 1.');
+        if (! class_exists(\PhpOffice\PhpSpreadsheet\IOFactory::class)) {
+            throw new \RuntimeException('PhpSpreadsheet tidak tersedia. Server ini tidak bisa import XLSX.');
         }
 
-        // pasangan tanggal: kolom header berisi tanggal, subHeader = Lokasi + Jumlah
-        $datePairs = $this->collectDatePairs($header, $subHeader, $idxBufQty + 1, $idxEnding - 1);
+        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($absolutePath);
+
+        // ✅ ambil semua sheet "Week"
+        $weekSheets = [];
+        foreach ($spreadsheet->getAllSheets() as $sheet) {
+            $name = (string) $sheet->getTitle();
+            if (preg_match('/^week/i', trim($name))) {
+                $weekSheets[] = $sheet;
+            }
+        }
+
+        if (empty($weekSheets)) {
+            throw new \RuntimeException('Sheet "Week" tidak ditemukan pada file.');
+        }
 
         $summary = [
+            'sheets' => count($weekSheets),
             'rows' => 0,
             'mutasi_created' => 0,
             'produk_upserted' => 0,
@@ -55,127 +55,155 @@ class MutasiPoh1ImportService
             'errors' => [],
         ];
 
-        DB::transaction(function () use (
-            $rows,
-            $headerRowIndex,
-            $subHeaderRowIndex,
-            $idxNama,
-            $idxSatuan,
-            $idxKategori,
-            $idxStockAwal,
-            $idxBufDate,
-            $idxBufQty,
-            $idxEnding,
-            $datePairs,
-            $gudangName,
-            $actorUserId,
-            &$summary
-        ) {
-            // Gudang utama
+        DB::transaction(function () use ($weekSheets, $gudangName, $actorUserId, &$summary) {
+            // Gudang utama POH 1
             $gudang = $this->getOrCreateLokasi($gudangName, $summary);
 
-            // data mulai setelah subheader
-            for ($r = $subHeaderRowIndex + 1; $r < count($rows); $r++) {
-                $row = $rows[$r];
-                $nama = trim((string) ($row[$idxNama] ?? ''));
+            // untuk mencegah stok_awal diset berulang tiap sheet
+            $produkInitialized = []; // [produk_id => true]
 
-                if ($nama === '') {
+            // proses tiap sheet Week, urut sesuai workbook
+            foreach ($weekSheets as $sheet) {
+                $rows = $sheet->toArray(null, true, false, false);
+                if (count($rows) < 6) {
                     continue;
                 }
 
-                $summary['rows']++;
-
                 try {
-                    $satuan   = trim((string) ($row[$idxSatuan] ?? ''));
-                    $kategori = trim((string) ($row[$idxKategori] ?? ''));
-
-                    $stockAwal = $this->toNumber($row[$idxStockAwal] ?? 0);
-                    $ending    = $this->toNumber($row[$idxEnding] ?? 0);
-
-                    // Upsert produk (kode tidak ada di file ini → gunakan nama unik)
-                    $produk = Produk::query()->firstOrCreate(
-                        ['nama_produk' => $nama],
-                        [
-                            'kode_produk' => null,
-                            'satuan' => $satuan ?: null,
-                            'deskripsi' => null,
-                            'harga_beli' => null,
-                            'harga_jual' => null,
-                            'barcode' => null,
-                            'gambar' => null,
-                        ]
-                    );
-
-                    // kalau sudah ada, update satuan bila kosong
-                    if ($produk->exists) {
-                        $needsSave = false;
-                        if ($satuan && empty($produk->satuan)) {
-                            $produk->satuan = $satuan;
-                            $needsSave = true;
-                        }
-                        if ($needsSave) $produk->save();
-                    }
-
-                    $summary['produk_upserted']++;
-
-                    // kategori + pivot
-                    if ($kategori !== '') {
-                        $cat = $this->getOrCreateKategori($kategori);
-                        $produk->kategoriProduks()->syncWithoutDetaching([$cat->id]);
-                    }
-
-                    // 1) set stok awal gudang ke Stock Awal (sinkron)
-                    $this->setPivotStock($produk->id, $gudang->id, $stockAwal);
-
-                    // 2) buffer stock (Masuk) jika ada tanggal + jumlah
-                    $bufTanggal = $this->parseDate($row[$idxBufDate] ?? null);
-                    $bufJumlah  = $this->toNumber($row[$idxBufQty] ?? 0);
-
-                    if ($bufTanggal && $bufJumlah > 0) {
-                        $this->createApprovedMutasiMasuk(
-                            produkId: $produk->id,
-                            gudangId: $gudang->id,
-                            tanggal: $bufTanggal,
-                            jumlah: $bufJumlah,
-                            actorUserId: $actorUserId,
-                            keterangan: 'Buffer Stock (import)'
-                        );
-
-                        $summary['mutasi_created']++;
-                    }
-
-                    // 3) issued harian (Keluar) per tanggal: Lokasi + Jumlah
-                    foreach ($datePairs as $pair) {
-                        $tgl = $pair['date'];
-                        $idxLok = $pair['idx_lokasi'];
-                        $idxJml = $pair['idx_jumlah'];
-
-                        $lokName = trim((string) ($row[$idxLok] ?? ''));
-                        $qty = $this->toNumber($row[$idxJml] ?? 0);
-
-                        if ($lokName === '' || $qty <= 0) {
-                            continue;
-                        }
-
-                        $tujuan = $this->getOrCreateLokasi($lokName, $summary);
-
-                        $this->createApprovedMutasiKeluarTransfer(
-                            produkId: $produk->id,
-                            gudangAsalId: $gudang->id,
-                            lokasiTujuanId: $tujuan->id,
-                            tanggal: $tgl,
-                            jumlah: $qty,
-                            actorUserId: $actorUserId,
-                            keterangan: 'Issued (import)'
-                        );
-
-                        $summary['mutasi_created']++;
-                    }
-
-                    // 4) sinkron stok akhir gudang = Ending Stock (agar akurat)
-                    $this->setPivotStock($produk->id, $gudang->id, $ending);
+                    [$headerRowIndex, $subHeaderRowIndex] = $this->findHeaderRows($rows);
                 } catch (\Throwable $e) {
-                    $summary['errors'][] = "Baris Excel ke-" . ($r + 1) . ": " . $e->getMessage();
+                    $summary['errors'][] = "Sheet {$sheet->getTitle()}: " . $e->getMessage();
+                    continue;
+                }
+
+                $header = $rows[$headerRowIndex] ?? [];
+                $subHeader = $rows[$subHeaderRowIndex] ?? [];
+
+                $idxNama      = $this->findIndexContains($header, 'Nama');
+                $idxSatuan    = $this->findIndex($header, 'Satuan');
+                $idxStockAwal = $this->findIndexContains($header, 'Stock Awal');
+                $idxBufDate   = $this->findIndexContains($header, 'Tanggal Buffer');
+                $idxBufQty    = $this->findIndexExactFirst($header, 'Jumlah'); // jumlah buffer (header row)
+                $idxEnding    = $this->findIndexContains($header, 'Ending Stock');
+
+                if ($idxNama === null || $idxStockAwal === null || $idxEnding === null) {
+                    $summary['errors'][] = "Sheet {$sheet->getTitle()}: Header kolom utama tidak lengkap.";
+                    continue;
+                }
+
+                // ✅ pasang datePairs berdasarkan subheader Lokasi/Jumlah + carry forward tanggal (merge header)
+                $datePairs = $this->collectDatePairsFromMergedHeader(
+                    header: $header,
+                    subHeader: $subHeader,
+                    // mulai scan setelah buffer qty (kalau ada), kalau tidak ada, mulai dari setelah stockAwal
+                    startIndex: ($idxBufQty !== null ? $idxBufQty + 1 : $idxStockAwal + 1),
+                    endIndex: ($idxEnding - 1)
+                );
+
+                // data mulai setelah subheader
+                for ($r = $subHeaderRowIndex + 1; $r < count($rows); $r++) {
+                    $row = $rows[$r];
+                    $nama = trim((string) ($row[$idxNama] ?? ''));
+
+                    if ($nama === '') {
+                        continue;
+                    }
+
+                    $summary['rows']++;
+
+                    try {
+                        $satuan = trim((string) ($row[$idxSatuan] ?? ''));
+
+                        $stockAwal = $this->toNumber($row[$idxStockAwal] ?? 0);
+                        $ending    = $this->toNumber($row[$idxEnding] ?? 0);
+
+                        // upsert produk berdasarkan nama
+                        $produk = Produk::query()->firstOrCreate(
+                            ['nama_produk' => $nama],
+                            [
+                                'kode_produk' => null,
+                                'satuan' => $satuan ?: null,
+                                'deskripsi' => null,
+                                'harga_beli' => null,
+                                'harga_jual' => null,
+                                'barcode' => null,
+                                'gambar' => null,
+                            ]
+                        );
+
+                        if ($produk->exists) {
+                            $needsSave = false;
+                            if ($satuan && empty($produk->satuan)) {
+                                $produk->satuan = $satuan;
+                                $needsSave = true;
+                            }
+                            if ($needsSave) {
+                                $produk->save();
+                            }
+                        }
+
+                        $summary['produk_upserted']++;
+
+                        // ✅ set stok awal hanya sekali per produk (pada saat pertama kali item muncul)
+                        if (! isset($produkInitialized[$produk->id])) {
+                            $this->setPivotStock($produk->id, $gudang->id, $stockAwal);
+                            $produkInitialized[$produk->id] = true;
+                        }
+
+                        // ✅ Buffer Stock (masuk dari luar)
+                        if ($idxBufDate !== null && $idxBufQty !== null) {
+                            $bufTanggal = $this->parseDate($row[$idxBufDate] ?? null);
+                            $bufJumlah  = $this->toNumber($row[$idxBufQty] ?? 0);
+
+                            if ($bufTanggal && $bufJumlah > 0) {
+                                $this->createApprovedMutasiMasuk(
+                                    produkId: $produk->id,
+                                    gudangId: $gudang->id,
+                                    tanggal: $bufTanggal,
+                                    jumlah: $bufJumlah,
+                                    actorUserId: $actorUserId,
+                                    keterangan: 'Buffer Stock (import)'
+                                );
+                                $summary['mutasi_created']++;
+                            }
+                        }
+
+                        // ✅ Issued harian (keluar -> tujuan berdasarkan lokasi pada kolom)
+                        foreach ($datePairs as $pair) {
+                            $tgl = $pair['date'];
+                            $idxLok = $pair['idx_lokasi'];
+                            $idxJml = $pair['idx_jumlah'];
+
+                            $lokName = trim((string) ($row[$idxLok] ?? ''));
+                            $qty = $this->toNumber($row[$idxJml] ?? 0);
+
+                            if ($lokName === '' || $qty <= 0) {
+                                continue;
+                            }
+
+                            $tujuan = $this->getOrCreateLokasi($lokName, $summary);
+
+                            $this->createApprovedMutasiKeluarTransfer(
+                                produkId: $produk->id,
+                                gudangAsalId: $gudang->id,
+                                lokasiTujuanId: $tujuan->id,
+                                tanggal: $tgl,
+                                jumlah: $qty,
+                                actorUserId: $actorUserId,
+                                keterangan: 'Issued (import)'
+                            );
+
+                            $summary['mutasi_created']++;
+                        }
+
+                        /**
+                         * ✅ Rekonsiliasi stok gudang mengikuti "Ending Stock" per sheet.
+                         * Ini penting supaya stok tidak drift jika ada sel kosong / pembulatan / data manual di excel.
+                         */
+                        $this->setPivotStock($produk->id, $gudang->id, $ending);
+                    } catch (\Throwable $e) {
+                        $summary['errors'][] = "Sheet {$sheet->getTitle()} baris Excel ke-" . ($r + 1) . ": " . $e->getMessage();
+                    }
                 }
             }
         });
@@ -183,45 +211,14 @@ class MutasiPoh1ImportService
         return $summary;
     }
 
-    /* =================== READERS =================== */
-
-    private function readCsv(string $path): array
-    {
-        $rows = [];
-        $fh = fopen($path, 'r');
-        if (! $fh) throw new \RuntimeException('Gagal membuka CSV.');
-
-        // delimiter auto
-        $first = fgets($fh);
-        if ($first === false) return [];
-        $delim = str_contains($first, ';') ? ';' : ',';
-        rewind($fh);
-
-        while (($data = fgetcsv($fh, 0, $delim)) !== false) {
-            $rows[] = $data;
-        }
-        fclose($fh);
-
-        return $rows;
-    }
-
-    private function readXlsxOrFail(string $path): array
-    {
-        if (!class_exists(\PhpOffice\PhpSpreadsheet\IOFactory::class)) {
-            throw new \RuntimeException('PhpSpreadsheet tidak tersedia di server. Silakan upload CSV (Save As CSV dari Excel).');
-        }
-
-        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
-        $sheet = $spreadsheet->getActiveSheet();
-        return $sheet->toArray(null, true, false, false);
-    }
-
     /* =================== HEADER PARSER =================== */
 
     private function findHeaderRows(array $rows): array
     {
-        for ($i = 0; $i < min(count($rows), 50); $i++) {
+        // cari baris yang punya "No." dan "Nama"
+        for ($i = 0; $i < min(count($rows), 60); $i++) {
             $row = $rows[$i];
+
             $a = trim((string) ($row[0] ?? ''));
             $b = trim((string) ($row[1] ?? ''));
 
@@ -236,7 +233,20 @@ class MutasiPoh1ImportService
     private function findIndex(array $row, string $exact): ?int
     {
         foreach ($row as $i => $v) {
-            if (trim((string) $v) === $exact) return $i;
+            if (trim((string) $v) === $exact) {
+                return $i;
+            }
+        }
+        return null;
+    }
+
+    private function findIndexExactFirst(array $row, string $exact): ?int
+    {
+        // cari "Jumlah" yang pertama (untuk Buffer Stock)
+        foreach ($row as $i => $v) {
+            if (trim((string) $v) === $exact) {
+                return $i;
+            }
         }
         return null;
     }
@@ -245,16 +255,28 @@ class MutasiPoh1ImportService
     {
         $needle = mb_strtolower($needle);
         foreach ($row as $i => $v) {
-            if (str_contains(mb_strtolower(trim((string) $v)), $needle)) return $i;
+            if (str_contains(mb_strtolower(trim((string) $v)), $needle)) {
+                return $i;
+            }
         }
         return null;
     }
 
-    private function collectDatePairs(array $header, array $subHeader, int $from, int $to): array
+    /**
+     * ✅ Untuk header yang merge:
+     * - subHeader punya pasangan: Lokasi | Jumlah
+     * - header atas punya tanggal di kolom Lokasi (kolom pertama pair), kolom Jumlah biasanya kosong
+     * - kalau header tanggal kosong → gunakan tanggal terakhir di kiri (carry forward)
+     */
+    private function collectDatePairsFromMergedHeader(array $header, array $subHeader, int $startIndex, int $endIndex): array
     {
         $pairs = [];
+        $lastDate = null;
 
-        for ($i = $from; $i <= $to - 1; $i++) {
+        $startIndex = max(0, $startIndex);
+        $endIndex = min(count($subHeader) - 1, $endIndex);
+
+        for ($i = $startIndex; $i <= $endIndex - 1; $i++) {
             $subA = mb_strtolower(trim((string) ($subHeader[$i] ?? '')));
             $subB = mb_strtolower(trim((string) ($subHeader[$i + 1] ?? '')));
 
@@ -262,63 +284,109 @@ class MutasiPoh1ImportService
                 continue;
             }
 
-            $date = $this->parseDate($header[$i] ?? null);
-            if (! $date) continue;
+            $candidate = $header[$i] ?? null;
+            $date = $this->parseDate($candidate);
 
-            $pairs[] = [
-                'date' => $date,
-                'idx_lokasi' => $i,
-                'idx_jumlah' => $i + 1,
-            ];
+            if (! $date && $lastDate) {
+                $date = $lastDate; // carry forward karena merge cell
+            }
+
+            if ($date) {
+                $lastDate = $date;
+
+                $pairs[] = [
+                    'date' => $date,
+                    'idx_lokasi' => $i,
+                    'idx_jumlah' => $i + 1,
+                ];
+            }
         }
 
         return $pairs;
     }
 
-    /* =================== BUSINESS =================== */
+    /* =================== DATE & NUMBER =================== */
 
     private function toNumber($v): int
     {
         if ($v === null) return 0;
-        if (is_numeric($v)) return (int) round((float) $v);
-        $s = preg_replace('/[^\d\-]/', '', (string) $v);
+
+        if (is_numeric($v)) {
+            return (int) round((float) $v);
+        }
+
+        $s = trim((string) $v);
+        if ($s === '') return 0;
+
+        // buang selain digit dan minus
+        $s = preg_replace('/[^\d\-]/', '', $s);
         return (int) ($s === '' ? 0 : $s);
     }
 
+    /**
+     * Parse date dari:
+     * - DateTimeInterface
+     * - serial Excel (angka)
+     * - string berbagai format (Y-m-d, d/m/Y, d-m-Y, d-M-y, dll)
+     */
     private function parseDate($v): ?string
     {
         if ($v instanceof \DateTimeInterface) {
             return $v->format('Y-m-d');
         }
 
+        // serial Excel date (umumnya > 20000 untuk tahun modern)
+        if (is_numeric($v)) {
+            $n = (float) $v;
+            if ($n > 20000) {
+                $dt = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($n);
+                return $dt->format('Y-m-d');
+            }
+        }
+
         $s = trim((string) $v);
         if ($s === '') return null;
 
-        // coba parse umum: 2025-11-23, 23/11/2025, 23-11-2025
-        $s2 = str_replace(['\\', '.'], '/', $s);
+        // normalisasi separator
+        $s = str_replace(['\\', '.'], '/', $s);
 
-        // dd/mm/yyyy
-        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $s2, $m)) {
-            return sprintf('%04d-%02d-%02d', (int)$m[3], (int)$m[2], (int)$m[1]);
+        // 1) yyyy-mm-dd
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $s, $m)) {
+            return sprintf('%04d-%02d-%02d', (int) $m[1], (int) $m[2], (int) $m[3]);
         }
 
-        // yyyy-mm-dd
-        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $s, $m)) {
-            return sprintf('%04d-%02d-%02d', (int)$m[1], (int)$m[2], (int)$m[3]);
+        // 2) dd/mm/yyyy
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $s, $m)) {
+            return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
+        }
+
+        // 3) dd-mm-yyyy (diubah jadi slash dulu)
+        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $s, $m)) {
+            return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
+        }
+
+        // 4) format excel "30-Nov-25" / "30 Nov 2025" dll
+        $ts = strtotime($s);
+        if ($ts !== false) {
+            return date('Y-m-d', $ts);
         }
 
         return null;
     }
 
+    /* =================== MASTER DATA HELPERS =================== */
+
     private function getOrCreateLokasi(string $nama, array &$summary): Lokasi
     {
         $nama = trim($nama);
-        if ($nama === '') $nama = 'Lokasi';
+        if ($nama === '') {
+            $nama = 'Lokasi';
+        }
 
         $lok = Lokasi::query()->where('nama_lokasi', $nama)->first();
         if ($lok) return $lok;
 
-        // kode_lokasi wajib
+        // kode_lokasi wajib -> buat dari slug
         $kode = strtoupper(Str::slug($nama, '_'));
         if ($kode === '') $kode = 'LOKASI';
         $kode = Str::limit($kode, 50, '');
@@ -338,17 +406,6 @@ class MutasiPoh1ImportService
         ]);
     }
 
-    private function getOrCreateKategori(string $nama): KategoriProduk
-    {
-        $nama = trim($nama);
-        $slug = Str::slug($nama);
-
-        return KategoriProduk::query()->firstOrCreate(
-            ['slug' => $slug],
-            ['nama' => $nama, 'slug' => $slug]
-        );
-    }
-
     private function setPivotStock(int $produkId, int $lokasiId, int $stok): void
     {
         DB::table('produk_lokasi')->updateOrInsert(
@@ -360,6 +417,8 @@ class MutasiPoh1ImportService
             ]
         );
     }
+
+    /* =================== MUTASI CREATORS (APPROVED) =================== */
 
     private function createApprovedMutasiMasuk(
         int $produkId,
@@ -384,7 +443,11 @@ class MutasiPoh1ImportService
 
         DB::table('produk_lokasi')->updateOrInsert(
             ['produk_id' => $produkId, 'lokasi_id' => $gudangId],
-            ['stok' => $stokAkhir, 'updated_at' => now(), 'created_at' => $pivot?->created_at ?? now()]
+            [
+                'stok' => $stokAkhir,
+                'updated_at' => now(),
+                'created_at' => $pivot?->created_at ?? now(),
+            ]
         );
 
         Mutasi::create([
@@ -397,6 +460,8 @@ class MutasiPoh1ImportService
 
             'user_id' => $actorUserId,
             'produk_id' => $produkId,
+
+            // masuk = gudang tujuan
             'lokasi_id' => $gudangId,
             'lokasi_tujuan_id' => null,
 
@@ -421,6 +486,11 @@ class MutasiPoh1ImportService
         $jumlah = max(0, $jumlah);
         if ($jumlah <= 0) return;
 
+        if ($lokasiTujuanId === $gudangAsalId) {
+            // skip jika tujuan sama gudang
+            return;
+        }
+
         // lock gudang asal
         $pivotAsal = DB::table('produk_lokasi')
             ->where('produk_id', $produkId)
@@ -430,7 +500,7 @@ class MutasiPoh1ImportService
 
         $stokAwal = (int) ($pivotAsal->stok ?? 0);
 
-        // kalau stok kurang, tetap dipaksakan? tidak, biar aman stop
+        // jika stok kurang, stop (biar konsisten)
         if ($stokAwal < $jumlah) {
             throw new \RuntimeException("Stok gudang tidak cukup untuk issued {$jumlah}. Stok: {$stokAwal}");
         }
@@ -439,7 +509,11 @@ class MutasiPoh1ImportService
 
         DB::table('produk_lokasi')->updateOrInsert(
             ['produk_id' => $produkId, 'lokasi_id' => $gudangAsalId],
-            ['stok' => $stokAkhir, 'updated_at' => now(), 'created_at' => $pivotAsal?->created_at ?? now()]
+            [
+                'stok' => $stokAkhir,
+                'updated_at' => now(),
+                'created_at' => $pivotAsal?->created_at ?? now(),
+            ]
         );
 
         // tambah stok tujuan
@@ -454,7 +528,11 @@ class MutasiPoh1ImportService
 
         DB::table('produk_lokasi')->updateOrInsert(
             ['produk_id' => $produkId, 'lokasi_id' => $lokasiTujuanId],
-            ['stok' => $stokTujuanAkhir, 'updated_at' => now(), 'created_at' => $pivotT?->created_at ?? now()]
+            [
+                'stok' => $stokTujuanAkhir,
+                'updated_at' => now(),
+                'created_at' => $pivotT?->created_at ?? now(),
+            ]
         );
 
         Mutasi::create([
@@ -467,6 +545,8 @@ class MutasiPoh1ImportService
 
             'user_id' => $actorUserId,
             'produk_id' => $produkId,
+
+            // keluar = gudang asal
             'lokasi_id' => $gudangAsalId,
             'lokasi_tujuan_id' => $lokasiTujuanId,
 
