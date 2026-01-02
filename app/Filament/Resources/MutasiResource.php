@@ -21,7 +21,7 @@ use Filament\Tables\Filters\Filter;
 // import
 use Filament\Tables\Actions\Action;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\TextInput; // (dibiarkan walau tidak terpakai lagi, boleh kamu hapus kalau mau)
 use Illuminate\Support\Facades\Storage;
 use App\Services\MutasiPoh1ImportService;
 
@@ -120,20 +120,17 @@ class MutasiResource extends Resource
                         ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     /**
-                     * ✅ Produk: tidak preload semua
-                     * - User harus ketik minimal 2 karakter (di-handle manual)
-                     * - hasil max 10
+                     * ✅ Produk: tampil semua (preload)
                      */
                     Forms\Components\Select::make('produk_id')
                         ->label('Produk')
                         ->relationship('produk', 'nama_produk')
-                        ->preload()          // ✅ tampil semua (preload)
+                        ->preload()
                         ->native(false)
-                        ->searchable()       // tetap bisa search (client-side)
+                        ->searchable()
                         ->required()
                         ->live()
                         ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
-
 
                     Forms\Components\Select::make('lokasi_id')
                         ->label(fn(Forms\Get $get) => $get('jenis_mutasi') === 'masuk'
@@ -282,7 +279,8 @@ class MutasiResource extends Resource
                 Tables\Columns\TextColumn::make('asal_display')
                     ->label('Asal')
                     ->getStateUsing(function (Mutasi $record): string {
-                        if ($record->jenis_mutasi === 'masuk') return '-';
+                        // ✅ perubahan sesuai instruksi: masuk => "Stok"
+                        if ($record->jenis_mutasi === 'masuk') return 'Stok';
                         return $record->lokasi?->nama_lokasi ?? '-';
                     })
                     ->sortable(query: fn(Builder $query, string $direction) => $query->orderBy('lokasi_id', $direction)),
@@ -362,7 +360,7 @@ class MutasiResource extends Resource
             ])
             ->headerActions([
                 Action::make('import-poh1')
-                    ->label('Import POH 1 (Excel/CSV)')
+                    ->label('Import Data') // ✅ perubahan label sesuai instruksi
                     ->icon('heroicon-o-arrow-up-tray')
                     ->color('warning')
                     ->form([
@@ -371,18 +369,17 @@ class MutasiResource extends Resource
                             ->disk('local')
                             ->directory('imports')
                             ->required(),
-
-                        TextInput::make('gudang')
-                            ->label('Nama Gudang Asal')
-                            ->default('Gudang POH 1')
-                            ->required(),
+                        // ✅ perubahan: field gudang dihapus (tidak ditanyakan lagi)
                     ])
                     ->action(function (array $data) {
                         $relativePath = $data['file']; // ex: imports/xxxx.csv
                         $fullPath = Storage::disk('local')->path($relativePath);
 
+                        // ✅ perubahan: gudang otomatis (tidak ditanya)
+                        $gudangDefault = 'Gudang POH 1';
+
                         $result = app(MutasiPoh1ImportService::class)
-                            ->import($fullPath, $data['gudang'], auth()->id());
+                            ->import($fullPath, $gudangDefault, auth()->id());
 
                         $msg = "Selesai. Baris diproses: {$result['rows']}, Mutasi dibuat: {$result['mutasi_created']}, Produk: {$result['produk_upserted']}, Lokasi baru: {$result['lokasi_created']}.";
 
@@ -396,7 +393,6 @@ class MutasiResource extends Resource
                             ->success()
                             ->send();
                     }),
-
 
                 ExportAction::make('export-excel')
                     ->label('Export Excel')
