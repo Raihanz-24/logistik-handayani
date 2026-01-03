@@ -25,6 +25,8 @@ use Filament\Forms\Components\TextInput; // (dibiarkan walau tidak terpakai lagi
 use Illuminate\Support\Facades\Storage;
 use App\Services\MutasiPoh1ImportService;
 
+
+
 // ===== Export =====
 use App\Filament\Exports\MutasiExporter;
 use Filament\Tables\Actions\ExportAction;
@@ -360,39 +362,65 @@ class MutasiResource extends Resource
             ])
             ->headerActions([
                 Action::make('import-poh1')
-                    ->label('Import Data') // ✅ perubahan label sesuai instruksi
+                    ->label('Import Data')
                     ->icon('heroicon-o-arrow-up-tray')
                     ->color('warning')
-                    ->form([
-                        FileUpload::make('file')
-                            ->label('File (CSV / XLSX)')
-                            ->disk('local')
-                            ->directory('imports')
-                            ->required(),
-                        // ✅ perubahan: field gudang dihapus (tidak ditanyakan lagi)
-                    ])
-                    ->action(function (array $data) {
-                        $relativePath = $data['file']; // ex: imports/xxxx.csv
-                        $fullPath = Storage::disk('local')->path($relativePath);
+                    ->requiresConfirmation()
+                    ->modalHeading('Maintenance')
+                    ->modalDescription('Fitur ini sedang maintanance, silahkan hubungi developer untuk info lebih lanjut.')
+                    ->modalSubmitAction(
+                        fn($action) => $action
+                            ->label('Oke')
+                            ->color('gray')
+                    )
+                    ->modalCancelAction(
+                        fn($action) => $action
+                            ->label('Hubungi')
+                            ->color('success')
+                            ->url(
+                                'https://wa.me/6281213523914?text=' . urlencode('Halo developer, fitur import sedang maintenance. Mohon info lebih lanjut.'),
+                                true
+                            )
+                    )
+                    ->action(fn() => null),
 
-                        // ✅ perubahan: gudang otomatis (tidak ditanya)
-                        $gudangDefault = 'Gudang POH 1';
 
-                        $result = app(MutasiPoh1ImportService::class)
-                            ->import($fullPath, $gudangDefault, auth()->id());
 
-                        $msg = "Selesai. Baris diproses: {$result['rows']}, Mutasi dibuat: {$result['mutasi_created']}, Produk: {$result['produk_upserted']}, Lokasi baru: {$result['lokasi_created']}.";
+                // Action::make('import-poh1')
+                //     ->label('Import Data') // ✅ perubahan label sesuai instruksi
+                //     ->icon('heroicon-o-arrow-up-tray')
+                //     ->color('warning')
+                //     ->form([
+                //         FileUpload::make('file')
+                //             ->label('File (CSV / XLSX)')
+                //             ->disk('local')
+                //             ->directory('imports')
+                //             ->required()
+                //             ->maxSize(1048576),
+                //         // ✅ perubahan: field gudang dihapus (tidak ditanyakan lagi)
+                //     ])
+                //     ->action(function (array $data) {
+                //         $relativePath = $data['file']; // ex: imports/xxxx.csv
+                //         $fullPath = Storage::disk('local')->path($relativePath);
 
-                        if (!empty($result['errors'])) {
-                            $msg .= " Error: " . count($result['errors']) . " baris (cek log / coba perbaiki baris tersebut).";
-                        }
+                //         // ✅ perubahan: gudang otomatis (tidak ditanya)
+                //         $gudangDefault = 'Gudang POH 1';
 
-                        Notification::make()
-                            ->title('Import selesai')
-                            ->body($msg)
-                            ->success()
-                            ->send();
-                    }),
+                //         $result = app(MutasiPoh1ImportService::class)
+                //             ->import($fullPath, $gudangDefault, auth()->id());
+
+                //         $msg = "Selesai. Baris diproses: {$result['rows']}, Mutasi dibuat: {$result['mutasi_created']}, Produk: {$result['produk_upserted']}, Lokasi baru: {$result['lokasi_created']}.";
+
+                //         if (!empty($result['errors'])) {
+                //             $msg .= " Error: " . count($result['errors']) . " baris (cek log / coba perbaiki baris tersebut).";
+                //         }
+
+                //         Notification::make()
+                //             ->title('Import selesai')
+                //             ->body($msg)
+                //             ->success()
+                //             ->send();
+                //     }),
 
                 ExportAction::make('export-excel')
                     ->label('Export Excel')
