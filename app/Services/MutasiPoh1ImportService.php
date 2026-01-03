@@ -55,7 +55,6 @@ class MutasiPoh1ImportService
             'errors' => [],
         ];
 
-        // master gudang
         $gudang = $this->getOrCreateLokasi($gudangName, $summary);
         $produkInitialized = [];
 
@@ -69,9 +68,7 @@ class MutasiPoh1ImportService
                 $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
                 $endColLetter = Coordinate::stringFromColumnIndex($highestColumnIndex);
 
-                // preview buat header detection
                 $previewRows = $sheet->rangeToArray("A1:{$endColLetter}60", null, true, false, false);
-
                 [$headerRowIndex0, $subHeaderRowIndex0] = $this->findHeaderRows($previewRows);
 
                 $header = $previewRows[$headerRowIndex0] ?? [];
@@ -101,16 +98,12 @@ class MutasiPoh1ImportService
                 );
 
                 $sheetHighestRow = (int) $sheet->getHighestRow();
-
-                // data mulai setelah subheader (index 0-based -> excel row number = +1)
                 $startRow = ($subHeaderRowIndex0 + 1) + 2;
 
                 for ($rowNum = $startRow; $rowNum <= $sheetHighestRow; $rowNum++) {
                     try {
                         $nama = trim((string) $this->cellValue($sheet, $idxNama, $rowNum));
-                        if ($nama === '') {
-                            continue;
-                        }
+                        if ($nama === '') continue;
 
                         $summary['rows']++;
 
@@ -120,23 +113,27 @@ class MutasiPoh1ImportService
                         $stockAwal = $this->toNumber($this->cellValue($sheet, $idxStockAwal, $rowNum));
                         $ending    = $this->toNumber($this->cellValue($sheet, $idxEnding, $rowNum));
 
-                        // ✅ kode wajib, stabil dari No + hash nama
                         $kodeProduk = $this->makeKodeProduk($noExcel, $nama);
 
+                        // ✅ FIX hosting: harga_beli & harga_jual tidak boleh null
                         $produk = Produk::query()->firstOrCreate(
                             ['nama_produk' => $nama],
                             [
                                 'kode_produk' => $kodeProduk,
                                 'satuan' => $satuan ?: null,
                                 'deskripsi' => null,
-                                'harga_beli' => null,
-                                'harga_jual' => null,
+
+                                // penting: default 0 agar lolos NOT NULL constraint
+                                'harga_beli' => 0,
+                                'harga_jual' => 0,
+
                                 'barcode' => null,
                                 'gambar' => null,
                             ]
                         );
 
                         $dirty = false;
+
                         if (empty($produk->kode_produk)) {
                             $produk->kode_produk = $kodeProduk;
                             $dirty = true;
@@ -145,6 +142,17 @@ class MutasiPoh1ImportService
                             $produk->satuan = $satuan;
                             $dirty = true;
                         }
+
+                        // ✅ fix data lama: kalau ternyata null, jadikan 0
+                        if ($produk->harga_beli === null) {
+                            $produk->harga_beli = 0;
+                            $dirty = true;
+                        }
+                        if ($produk->harga_jual === null) {
+                            $produk->harga_jual = 0;
+                            $dirty = true;
+                        }
+
                         if ($dirty) $produk->save();
 
                         $summary['produk_upserted']++;
@@ -154,7 +162,6 @@ class MutasiPoh1ImportService
                             $produkInitialized[$produk->id] = true;
                         }
 
-                        // Buffer Stock (masuk)
                         if ($idxBufDate !== null && $idxBufQty !== null) {
                             $bufTanggal = $this->parseDate($this->cellValue($sheet, $idxBufDate, $rowNum));
                             $bufJumlah  = $this->toNumber($this->cellValue($sheet, $idxBufQty, $rowNum));
@@ -172,7 +179,6 @@ class MutasiPoh1ImportService
                             }
                         }
 
-                        // Issued (keluar -> tujuan)
                         foreach ($datePairs as $pair) {
                             $tgl = $pair['date'];
                             $lokName = trim((string) $this->cellValue($sheet, $pair['idx_lokasi'], $rowNum));
@@ -194,7 +200,6 @@ class MutasiPoh1ImportService
                             $summary['mutasi_created']++;
                         }
 
-                        // Rekonsiliasi ending stock
                         $this->setPivotStock($produk->id, $gudang->id, $ending);
                     } catch (\Throwable $e) {
                         $summary['errors'][] = "Sheet {$sheetName} baris Excel ke-{$rowNum}: " . $e->getMessage();
@@ -212,10 +217,6 @@ class MutasiPoh1ImportService
         return $summary;
     }
 
-    /**
-     * ✅ Cara ambil nilai cell yang kompatibel lintas versi:
-     * pakai coordinate "A1" via getCell()
-     */
     private function cellValue(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, ?int $colIndex0, int $rowNum)
     {
         if ($colIndex0 === null) return null;
@@ -232,8 +233,6 @@ class MutasiPoh1ImportService
 
         return $v;
     }
-
-    /* =================== HEADER PARSER =================== */
 
     private function findHeaderRows(array $rows): array
     {
@@ -299,8 +298,6 @@ class MutasiPoh1ImportService
         return $pairs;
     }
 
-    /* =================== DATE & NUMBER =================== */
-
     private function toNumber($v): int
     {
         if ($v === null) return 0;
@@ -340,8 +337,6 @@ class MutasiPoh1ImportService
         return "POH1-{$noPart}-{$uid}";
     }
 
-    /* =================== MASTER DATA =================== */
-
     private function getOrCreateLokasi(string $nama, array &$summary): Lokasi
     {
         $nama = trim($nama);
@@ -376,8 +371,6 @@ class MutasiPoh1ImportService
             ['stok' => max(0, $stok), 'updated_at' => now(), 'created_at' => now()]
         );
     }
-
-    /* =================== MUTASI CREATORS =================== */
 
     private function createApprovedMutasiMasuk(
         int $produkId,
