@@ -86,6 +86,9 @@ class MutasiPoh1ImportService
                 $idxBufQty    = $this->findIndexExactFirst($header, 'Jumlah'); // jumlah buffer (header row)
                 $idxEnding    = $this->findIndexContains($header, 'Ending Stock');
 
+                // kolom No. umumnya index 0 (sesuai file kamu)
+                $idxNo = 0;
+
                 if ($idxNama === null || $idxStockAwal === null || $idxEnding === null) {
                     $summary['errors'][] = "Sheet {$sheet->getTitle()}: Header kolom utama tidak lengkap.";
                     continue;
@@ -103,8 +106,8 @@ class MutasiPoh1ImportService
                 // data mulai setelah subheader
                 for ($r = $subHeaderRowIndex + 1; $r < count($rows); $r++) {
                     $row = $rows[$r];
-                    $nama = trim((string) ($row[$idxNama] ?? ''));
 
+                    $nama = trim((string) ($row[$idxNama] ?? ''));
                     if ($nama === '') {
                         continue;
                     }
@@ -117,29 +120,66 @@ class MutasiPoh1ImportService
                         $stockAwal = $this->toNumber($row[$idxStockAwal] ?? 0);
                         $ending    = $this->toNumber($row[$idxEnding] ?? 0);
 
-                        // upsert produk berdasarkan nama
+                        // ====== ✅ KODE PRODUK: No Excel + UID unik ======
+                        $noExcelRaw = trim((string) ($row[$idxNo] ?? ''));
+                        $noDigits = preg_replace('/\D+/', '', $noExcelRaw);
+                        $noPadded = $noDigits !== '' ? str_pad($noDigits, 4, '0', STR_PAD_LEFT) : str_pad((string) ($r + 1), 4, '0', STR_PAD_LEFT);
+
+                        // UID pendek stabil (unik, tapi tidak kepanjangan)
+                        $uid = strtoupper(Str::random(6));
+
+                        // Contoh: POH1-0007-A1B2C3
+                        $kodeProduk = "POH1-{$noPadded}-{$uid}";
+
+                        // ====== upsert produk berdasarkan nama ======
+                        // NOTE: sesuai keputusan saat ini: validasi tetap pakai nama_produk.
+                        //       kode_produk dipakai untuk memenuhi kebutuhan NOT NULL/unique dan "mengikat" ke No excel + UID.
                         $produk = Produk::query()->firstOrCreate(
                             ['nama_produk' => $nama],
                             [
-                                'kode_produk' => null,
-                                'satuan' => $satuan ?: null,
-                                'deskripsi' => null,
-                                'harga_beli' => null,
-                                'harga_jual' => null,
+                                // ✅ jangan null (hosting sering strict)
+                                'kode_produk' => $kodeProduk,
+                                // ✅ jangan null
+                                'satuan' => $satuan !== '' ? $satuan : '-',
+                                'deskripsi' => '-',
+                                // ✅ jangan null jika kolom numeric NOT NULL
+                                'harga_beli' => 0,
+                                'harga_jual' => 0,
+                                // optional
                                 'barcode' => null,
                                 'gambar' => null,
                             ]
                         );
 
-                        if ($produk->exists) {
-                            $needsSave = false;
-                            if ($satuan && empty($produk->satuan)) {
-                                $produk->satuan = $satuan;
-                                $needsSave = true;
-                            }
-                            if ($needsSave) {
-                                $produk->save();
-                            }
+                        // kalau produk sudah ada, pastikan field wajib tidak kosong
+                        $needsSave = false;
+
+                        if (empty($produk->kode_produk)) {
+                            $produk->kode_produk = $kodeProduk;
+                            $needsSave = true;
+                        }
+
+                        if ($satuan !== '' && empty($produk->satuan)) {
+                            $produk->satuan = $satuan;
+                            $needsSave = true;
+                        }
+
+                        // pastikan tidak null kalau hosting strict
+                        if ($produk->deskripsi === null) {
+                            $produk->deskripsi = '-';
+                            $needsSave = true;
+                        }
+                        if ($produk->harga_beli === null) {
+                            $produk->harga_beli = 0;
+                            $needsSave = true;
+                        }
+                        if ($produk->harga_jual === null) {
+                            $produk->harga_jual = 0;
+                            $needsSave = true;
+                        }
+
+                        if ($needsSave) {
+                            $produk->save();
                         }
 
                         $summary['produk_upserted']++;
