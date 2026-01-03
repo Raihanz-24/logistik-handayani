@@ -7,12 +7,12 @@ use App\Models\Mutasi;
 use App\Models\Produk;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 class MutasiPoh1ImportService
 {
     public function import(string $absolutePath, string $gudangName, int $actorUserId): array
     {
-        // ✅ coba naikkan limit dari dalam code (kalau hosting mengizinkan)
         @ini_set('memory_limit', '1024M');
         @ini_set('max_execution_time', '0');
         @set_time_limit(0);
@@ -32,7 +32,6 @@ class MutasiPoh1ImportService
         $reader->setReadDataOnly(true);
         $reader->setReadEmptyCells(false);
 
-        // list worksheet names tanpa load full file
         $sheetNames = $reader->listWorksheetNames($absolutePath);
 
         $weekNames = [];
@@ -56,6 +55,7 @@ class MutasiPoh1ImportService
             'errors' => [],
         ];
 
+        // master gudang
         $gudang = $this->getOrCreateLokasi($gudangName, $summary);
         $produkInitialized = [];
 
@@ -65,11 +65,11 @@ class MutasiPoh1ImportService
                 $spreadsheet = $reader->load($absolutePath);
                 $sheet = $spreadsheet->getActiveSheet();
 
-                // ambil baris awal untuk deteksi header
                 $highestColumn = $sheet->getHighestColumn();
-                $highestColumnIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestColumn);
-                $endColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($highestColumnIndex);
+                $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
+                $endColLetter = Coordinate::stringFromColumnIndex($highestColumnIndex);
 
+                // preview buat header detection
                 $previewRows = $sheet->rangeToArray("A1:{$endColLetter}60", null, true, false, false);
 
                 [$headerRowIndex0, $subHeaderRowIndex0] = $this->findHeaderRows($previewRows);
@@ -102,13 +102,15 @@ class MutasiPoh1ImportService
 
                 $sheetHighestRow = (int) $sheet->getHighestRow();
 
-                // baris data mulai setelah subheader
-                $startRow = ($subHeaderRowIndex0 + 1) + 2; // excel row number
+                // data mulai setelah subheader (index 0-based -> excel row number = +1)
+                $startRow = ($subHeaderRowIndex0 + 1) + 2;
 
                 for ($rowNum = $startRow; $rowNum <= $sheetHighestRow; $rowNum++) {
                     try {
                         $nama = trim((string) $this->cellValue($sheet, $idxNama, $rowNum));
-                        if ($nama === '') continue;
+                        if ($nama === '') {
+                            continue;
+                        }
 
                         $summary['rows']++;
 
@@ -118,13 +120,13 @@ class MutasiPoh1ImportService
                         $stockAwal = $this->toNumber($this->cellValue($sheet, $idxStockAwal, $rowNum));
                         $ending    = $this->toNumber($this->cellValue($sheet, $idxEnding, $rowNum));
 
-                        // ✅ kode_produk wajib: buat stabil dari No Excel + hash nama
+                        // ✅ kode wajib, stabil dari No + hash nama
                         $kodeProduk = $this->makeKodeProduk($noExcel, $nama);
 
                         $produk = Produk::query()->firstOrCreate(
                             ['nama_produk' => $nama],
                             [
-                                'kode_produk' => $kodeProduk, // ✅ tidak null
+                                'kode_produk' => $kodeProduk,
                                 'satuan' => $satuan ?: null,
                                 'deskripsi' => null,
                                 'harga_beli' => null,
@@ -134,7 +136,6 @@ class MutasiPoh1ImportService
                             ]
                         );
 
-                        // kalau produk sudah ada tapi kode kosong → isi
                         $dirty = false;
                         if (empty($produk->kode_produk)) {
                             $produk->kode_produk = $kodeProduk;
@@ -157,6 +158,7 @@ class MutasiPoh1ImportService
                         if ($idxBufDate !== null && $idxBufQty !== null) {
                             $bufTanggal = $this->parseDate($this->cellValue($sheet, $idxBufDate, $rowNum));
                             $bufJumlah  = $this->toNumber($this->cellValue($sheet, $idxBufQty, $rowNum));
+
                             if ($bufTanggal && $bufJumlah > 0) {
                                 $this->createApprovedMutasiMasuk(
                                     $produk->id,
@@ -170,7 +172,7 @@ class MutasiPoh1ImportService
                             }
                         }
 
-                        // Issued (keluar transfer)
+                        // Issued (keluar -> tujuan)
                         foreach ($datePairs as $pair) {
                             $tgl = $pair['date'];
                             $lokName = trim((string) $this->cellValue($sheet, $pair['idx_lokasi'], $rowNum));
@@ -192,7 +194,7 @@ class MutasiPoh1ImportService
                             $summary['mutasi_created']++;
                         }
 
-                        // Rekonsiliasi stok gudang
+                        // Rekonsiliasi ending stock
                         $this->setPivotStock($produk->id, $gudang->id, $ending);
                     } catch (\Throwable $e) {
                         $summary['errors'][] = "Sheet {$sheetName} baris Excel ke-{$rowNum}: " . $e->getMessage();
@@ -210,18 +212,28 @@ class MutasiPoh1ImportService
         return $summary;
     }
 
-    private function cellValue($sheet, ?int $colIndex0, int $rowNum)
+    /**
+     * ✅ Cara ambil nilai cell yang kompatibel lintas versi:
+     * pakai coordinate "A1" via getCell()
+     */
+    private function cellValue(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, ?int $colIndex0, int $rowNum)
     {
         if ($colIndex0 === null) return null;
-        $col = $colIndex0 + 1;
-        $cell = $sheet->getCellByColumnAndRow($col, $rowNum);
+
+        $colLetter = Coordinate::stringFromColumnIndex($colIndex0 + 1);
+        $addr = $colLetter . $rowNum;
+
+        $cell = $sheet->getCell($addr);
         $v = $cell?->getValue();
 
         if ($v instanceof \PhpOffice\PhpSpreadsheet\RichText\RichText) {
             return $v->getPlainText();
         }
+
         return $v;
     }
+
+    /* =================== HEADER PARSER =================== */
 
     private function findHeaderRows(array $rows): array
     {
@@ -287,12 +299,16 @@ class MutasiPoh1ImportService
         return $pairs;
     }
 
+    /* =================== DATE & NUMBER =================== */
+
     private function toNumber($v): int
     {
         if ($v === null) return 0;
         if (is_numeric($v)) return (int) round((float) $v);
+
         $s = trim((string) $v);
         if ($s === '') return 0;
+
         $s = preg_replace('/[^\d\-]/', '', $s);
         return (int) ($s === '' ? 0 : $s);
     }
@@ -323,6 +339,8 @@ class MutasiPoh1ImportService
         $uid = strtoupper(substr(md5(mb_strtolower(trim($nama))), 0, 6));
         return "POH1-{$noPart}-{$uid}";
     }
+
+    /* =================== MASTER DATA =================== */
 
     private function getOrCreateLokasi(string $nama, array &$summary): Lokasi
     {
@@ -358,6 +376,8 @@ class MutasiPoh1ImportService
             ['stok' => max(0, $stok), 'updated_at' => now(), 'created_at' => now()]
         );
     }
+
+    /* =================== MUTASI CREATORS =================== */
 
     private function createApprovedMutasiMasuk(
         int $produkId,
