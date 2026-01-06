@@ -12,7 +12,7 @@ class ImportPoh1SingleWorkbookSeeder extends Seeder
         // =============================
         // UBAH INI SESUAI FILE BARU KAMU
         // =============================
-        $fileName = 'POH1_DES_2025_WITH_KATEGORI.xlsx'; // <- ganti sesuai nama file kamu
+        $fileName = 'poh_des.xlsx'; // <- ganti sesuai nama file kamu
         $gudangName = 'Gudang POH 1';
         $actorUserId = 1;
         $fileKey = 'POH1';
