@@ -20,8 +20,9 @@ class MutasiPoh1ImportService
      * - Kode produk dibuat dari No Excel + UID (sekali saat produk baru dibuat)
      * - Kolom KATEGORI dibaca dari sheet (posisi paling kanan header utama)
      * - Angka "231.230" / "231,230" dianggap "231" (ambil sebelum titik/koma)
-     * - FORMULA Excel dibaca sesuai hasilnya (oldCalculatedValue -> calculatedValue -> formatted)
-     * - Import tidak gagal karena "stok tidak cukup" (tidak throw); stok tetap direkonsiliasi via Ending Stock
+     * - FORMULA Excel dibaca sesuai hasilnya (oldCalculatedValue -> calculatedValue -> formatted -> raw)
+     * - Tujuan yang berisi 2+ lokasi akan dipecah menjadi beberapa mutasi
+     * - Import tidak error walau stok kurang (tidak throw); stok tetap aman (tidak minus) & direkonsiliasi via Ending Stock
      *
      * Return summary:
      *  sheets, rows, mutasi_created, produk_upserted, lokasi_created, kategori_created, errors[]
@@ -37,10 +38,9 @@ class MutasiPoh1ImportService
             throw new \RuntimeException('PhpSpreadsheet tidak tersedia. Server ini tidak bisa import XLSX.');
         }
 
-        // fileKey untuk idempotensi no_ref (kalau tidak dikirim, pakai nama file)
         $fileKey = $fileKey ?: Str::upper(Str::slug(pathinfo($absolutePath, PATHINFO_FILENAME)));
 
-        // Ambil nama sheet tanpa load seluruh workbook
+        // Ambil nama sheet
         $readerProbe = IOFactory::createReaderForFile($absolutePath);
         $sheetNames = $readerProbe->listWorksheetNames($absolutePath);
 
@@ -74,17 +74,22 @@ class MutasiPoh1ImportService
             $lokasiCache = [];
             $kategoriCache = [];
 
+            /**
+             * ✅ FIX PENTING:
+             * Load workbook SEKALI full sheet (biar formula antar sheet kebaca benar).
+             * File kamu kecil, aman.
+             */
+            $reader = IOFactory::createReaderForFile($absolutePath);
+            $reader->setReadDataOnly(false);
+            $spreadsheet = $reader->load($absolutePath);
+
             foreach ($weekSheetNames as $sheetName) {
                 try {
-                    // Load 1 sheet saja (hemat memory)
-                    $reader = IOFactory::createReaderForFile($absolutePath);
-
-                    // Penting: jangan dataOnly supaya formattedValue + formula lebih stabil
-                    $reader->setReadDataOnly(false);
-                    $reader->setLoadSheetsOnly([$sheetName]);
-
-                    $spreadsheet = $reader->load($absolutePath);
-                    $sheet = $spreadsheet->getActiveSheet(); /** @var Worksheet $sheet */
+                    $sheet = $spreadsheet->getSheetByName($sheetName);
+                    if (!$sheet instanceof Worksheet) {
+                        $summary['errors'][] = "Sheet {$sheetName}: tidak ditemukan saat load workbook.";
+                        continue;
+                    }
 
                     // Cari header row "No." & "Nama"
                     [$headerRow, $subHeaderRow] = $this->findHeaderRows($sheet);
@@ -104,8 +109,6 @@ class MutasiPoh1ImportService
 
                     if ($idxNama === null || $idxStockAwal === null || $idxEnding === null) {
                         $summary['errors'][] = "Sheet {$sheetName}: Header kolom utama tidak lengkap.";
-                        $spreadsheet->disconnectWorksheets();
-                        unset($spreadsheet);
                         continue;
                     }
 
@@ -122,7 +125,7 @@ class MutasiPoh1ImportService
                     for ($r = $subHeaderRow + 1; $r <= $highestRow; $r++) {
                         try {
                             $noVal = ($idxNo !== null) ? $this->cellValue($sheet, (int) $idxNo, $r) : null;
-                            $no = $this->toIntNo($noVal); // untuk kode produk
+                            $no = $this->toIntNo($noVal);
 
                             $nama = trim((string) $this->cellValue($sheet, (int) $idxNama, $r));
                             if ($nama === '') {
@@ -134,7 +137,7 @@ class MutasiPoh1ImportService
                             $satuan = ($idxSatuan !== null) ? trim((string) $this->cellValue($sheet, (int) $idxSatuan, $r)) : '';
                             $katName = ($idxKategori !== null) ? trim((string) $this->cellValue($sheet, (int) $idxKategori, $r)) : '';
 
-                            // FIX: baca qty dari cell (dukung formula + potong belakang koma/titik)
+                            // ✅ qty akurat (formula antar sheet sudah bisa kebaca karena workbook full loaded)
                             $stockAwal = $this->qtyFromCell($sheet, (int) $idxStockAwal, $r);
                             $ending    = $this->qtyFromCell($sheet, (int) $idxEnding, $r);
 
@@ -203,7 +206,9 @@ class MutasiPoh1ImportService
                                 );
                             }
 
-                            // Set stok awal gudang PER BARIS (sesuai report Excel)
+                            /**
+                             * ✅ Set stok awal gudang PER BARIS sesuai report Excel
+                             */
                             $this->setPivotStock($produk->id, $gudang->id, $stockAwal);
 
                             // Buffer Stock (masuk dari luar)
@@ -233,44 +238,55 @@ class MutasiPoh1ImportService
                                 $idxLok = (int) $pair['idx_lokasi'];
                                 $idxJml = (int) $pair['idx_jumlah'];
 
-                                $lokName = trim((string) $this->cellValue($sheet, $idxLok, $r));
-                                $qty = $this->qtyFromCell($sheet, $idxJml, $r);
+                                $lokRaw = trim((string) $this->cellValue($sheet, $idxLok, $r));
+                                $qtyTotal = $this->qtyFromCell($sheet, $idxJml, $r);
 
-                                if ($lokName === '' || $qty <= 0) {
+                                if ($lokRaw === '' || $qtyTotal <= 0) {
                                     continue;
                                 }
 
-                                $lokKey = mb_strtolower($lokName);
-                                if (!isset($lokasiCache[$lokKey])) {
-                                    $tujuan = $this->getOrCreateLokasi($lokName, $summary);
-                                    $lokasiCache[$lokKey] = $tujuan->id;
+                                // ✅ pecah lokasi multi tujuan
+                                $targets = $this->splitLokasiTargets($lokRaw, $qtyTotal);
+                                if (empty($targets)) {
+                                    continue;
                                 }
-                                $lokasiTujuanId = (int) $lokasiCache[$lokKey];
 
-                                $created = $this->createApprovedMutasiKeluarTransfer(
-                                    produkId: $produk->id,
-                                    gudangAsalId: $gudang->id,
-                                    lokasiTujuanId: $lokasiTujuanId,
-                                    tanggal: $tgl,
-                                    jumlah: $qty,
-                                    actorUserId: $actorUserId,
-                                    keterangan: 'Issued (import)',
-                                    noRefSeed: "{$fileKey}|{$sheetName}|R{$r}|ISS|{$tgl}|{$lokasiTujuanId}"
-                                );
-                                if ($created) {
-                                    $summary['mutasi_created']++;
+                                foreach ($targets as $t) {
+                                    $lokName = trim((string) ($t['lokasi'] ?? ''));
+                                    $qty = (int) ($t['qty'] ?? 0);
+                                    if ($lokName === '' || $qty <= 0) continue;
+
+                                    $lokKey = mb_strtolower($lokName);
+                                    if (!isset($lokasiCache[$lokKey])) {
+                                        $tujuan = $this->getOrCreateLokasi($lokName, $summary);
+                                        $lokasiCache[$lokKey] = $tujuan->id;
+                                    }
+                                    $lokasiTujuanId = (int) $lokasiCache[$lokKey];
+
+                                    $created = $this->createApprovedMutasiKeluarTransfer(
+                                        produkId: $produk->id,
+                                        gudangAsalId: $gudang->id,
+                                        lokasiTujuanId: $lokasiTujuanId,
+                                        tanggal: $tgl,
+                                        jumlah: $qty,
+                                        actorUserId: $actorUserId,
+                                        keterangan: 'Issued (import)',
+                                        // seed harus beda per tujuan biar idempotensi aman
+                                        noRefSeed: "{$fileKey}|{$sheetName}|R{$r}|ISS|{$tgl}|{$lokasiTujuanId}|Q{$qty}"
+                                    );
+
+                                    if ($created) {
+                                        $summary['mutasi_created']++;
+                                    }
                                 }
                             }
 
-                            // Rekonsiliasi stok gudang = Ending Stock (source of truth)
+                            // Rekonsiliasi stok gudang = Ending Stock
                             $this->setPivotStock($produk->id, $gudang->id, $ending);
                         } catch (\Throwable $e) {
                             $summary['errors'][] = "Sheet {$sheetName} baris Excel ke-{$r}: " . $e->getMessage();
                         }
                     }
-
-                    $spreadsheet->disconnectWorksheets();
-                    unset($spreadsheet);
 
                     if (function_exists('gc_collect_cycles')) {
                         gc_collect_cycles();
@@ -279,6 +295,9 @@ class MutasiPoh1ImportService
                     $summary['errors'][] = "Sheet {$sheetName}: " . $e->getMessage();
                 }
             }
+
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet);
         });
 
         return $summary;
@@ -295,16 +314,15 @@ class MutasiPoh1ImportService
      * FIX untuk angka + formula:
      * prioritas:
      * 1) oldCalculatedValue (cached dari Excel)
-     * 2) calculatedValue (hitung kalau memungkinkan)
-     * 3) formattedValue (agar 231.230 / 231,230 kebaca benar)
-     * 4) raw value
+     * 2) calculatedValue (hitung)
+     * 3) formattedValue (agar 231.230 / 231,230 kebaca 231)
+     * 4) raw
      */
     private function qtyFromCell(Worksheet $sheet, int $col, int $row): int
     {
         $cell = $sheet->getCell([$col, $row]);
         $raw = $cell->getValue();
 
-        // formula?
         if (is_string($raw) && isset($raw[0]) && $raw[0] === '=') {
             $old = $cell->getOldCalculatedValue();
             if ($old !== null && $old !== '') {
@@ -317,7 +335,7 @@ class MutasiPoh1ImportService
                     return $this->toIntQty($calc);
                 }
             } catch (\Throwable $e) {
-                // fallback ke formatted/raw
+                // fallback
             }
         }
 
@@ -422,6 +440,70 @@ class MutasiPoh1ImportService
     }
 
     /**
+     * ✅ Pecah tujuan yang mengandung 2+ lokasi
+     * Support:
+     * - "Bali 24 = 2, Bali 15 = 4"
+     * - "Lombok 16 & 18" (angka kedua akan diwarisi prefix "Lombok")
+     * - "A, B" / "A & B" / "A dan B" => qty dibagi rata dari qtyTotal
+     */
+    private function splitLokasiTargets(string $lokasiRaw, int $qtyTotal): array
+    {
+        $lokasiRaw = trim($lokasiRaw);
+        if ($lokasiRaw === '' || $lokasiRaw === '-' || $qtyTotal <= 0) return [];
+
+        $lokasiRaw = rtrim($lokasiRaw, " \t\n\r\0\x0B,");
+
+        $targets = [];
+
+        // Case 1: format "Nama=2, Nama2=4"
+        if (preg_match_all('/([^=,;&\n]+?)\s*=\s*(\d+)/u', $lokasiRaw, $m, PREG_SET_ORDER)) {
+            foreach ($m as $mm) {
+                $name = trim($mm[1]);
+                $q = (int) $mm[2];
+                if ($name !== '' && $q > 0) {
+                    $targets[] = ['lokasi' => $name, 'qty' => $q];
+                }
+            }
+            return $targets;
+        }
+
+        // Case 2: split by &, dan, comma, /
+        $parts = preg_split('/\s*(?:&|\/|,|\bdan\b)\s*/iu', $lokasiRaw);
+        $parts = array_values(array_filter(array_map('trim', $parts), fn($x) => $x !== ''));
+
+        if (count($parts) <= 1) {
+            return [['lokasi' => $lokasiRaw, 'qty' => $qtyTotal]];
+        }
+
+        // Inherit prefix: "Lombok 16 & 18" => "Lombok 16", "Lombok 18"
+        $first = $parts[0];
+        $prefix = '';
+        if (preg_match('/^(.*?)(\d+)\s*$/u', $first, $mm)) {
+            $prefix = trim($mm[1]);
+        }
+
+        for ($i = 1; $i < count($parts); $i++) {
+            if ($prefix !== '' && preg_match('/^\d+$/', $parts[$i])) {
+                $parts[$i] = $prefix . ' ' . $parts[$i];
+            }
+        }
+
+        // bagi qty total rata
+        $n = count($parts);
+        $base = intdiv($qtyTotal, $n);
+        $rem = $qtyTotal % $n;
+
+        for ($i = 0; $i < $n; $i++) {
+            $q = $base + ($i < $rem ? 1 : 0);
+            if ($q > 0) {
+                $targets[] = ['lokasi' => $parts[$i], 'qty' => $q];
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
      * Angka "231.230" / "231,230" dianggap 231 (ambil sebelum titik/koma).
      */
     private function toIntQty($v): int
@@ -437,14 +519,11 @@ class MutasiPoh1ImportService
         $s = trim((string) $v);
         if ($s === '' || $s === '-') return 0;
 
-        // buang NBSP & spasi ribuan
         $s = str_replace(["\xc2\xa0", ' '], '', $s);
 
-        // ambil bagian depan sebelum titik/koma pertama
         $parts = preg_split('/[.,]/', $s, 2);
         $front = $parts[0] ?? '0';
 
-        // buang selain digit & minus
         $front = preg_replace('/[^\d\-]/', '', $front);
 
         if ($front === '' || $front === '-') return 0;
@@ -490,17 +569,14 @@ class MutasiPoh1ImportService
 
         $s = str_replace(['\\', '.'], '/', $s);
 
-        // yyyy-mm-dd
         if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $s, $m)) {
             return sprintf('%04d-%02d-%02d', (int) $m[1], (int) $m[2], (int) $m[3]);
         }
 
-        // dd/mm/yyyy
         if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $s, $m)) {
             return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
         }
 
-        // dd-mm-yyyy
         if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $s, $m)) {
             return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
         }
@@ -653,10 +729,6 @@ class MutasiPoh1ImportService
         return true;
     }
 
-    /**
-     * Tidak akan throw "stok tidak cukup".
-     * Jika stok kurang, stok asal di-clamp 0. Import tetap lanjut dan stok gudang akan benar karena rekonsiliasi Ending Stock.
-     */
     private function createApprovedMutasiKeluarTransfer(
         int $produkId,
         int $gudangAsalId,
@@ -688,6 +760,7 @@ class MutasiPoh1ImportService
 
         $stokAwal = (int) ($pivotAsal->stok ?? 0);
 
+        // tidak throw; stok tidak boleh minus
         $stokAkhir = $stokAwal - $jumlah;
         if ($stokAkhir < 0) $stokAkhir = 0;
 
@@ -700,6 +773,7 @@ class MutasiPoh1ImportService
             ]
         );
 
+        // lokasi tujuan tetap bertambah stok (sesuai desain tabel kamu sekarang)
         $pivotT = DB::table('produk_lokasi')
             ->where('produk_id', $produkId)
             ->where('lokasi_id', $lokasiTujuanId)
