@@ -14,7 +14,7 @@ class ImportPoh1SingleWorkbookSeeder extends Seeder
         // =============================
 
         // Nama file yang mau diimport (sesuaikan nama persis)
-        $fileName = 'FILE1.xlsx';
+        $fileName = 'poh_des.xlsx';
 
         // Nama gudang
         $gudangName = 'Gudang POH 1';
