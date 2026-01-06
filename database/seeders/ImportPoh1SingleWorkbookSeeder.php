@@ -9,32 +9,42 @@ class ImportPoh1SingleWorkbookSeeder extends Seeder
 {
     public function run(): void
     {
-        // set dari env saat run: POH1_FILE="imports/poh1/FILE1.xlsx"
-        $relativePath = env('POH1_FILE', 'imports/poh1/FILE1.xlsx');
-        $gudangName   = env('POH1_GUDANG', 'Gudang POH 1');
-        $actorUserId  = (int) env('POH1_ACTOR_ID', 1);
+        // ✅ Ubah ini saja tiap kali mau import file berbeda
+        $filePath = storage_path('app/imports/poh1/FILE1.xlsx');
 
-        $abs = storage_path('app/' . ltrim($relativePath, '/'));
+        // Nama gudang sesuai kebutuhan
+        $gudangName = 'Gudang POH 1';
+
+        // actor user untuk created_by / approved_by
+        $actorUserId = 1;
+
+        $service = app(MutasiPoh1ImportService::class);
+
+        $result = $service->import(
+            absolutePath: $filePath,
+            gudangName: $gudangName,
+            actorUserId: $actorUserId,
+            fileKey: 'POH1' // bebas, tapi stabil (untuk kode produk & no_ref hash)
+        );
 
         $this->command?->info("=== Import 1 workbook ===");
-        $this->command?->info("File  : {$abs}");
+        $this->command?->info("File  : {$filePath}");
         $this->command?->info("Gudang: {$gudangName}");
+        $this->command?->info("Sheets          : {$result['sheets']}");
+        $this->command?->info("Rows processed   : {$result['rows']}");
+        $this->command?->info("Produk upserted  : {$result['produk_upserted']}");
+        $this->command?->info("Lokasi created   : {$result['lokasi_created']}");
+        $this->command?->info("Kategori created : {$result['kategori_created']}");
+        $this->command?->info("Mutasi created   : {$result['mutasi_created']}");
 
-        $result = app(MutasiPoh1ImportService::class)->import($abs, $gudangName, $actorUserId);
-
-        $this->command?->info("Sheets          : " . ($result['sheets'] ?? 0));
-        $this->command?->info("Rows processed   : " . ($result['rows'] ?? 0));
-        $this->command?->info("Produk upserted  : " . ($result['produk_upserted'] ?? 0));
-        $this->command?->info("Lokasi created   : " . ($result['lokasi_created'] ?? 0));
-        $this->command?->info("Mutasi created   : " . ($result['mutasi_created'] ?? 0));
-
-        $errors = $result['errors'] ?? [];
-        $this->command?->info("Errors: " . count($errors));
-        foreach (array_slice($errors, 0, 10) as $e) {
-            $this->command?->warn(" - " . $e);
-        }
-        if (count($errors) > 10) {
-            $this->command?->warn(" ... (lebih banyak error, cek log/ulang perbaikan)");
+        if (! empty($result['errors'])) {
+            $this->command?->warn("Errors: " . count($result['errors']));
+            foreach (array_slice($result['errors'], 0, 20) as $err) {
+                $this->command?->warn(" - {$err}");
+            }
+            if (count($result['errors']) > 20) {
+                $this->command?->warn(" ... (lebih banyak error, cek log/ulang perbaikan)");
+            }
         }
     }
 }
