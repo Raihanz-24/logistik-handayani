@@ -19,7 +19,7 @@ class MutasiPoh1ImportService
      * - Produk dicocokkan berdasarkan nama_produk (sementara sesuai keputusan kamu)
      * - Kode produk dibuat dari No Excel + UID (sekali saat produk baru dibuat)
      * - Kolom KATEGORI dibaca dari sheet (posisi paling kanan header utama)
-     * - Angka "231.230" dianggap "231" (hapus belakang titik)
+     * - Angka "231.230" / "231,230" dianggap "231" (ambil sebelum titik/koma)
      *
      * Return summary:
      *  sheets, rows, mutasi_created, produk_upserted, lokasi_created, kategori_created, errors[]
@@ -31,7 +31,7 @@ class MutasiPoh1ImportService
             throw new \RuntimeException('File harus XLSX.');
         }
 
-        if (! class_exists(IOFactory::class)) {
+        if (!class_exists(IOFactory::class)) {
             throw new \RuntimeException('PhpSpreadsheet tidak tersedia. Server ini tidak bisa import XLSX.');
         }
 
@@ -86,18 +86,18 @@ class MutasiPoh1ImportService
                     // Cari header row "No." & "Nama"
                     [$headerRow, $subHeaderRow] = $this->findHeaderRows($sheet);
 
-                    // Ambil header & subheader array (cukup scan 1..80 kolom aja)
-                    $header = $this->readRow($sheet, $headerRow, 1, 80);
-                    $subHeader = $this->readRow($sheet, $subHeaderRow, 1, 80);
+                    // Ambil header & subheader array (cukup scan 1..120 kolom biar aman kalau kolom melebar)
+                    $header = $this->readRow($sheet, $headerRow, 1, 120);
+                    $subHeader = $this->readRow($sheet, $subHeaderRow, 1, 120);
 
-                    $idxNo       = $this->findIndexExact($header, 'No.');
-                    $idxNama     = $this->findIndexContains($header, 'Nama');
-                    $idxSatuan   = $this->findIndexExact($header, 'Satuan');
-                    $idxStockAwal= $this->findIndexContains($header, 'Stock Awal');
-                    $idxBufDate  = $this->findIndexContains($header, 'Tanggal Buffer');
-                    $idxBufQty   = $this->findIndexExactFirst($header, 'Jumlah'); // jumlah buffer (header row)
-                    $idxEnding   = $this->findIndexContains($header, 'Ending Stock');
-                    $idxKategori = $this->findIndexContains($header, 'Kategori'); // kolom KATEGORI (paling kanan header utama)
+                    $idxNo        = $this->findIndexExact($header, 'No.');
+                    $idxNama      = $this->findIndexContains($header, 'Nama');
+                    $idxSatuan    = $this->findIndexExact($header, 'Satuan');
+                    $idxStockAwal = $this->findIndexContains($header, 'Stock Awal');
+                    $idxBufDate   = $this->findIndexContains($header, 'Tanggal Buffer');
+                    $idxBufQty    = $this->findIndexExactFirst($header, 'Jumlah'); // jumlah buffer (header row)
+                    $idxEnding    = $this->findIndexContains($header, 'Ending Stock');
+                    $idxKategori  = $this->findIndexContains($header, 'Kategori'); // kolom KATEGORI (paling kanan header utama)
 
                     if ($idxNama === null || $idxStockAwal === null || $idxEnding === null) {
                         $summary['errors'][] = "Sheet {$sheetName}: Header kolom utama tidak lengkap.";
@@ -119,27 +119,28 @@ class MutasiPoh1ImportService
 
                     for ($r = $subHeaderRow + 1; $r <= $highestRow; $r++) {
                         try {
-                            $noVal = $idxNo ? $this->cellValue($sheet, $idxNo, $r) : null;
+                            $noVal = ($idxNo !== null) ? $this->cellValue($sheet, (int) $idxNo, $r) : null;
                             $no = $this->toIntNo($noVal); // untuk kode produk
-                            $nama = trim((string) $this->cellValue($sheet, $idxNama, $r));
 
+                            $nama = trim((string) $this->cellValue($sheet, (int) $idxNama, $r));
                             if ($nama === '') {
                                 continue;
                             }
 
                             $summary['rows']++;
 
-                            $satuan = $idxSatuan ? trim((string) $this->cellValue($sheet, $idxSatuan, $r)) : '';
-                            $katName = $idxKategori ? trim((string) $this->cellValue($sheet, $idxKategori, $r)) : '';
+                            $satuan = ($idxSatuan !== null) ? trim((string) $this->cellValue($sheet, (int) $idxSatuan, $r)) : '';
+                            $katName = ($idxKategori !== null) ? trim((string) $this->cellValue($sheet, (int) $idxKategori, $r)) : '';
 
-                            $stockAwal = $this->toIntQty($this->cellValue($sheet, $idxStockAwal, $r));
-                            $ending    = $this->toIntQty($this->cellValue($sheet, $idxEnding, $r));
+                            // ✅ PERBAIKAN INTI: angka "252.251" / "252,251" => 252
+                            $stockAwal = $this->toIntQty($this->cellValue($sheet, (int) $idxStockAwal, $r));
+                            $ending    = $this->toIntQty($this->cellValue($sheet, (int) $idxEnding, $r));
 
                             // Upsert produk by nama (sesuai keputusan kamu saat ini)
-                            // IMPORTANT: hosting kamu punya constraint NOT NULL (kode_produk, harga_beli, harga_jual) -> kasih default
+                            // hosting kamu punya constraint NOT NULL (kode_produk, harga_beli, harga_jual) -> kasih default
                             $produk = Produk::query()->where('nama_produk', $nama)->first();
 
-                            if (! $produk) {
+                            if (!$produk) {
                                 $kode = $this->makeKodeProduk($fileKey, $no);
 
                                 $produk = Produk::create([
@@ -155,7 +156,6 @@ class MutasiPoh1ImportService
 
                                 $summary['produk_upserted']++;
                             } else {
-                                // update satuan kalau kosong
                                 $needsSave = false;
 
                                 if ($satuan !== '' && empty($produk->satuan)) {
@@ -163,7 +163,7 @@ class MutasiPoh1ImportService
                                     $needsSave = true;
                                 }
 
-                                // jaga-jaga kalau ada data lama tanpa kode (meski DB kamu biasanya tidak mengizinkan)
+                                // jaga-jaga kalau ada data lama tanpa kode (meski DB biasanya tidak mengizinkan)
                                 if (empty($produk->kode_produk)) {
                                     $produk->kode_produk = $this->makeKodeProduk($fileKey, $no);
                                     $needsSave = true;
@@ -187,7 +187,7 @@ class MutasiPoh1ImportService
                             // attach kategori kalau ada
                             if ($katName !== '') {
                                 $katKey = mb_strtolower($katName);
-                                if (! isset($kategoriCache[$katKey])) {
+                                if (!isset($kategoriCache[$katKey])) {
                                     $kategori = $this->getOrCreateKategori($katName, $summary);
                                     $kategoriCache[$katKey] = $kategori->id;
                                 }
@@ -205,15 +205,15 @@ class MutasiPoh1ImportService
                             }
 
                             // Set stok awal gudang hanya sekali per produk
-                            if (! isset($produkInitialized[$produk->id])) {
+                            if (!isset($produkInitialized[$produk->id])) {
                                 $this->setPivotStock($produk->id, $gudang->id, $stockAwal);
                                 $produkInitialized[$produk->id] = true;
                             }
 
                             // Buffer Stock (masuk dari luar)
                             if ($idxBufDate !== null && $idxBufQty !== null) {
-                                $bufTanggal = $this->parseDate($this->cellValue($sheet, $idxBufDate, $r));
-                                $bufJumlah  = $this->toIntQty($this->cellValue($sheet, $idxBufQty, $r));
+                                $bufTanggal = $this->parseDate($this->cellValue($sheet, (int) $idxBufDate, $r));
+                                $bufJumlah  = $this->toIntQty($this->cellValue($sheet, (int) $idxBufQty, $r));
 
                                 if ($bufTanggal && $bufJumlah > 0) {
                                     $created = $this->createApprovedMutasiMasuk(
@@ -234,8 +234,8 @@ class MutasiPoh1ImportService
                             // Issued harian (keluar -> tujuan berdasarkan kolom)
                             foreach ($datePairs as $pair) {
                                 $tgl = $pair['date'];
-                                $idxLok = $pair['idx_lokasi'];
-                                $idxJml = $pair['idx_jumlah'];
+                                $idxLok = (int) $pair['idx_lokasi'];
+                                $idxJml = (int) $pair['idx_jumlah'];
 
                                 $lokName = trim((string) $this->cellValue($sheet, $idxLok, $r));
                                 $qty = $this->toIntQty($this->cellValue($sheet, $idxJml, $r));
@@ -245,7 +245,7 @@ class MutasiPoh1ImportService
                                 }
 
                                 $lokKey = mb_strtolower($lokName);
-                                if (! isset($lokasiCache[$lokKey])) {
+                                if (!isset($lokasiCache[$lokKey])) {
                                     $tujuan = $this->getOrCreateLokasi($lokName, $summary);
                                     $lokasiCache[$lokKey] = $tujuan->id;
                                 }
@@ -269,7 +269,7 @@ class MutasiPoh1ImportService
                             // Rekonsiliasi stok gudang = Ending Stock
                             $this->setPivotStock($produk->id, $gudang->id, $ending);
                         } catch (\Throwable $e) {
-                            $summary['errors'][] = "Sheet {$sheetName} baris Excel ke-" . $r . ": " . $e->getMessage();
+                            $summary['errors'][] = "Sheet {$sheetName} baris Excel ke-{$r}: " . $e->getMessage();
                         }
                     }
 
@@ -365,14 +365,14 @@ class MutasiPoh1ImportService
             $subB = mb_strtolower(trim((string) ($subHeader[$i + 1] ?? '')));
 
             // format di file kamu: "Lokasi " dan "Jumlah" (kadang spasi)
-            if (! str_contains($subA, 'lokasi') || ! str_contains($subB, 'jumlah')) {
+            if (!str_contains($subA, 'lokasi') || !str_contains($subB, 'jumlah')) {
                 continue;
             }
 
             $candidate = $header[$i] ?? null;
             $date = $this->parseDate($candidate);
 
-            if (! $date && $lastDate) {
+            if (!$date && $lastDate) {
                 $date = $lastDate; // carry forward (merge)
             }
 
@@ -391,39 +391,34 @@ class MutasiPoh1ImportService
     }
 
     /**
-     * Konversi angka qty/stok:
-     * - numeric float: 231.230 -> 231 (hapus pecahan)
-     * - string: "231.230" -> 231 (ambil sebelum titik)
-     * - string: "231,230" -> 231 (ambil sebelum koma)
-     * - string dengan simbol lain tetap aman
+     * ✅ INTI FIX: angka "231.230" / "231,230" dianggap 231.
+     * - numeric: ambil integer depan (floor)
+     * - string: split di titik/koma pertama, ambil bagian depan
      */
     private function toIntQty($v): int
     {
         if ($v === null) return 0;
 
+        // numeric langsung
         if (is_int($v)) return $v;
 
         if (is_float($v) || is_numeric($v)) {
-            // hapus pecahan
             return (int) floor((float) $v);
         }
 
         $s = trim((string) $v);
-        if ($s === '') return 0;
-
-        // kalau ada titik/koma -> ambil bagian sebelum titik/koma pertama
-        if (str_contains($s, '.')) {
-            $s = explode('.', $s, 2)[0];
-        }
-        if (str_contains($s, ',')) {
-            $s = explode(',', $s, 2)[0];
-        }
-
-        // buang selain digit dan minus
-        $s = preg_replace('/[^\d\-]/', '', $s);
         if ($s === '' || $s === '-') return 0;
 
-        return (int) $s;
+        // ambil bagian depan sebelum titik/koma
+        $parts = preg_split('/[.,]/', $s, 2);
+        $front = $parts[0] ?? '0';
+
+        // buang selain digit dan minus
+        $front = preg_replace('/[^\d\-]/', '', $front);
+
+        if ($front === '' || $front === '-') return 0;
+
+        return (int) $front;
     }
 
     private function toIntNo($v): ?int
@@ -439,7 +434,6 @@ class MutasiPoh1ImportService
         $s = trim((string) $v);
         if ($s === '') return null;
 
-        // untuk No, kita ambil digit saja
         $digits = preg_replace('/[^\d]/', '', $s);
         if ($digits === '') return null;
 
@@ -487,9 +481,11 @@ class MutasiPoh1ImportService
 
     private function makeKodeProduk(string $fileKey, ?int $no): string
     {
-        $noPart = $no ? str_pad((string) $no, 6, '0', STR_PAD_LEFT) : str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT);
+        $noPart = $no
+            ? str_pad((string) $no, 6, '0', STR_PAD_LEFT)
+            : str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT);
+
         $uid = strtoupper(Str::random(6));
-        // format: POH1-000123-ABCDEF (fileKey agar beda antar sumber)
         return "{$fileKey}-{$noPart}-{$uid}";
     }
 
@@ -532,7 +528,6 @@ class MutasiPoh1ImportService
         $existing = KategoriProduk::query()->where('slug', $slug)->first();
         if ($existing) return $existing;
 
-        // pastikan slug unik
         $base = $slug ?: 'kategori';
         $slugFinal = $base;
         $n = 1;
@@ -578,7 +573,7 @@ class MutasiPoh1ImportService
         $noRef = 'IMP-IN-' . substr(sha1($noRefSeed), 0, 12);
 
         if (Mutasi::query()->where('no_ref', $noRef)->exists()) {
-            return false; // idempotent
+            return false;
         }
 
         $pivot = DB::table('produk_lokasi')
@@ -610,7 +605,7 @@ class MutasiPoh1ImportService
             'user_id' => $actorUserId,
             'produk_id' => $produkId,
 
-            'lokasi_id' => $gudangId,        // masuk = gudang tujuan
+            'lokasi_id' => $gudangId,
             'lokasi_tujuan_id' => null,
 
             'created_by' => $actorUserId,
@@ -638,13 +633,13 @@ class MutasiPoh1ImportService
         if ($jumlah <= 0) return false;
 
         if ($lokasiTujuanId === $gudangAsalId) {
-            return false; // skip tujuan sama
+            return false;
         }
 
         $noRef = 'IMP-OUT-' . substr(sha1($noRefSeed), 0, 12);
 
         if (Mutasi::query()->where('no_ref', $noRef)->exists()) {
-            return false; // idempotent
+            return false;
         }
 
         $pivotAsal = DB::table('produk_lokasi')
