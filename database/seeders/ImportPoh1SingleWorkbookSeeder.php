@@ -10,7 +10,7 @@ class ImportPoh1SingleWorkbookSeeder extends Seeder
     public function run(): void
     {
         // ✅ Ubah ini saja tiap kali mau import file berbeda
-        $filePath = storage_path('app/imports/poh1/FILE1.xlsx');
+        $filePath = storage_path('app/imports/FILE1.xlsx');
 
         // Nama gudang sesuai kebutuhan
         $gudangName = 'Gudang POH 1';
