@@ -20,6 +20,8 @@ class MutasiPoh1ImportService
      * - Kode produk dibuat dari No Excel + UID (sekali saat produk baru dibuat)
      * - Kolom KATEGORI dibaca dari sheet (posisi paling kanan header utama)
      * - Angka "231.230" / "231,230" dianggap "231" (ambil sebelum titik/koma)
+     * - FORMULA Excel dibaca sesuai hasilnya (oldCalculatedValue -> calculatedValue -> formatted)
+     * - Tidak throw "stok tidak cukup" agar import tidak gagal; stok tetap direkonsiliasi via Ending Stock
      *
      * Return summary:
      *  sheets, rows, mutasi_created, produk_upserted, lokasi_created, kategori_created, errors[]
@@ -71,13 +73,14 @@ class MutasiPoh1ImportService
             // cache untuk mengurangi query
             $lokasiCache = [];
             $kategoriCache = [];
-            $produkInitialized = []; // set stok awal sekali per produk
 
             foreach ($weekSheetNames as $sheetName) {
                 try {
                     // Load 1 sheet saja (hemat memory)
                     $reader = IOFactory::createReaderForFile($absolutePath);
-                    $reader->setReadDataOnly(true);
+
+                    // ✅ penting: jangan dataOnly, supaya formula/format lebih stabil
+                    $reader->setReadDataOnly(false);
                     $reader->setLoadSheetsOnly([$sheetName]);
 
                     $spreadsheet = $reader->load($absolutePath);
@@ -132,16 +135,11 @@ class MutasiPoh1ImportService
                             $satuan = ($idxSatuan !== null) ? trim((string) $this->cellValue($sheet, (int) $idxSatuan, $r)) : '';
                             $katName = ($idxKategori !== null) ? trim((string) $this->cellValue($sheet, (int) $idxKategori, $r)) : '';
 
-                            /**
-                             * ✅ FIX INTI (presisi tinggi):
-                             * Pakai formattedValue agar kasus Excel "231.230" (format ribuan) tidak jadi 231230.
-                             * Hasil akhirnya selalu integer bagian depan sebelum titik/koma.
-                             */
+                            // ✅ FIX: baca qty dari cell (dukung formula + potong koma/titik)
                             $stockAwal = $this->qtyFromCell($sheet, (int) $idxStockAwal, $r);
                             $ending    = $this->qtyFromCell($sheet, (int) $idxEnding, $r);
 
                             // Upsert produk by nama (sesuai keputusan kamu saat ini)
-                            // hosting kamu punya constraint NOT NULL (kode_produk, harga_beli, harga_jual) -> kasih default
                             $produk = Produk::query()->where('nama_produk', $nama)->first();
 
                             if (!$produk) {
@@ -167,13 +165,11 @@ class MutasiPoh1ImportService
                                     $needsSave = true;
                                 }
 
-                                // jaga-jaga kalau ada data lama tanpa kode (meski DB biasanya tidak mengizinkan)
                                 if (empty($produk->kode_produk)) {
                                     $produk->kode_produk = $this->makeKodeProduk($fileKey, $no);
                                     $needsSave = true;
                                 }
 
-                                // jaga-jaga constraint harga
                                 if ($produk->harga_beli === null) {
                                     $produk->harga_beli = 0;
                                     $needsSave = true;
@@ -208,11 +204,12 @@ class MutasiPoh1ImportService
                                 );
                             }
 
-                            // Set stok awal gudang hanya sekali per produk
-                            if (!isset($produkInitialized[$produk->id])) {
-                                $this->setPivotStock($produk->id, $gudang->id, $stockAwal);
-                                $produkInitialized[$produk->id] = true;
-                            }
+                            /**
+                             * ✅ PENTING: Set stok awal gudang PER BARIS.
+                             * Karena Excel report memang punya Stock Awal per baris/per periode.
+                             * Ini mencegah kasus stok kebaca 0 lalu nyangkut.
+                             */
+                            $this->setPivotStock($produk->id, $gudang->id, $stockAwal);
 
                             // Buffer Stock (masuk dari luar)
                             if ($idxBufDate !== null && $idxBufQty !== null) {
@@ -270,7 +267,7 @@ class MutasiPoh1ImportService
                                 }
                             }
 
-                            // Rekonsiliasi stok gudang = Ending Stock
+                            // Rekonsiliasi stok gudang = Ending Stock (source of truth)
                             $this->setPivotStock($produk->id, $gudang->id, $ending);
                         } catch (\Throwable $e) {
                             $summary['errors'][] = "Sheet {$sheetName} baris Excel ke-{$r}: " . $e->getMessage();
@@ -280,7 +277,6 @@ class MutasiPoh1ImportService
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
-                    // bantu GC di shared hosting
                     if (function_exists('gc_collect_cycles')) {
                         gc_collect_cycles();
                     }
@@ -297,22 +293,45 @@ class MutasiPoh1ImportService
 
     private function cellValue(Worksheet $sheet, int $col, int $row)
     {
-        // getCell([col,row]) kompatibel untuk versi PhpSpreadsheet baru
         return $sheet->getCell([$col, $row])->getValue();
     }
 
     /**
-     * ✅ Khusus angka/QTY: ambil formatted value supaya titik/koma ribuan/decimal tetap terbaca.
-     * Ini yang bikin kasus "231.230" tidak kebaca sebagai 231230 (numeric raw).
+     * ✅ FIX utama untuk angka + formula:
+     * prioritas:
+     * 1) oldCalculatedValue (cached dari Excel, paling stabil)
+     * 2) calculatedValue (hitung, kalau memungkinkan)
+     * 3) formattedValue (agar 231.230 / 231,230 kebaca benar)
+     * 4) raw value (fallback)
      */
     private function qtyFromCell(Worksheet $sheet, int $col, int $row): int
     {
         $cell = $sheet->getCell([$col, $row]);
+        $raw = $cell->getValue();
 
-        // formatted value mempertahankan tampilan Excel (mis. 231.230 / 231,230)
+        // formula?
+        if (is_string($raw) && isset($raw[0]) && $raw[0] === '=') {
+            $old = $cell->getOldCalculatedValue();
+            if ($old !== null && $old !== '') {
+                return $this->toIntQty($old);
+            }
+
+            try {
+                $calc = $cell->getCalculatedValue();
+                if ($calc !== null && $calc !== '') {
+                    return $this->toIntQty($calc);
+                }
+            } catch (\Throwable $e) {
+                // lanjut fallback
+            }
+        }
+
         $formatted = $cell->getFormattedValue();
+        if ($formatted !== null && $formatted !== '') {
+            return $this->toIntQty($formatted);
+        }
 
-        return $this->toIntQty($formatted);
+        return $this->toIntQty($raw);
     }
 
     private function readRow(Worksheet $sheet, int $row, int $fromCol, int $toCol): array
@@ -382,7 +401,6 @@ class MutasiPoh1ImportService
             $subA = mb_strtolower(trim((string) ($subHeader[$i] ?? '')));
             $subB = mb_strtolower(trim((string) ($subHeader[$i + 1] ?? '')));
 
-            // format di file kamu: "Lokasi " dan "Jumlah" (kadang spasi)
             if (!str_contains($subA, 'lokasi') || !str_contains($subB, 'jumlah')) {
                 continue;
             }
@@ -391,7 +409,7 @@ class MutasiPoh1ImportService
             $date = $this->parseDate($candidate);
 
             if (!$date && $lastDate) {
-                $date = $lastDate; // carry forward (merge)
+                $date = $lastDate;
             }
 
             if ($date) {
@@ -409,28 +427,27 @@ class MutasiPoh1ImportService
     }
 
     /**
-     * ✅ INTI FIX:
-     * angka "231.230" / "231,230" dianggap 231 (ambil sebelum titik/koma).
-     * Dibuat super ketat:
-     * - selalu treat as string (karena sudah dipass dari formatted value)
-     * - ambil bagian sebelum titik/koma pertama
-     * - bersihkan karakter non digit/minus
+     * ✅ Angka "231.230" / "231,230" dianggap 231 (ambil sebelum titik/koma).
      */
     private function toIntQty($v): int
     {
         if ($v === null) return 0;
 
+        if (is_int($v)) return $v;
+
+        if (is_float($v) || is_numeric($v)) {
+            return (int) floor((float) $v);
+        }
+
         $s = trim((string) $v);
         if ($s === '' || $s === '-') return 0;
 
-        // kadang ada spasi ribuan (mis: "1 234,56") atau NBSP
+        // buang NBSP & spasi ribuan
         $s = str_replace(["\xc2\xa0", ' '], '', $s);
 
-        // ambil bagian depan sebelum titik/koma pertama
         $parts = preg_split('/[.,]/', $s, 2);
         $front = $parts[0] ?? '0';
 
-        // buang selain digit dan minus
         $front = preg_replace('/[^\d\-]/', '', $front);
 
         if ($front === '' || $front === '-') return 0;
@@ -477,251 +494,4 @@ class MutasiPoh1ImportService
         $s = str_replace(['\\', '.'], '/', $s);
 
         if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $s, $m)) {
-            return sprintf('%04d-%02d-%02d', (int) $m[1], (int) $m[2], (int) $m[3]);
-        }
-
-        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $s, $m)) {
-            return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
-        }
-
-        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $s, $m)) {
-            return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
-        }
-
-        $ts = strtotime($s);
-        if ($ts !== false) {
-            return date('Y-m-d', $ts);
-        }
-
-        return null;
-    }
-
-    private function makeKodeProduk(string $fileKey, ?int $no): string
-    {
-        $noPart = $no
-            ? str_pad((string) $no, 6, '0', STR_PAD_LEFT)
-            : str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT);
-
-        $uid = strtoupper(Str::random(6));
-        return "{$fileKey}-{$noPart}-{$uid}";
-    }
-
-    private function getOrCreateLokasi(string $nama, array &$summary): Lokasi
-    {
-        $nama = trim($nama);
-        if ($nama === '') $nama = 'Lokasi';
-
-        $lok = Lokasi::query()->where('nama_lokasi', $nama)->first();
-        if ($lok) return $lok;
-
-        $kode = strtoupper(Str::slug($nama, '_'));
-        if ($kode === '') $kode = 'LOKASI';
-        $kode = Str::limit($kode, 50, '');
-
-        $kodeFinal = $kode;
-        $n = 1;
-        while (Lokasi::query()->where('kode_lokasi', $kodeFinal)->exists()) {
-            $kodeFinal = Str::limit($kode . '_' . $n, 50, '');
-            $n++;
-        }
-
-        $summary['lokasi_created']++;
-
-        return Lokasi::create([
-            'nama_lokasi' => $nama,
-            'kode_lokasi' => $kodeFinal,
-        ]);
-    }
-
-    private function getOrCreateKategori(string $nama, array &$summary): KategoriProduk
-    {
-        $nama = trim($nama);
-        if ($nama === '') {
-            $nama = 'Tanpa Kategori';
-        }
-
-        $slug = Str::slug($nama);
-
-        $existing = KategoriProduk::query()->where('slug', $slug)->first();
-        if ($existing) return $existing;
-
-        $base = $slug ?: 'kategori';
-        $slugFinal = $base;
-        $n = 1;
-        while (KategoriProduk::query()->where('slug', $slugFinal)->exists()) {
-            $slugFinal = $base . '-' . $n;
-            $n++;
-        }
-
-        $summary['kategori_created']++;
-
-        return KategoriProduk::create([
-            'nama' => $nama,
-            'slug' => $slugFinal,
-        ]);
-    }
-
-    private function setPivotStock(int $produkId, int $lokasiId, int $stok): void
-    {
-        DB::table('produk_lokasi')->updateOrInsert(
-            ['produk_id' => $produkId, 'lokasi_id' => $lokasiId],
-            [
-                'stok' => max(0, $stok),
-                'updated_at' => now(),
-                'created_at' => now(),
-            ]
-        );
-    }
-
-    /* =================== MUTASI CREATORS (APPROVED) =================== */
-
-    private function createApprovedMutasiMasuk(
-        int $produkId,
-        int $gudangId,
-        string $tanggal,
-        int $jumlah,
-        int $actorUserId,
-        string $keterangan,
-        string $noRefSeed
-    ): bool {
-        $jumlah = max(0, $jumlah);
-        if ($jumlah <= 0) return false;
-
-        $noRef = 'IMP-IN-' . substr(sha1($noRefSeed), 0, 12);
-
-        if (Mutasi::query()->where('no_ref', $noRef)->exists()) {
-            return false;
-        }
-
-        $pivot = DB::table('produk_lokasi')
-            ->where('produk_id', $produkId)
-            ->where('lokasi_id', $gudangId)
-            ->lockForUpdate()
-            ->first();
-
-        $stokAwal = (int) ($pivot->stok ?? 0);
-        $stokAkhir = $stokAwal + $jumlah;
-
-        DB::table('produk_lokasi')->updateOrInsert(
-            ['produk_id' => $produkId, 'lokasi_id' => $gudangId],
-            [
-                'stok' => $stokAkhir,
-                'updated_at' => now(),
-                'created_at' => $pivot?->created_at ?? now(),
-            ]
-        );
-
-        Mutasi::create([
-            'tanggal' => $tanggal,
-            'jenis_mutasi' => 'masuk',
-            'jumlah' => $jumlah,
-            'keterangan' => $keterangan,
-            'no_ref' => $noRef,
-            'status' => 'approved',
-
-            'user_id' => $actorUserId,
-            'produk_id' => $produkId,
-
-            'lokasi_id' => $gudangId,
-            'lokasi_tujuan_id' => null,
-
-            'created_by' => $actorUserId,
-            'approved_by' => $actorUserId,
-            'approved_at' => now(),
-
-            'stok_awal' => $stokAwal,
-            'stok_akhir' => $stokAkhir,
-        ]);
-
-        return true;
-    }
-
-    private function createApprovedMutasiKeluarTransfer(
-        int $produkId,
-        int $gudangAsalId,
-        int $lokasiTujuanId,
-        string $tanggal,
-        int $jumlah,
-        int $actorUserId,
-        string $keterangan,
-        string $noRefSeed
-    ): bool {
-        $jumlah = max(0, $jumlah);
-        if ($jumlah <= 0) return false;
-
-        if ($lokasiTujuanId === $gudangAsalId) {
-            return false;
-        }
-
-        $noRef = 'IMP-OUT-' . substr(sha1($noRefSeed), 0, 12);
-
-        if (Mutasi::query()->where('no_ref', $noRef)->exists()) {
-            return false;
-        }
-
-        $pivotAsal = DB::table('produk_lokasi')
-            ->where('produk_id', $produkId)
-            ->where('lokasi_id', $gudangAsalId)
-            ->lockForUpdate()
-            ->first();
-
-        $stokAwal = (int) ($pivotAsal->stok ?? 0);
-
-        if ($stokAwal < $jumlah) {
-            throw new \RuntimeException("Stok gudang tidak cukup untuk issued {$jumlah}. Stok: {$stokAwal}");
-        }
-
-        $stokAkhir = $stokAwal - $jumlah;
-
-        DB::table('produk_lokasi')->updateOrInsert(
-            ['produk_id' => $produkId, 'lokasi_id' => $gudangAsalId],
-            [
-                'stok' => $stokAkhir,
-                'updated_at' => now(),
-                'created_at' => $pivotAsal?->created_at ?? now(),
-            ]
-        );
-
-        $pivotT = DB::table('produk_lokasi')
-            ->where('produk_id', $produkId)
-            ->where('lokasi_id', $lokasiTujuanId)
-            ->lockForUpdate()
-            ->first();
-
-        $stokTujuanAwal = (int) ($pivotT->stok ?? 0);
-        $stokTujuanAkhir = $stokTujuanAwal + $jumlah;
-
-        DB::table('produk_lokasi')->updateOrInsert(
-            ['produk_id' => $produkId, 'lokasi_id' => $lokasiTujuanId],
-            [
-                'stok' => $stokTujuanAkhir,
-                'updated_at' => now(),
-                'created_at' => $pivotT?->created_at ?? now(),
-            ]
-        );
-
-        Mutasi::create([
-            'tanggal' => $tanggal,
-            'jenis_mutasi' => 'keluar',
-            'jumlah' => $jumlah,
-            'keterangan' => $keterangan,
-            'no_ref' => $noRef,
-            'status' => 'approved',
-
-            'user_id' => $actorUserId,
-            'produk_id' => $produkId,
-
-            'lokasi_id' => $gudangAsalId,
-            'lokasi_tujuan_id' => $lokasiTujuanId,
-
-            'created_by' => $actorUserId,
-            'approved_by' => $actorUserId,
-            'approved_at' => now(),
-
-            'stok_awal' => $stokAwal,
-            'stok_akhir' => $stokAkhir,
-        ]);
-
-        return true;
-    }
-}
+            return sprintf('
