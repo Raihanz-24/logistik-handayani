@@ -132,9 +132,13 @@ class MutasiPoh1ImportService
                             $satuan = ($idxSatuan !== null) ? trim((string) $this->cellValue($sheet, (int) $idxSatuan, $r)) : '';
                             $katName = ($idxKategori !== null) ? trim((string) $this->cellValue($sheet, (int) $idxKategori, $r)) : '';
 
-                            // ✅ PERBAIKAN INTI: angka "252.251" / "252,251" => 252
-                            $stockAwal = $this->toIntQty($this->cellValue($sheet, (int) $idxStockAwal, $r));
-                            $ending    = $this->toIntQty($this->cellValue($sheet, (int) $idxEnding, $r));
+                            /**
+                             * ✅ FIX INTI (presisi tinggi):
+                             * Pakai formattedValue agar kasus Excel "231.230" (format ribuan) tidak jadi 231230.
+                             * Hasil akhirnya selalu integer bagian depan sebelum titik/koma.
+                             */
+                            $stockAwal = $this->qtyFromCell($sheet, (int) $idxStockAwal, $r);
+                            $ending    = $this->qtyFromCell($sheet, (int) $idxEnding, $r);
 
                             // Upsert produk by nama (sesuai keputusan kamu saat ini)
                             // hosting kamu punya constraint NOT NULL (kode_produk, harga_beli, harga_jual) -> kasih default
@@ -213,7 +217,7 @@ class MutasiPoh1ImportService
                             // Buffer Stock (masuk dari luar)
                             if ($idxBufDate !== null && $idxBufQty !== null) {
                                 $bufTanggal = $this->parseDate($this->cellValue($sheet, (int) $idxBufDate, $r));
-                                $bufJumlah  = $this->toIntQty($this->cellValue($sheet, (int) $idxBufQty, $r));
+                                $bufJumlah  = $this->qtyFromCell($sheet, (int) $idxBufQty, $r);
 
                                 if ($bufTanggal && $bufJumlah > 0) {
                                     $created = $this->createApprovedMutasiMasuk(
@@ -238,7 +242,7 @@ class MutasiPoh1ImportService
                                 $idxJml = (int) $pair['idx_jumlah'];
 
                                 $lokName = trim((string) $this->cellValue($sheet, $idxLok, $r));
-                                $qty = $this->toIntQty($this->cellValue($sheet, $idxJml, $r));
+                                $qty = $this->qtyFromCell($sheet, $idxJml, $r);
 
                                 if ($lokName === '' || $qty <= 0) {
                                     continue;
@@ -295,6 +299,20 @@ class MutasiPoh1ImportService
     {
         // getCell([col,row]) kompatibel untuk versi PhpSpreadsheet baru
         return $sheet->getCell([$col, $row])->getValue();
+    }
+
+    /**
+     * ✅ Khusus angka/QTY: ambil formatted value supaya titik/koma ribuan/decimal tetap terbaca.
+     * Ini yang bikin kasus "231.230" tidak kebaca sebagai 231230 (numeric raw).
+     */
+    private function qtyFromCell(Worksheet $sheet, int $col, int $row): int
+    {
+        $cell = $sheet->getCell([$col, $row]);
+
+        // formatted value mempertahankan tampilan Excel (mis. 231.230 / 231,230)
+        $formatted = $cell->getFormattedValue();
+
+        return $this->toIntQty($formatted);
     }
 
     private function readRow(Worksheet $sheet, int $row, int $fromCol, int $toCol): array
@@ -391,25 +409,24 @@ class MutasiPoh1ImportService
     }
 
     /**
-     * ✅ INTI FIX: angka "231.230" / "231,230" dianggap 231.
-     * - numeric: ambil integer depan (floor)
-     * - string: split di titik/koma pertama, ambil bagian depan
+     * ✅ INTI FIX:
+     * angka "231.230" / "231,230" dianggap 231 (ambil sebelum titik/koma).
+     * Dibuat super ketat:
+     * - selalu treat as string (karena sudah dipass dari formatted value)
+     * - ambil bagian sebelum titik/koma pertama
+     * - bersihkan karakter non digit/minus
      */
     private function toIntQty($v): int
     {
         if ($v === null) return 0;
 
-        // numeric langsung
-        if (is_int($v)) return $v;
-
-        if (is_float($v) || is_numeric($v)) {
-            return (int) floor((float) $v);
-        }
-
         $s = trim((string) $v);
         if ($s === '' || $s === '-') return 0;
 
-        // ambil bagian depan sebelum titik/koma
+        // kadang ada spasi ribuan (mis: "1 234,56") atau NBSP
+        $s = str_replace(["\xc2\xa0", ' '], '', $s);
+
+        // ambil bagian depan sebelum titik/koma pertama
         $parts = preg_split('/[.,]/', $s, 2);
         $front = $parts[0] ?? '0';
 
