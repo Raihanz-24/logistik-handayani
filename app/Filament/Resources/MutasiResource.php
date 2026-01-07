@@ -543,16 +543,15 @@ class MutasiResource extends Resource
                         ->requiresConfirmation()
                         ->modalHeading('Approve Mutasi Terpilih')
                         ->modalDescription('Semua mutasi yang dipilih (status pending) akan di-approve dan stok akan diperbarui.')
-                        ->visible(function () {
+                        ->visible(function ($livewire) {
     if (! static::isSuperAdmin()) return false;
 
-    // Filament tabs kamu pakai query string: ?activeTab=Pending/Approved/Cancelled
-    $tab = (string) (request()->query('activeTab') ?? '');
+    // Saat pindah tab, Livewire update property ini tanpa refresh
+    $activeTab = $livewire->activeTab ?? null;
 
-    // kalau tidak ada activeTab, biasanya defaultnya Pending
-    if ($tab === '') return true;
-
-    return mb_strtolower($tab) === 'pending';
+    // keys tab kamu: 'Pending', 'Approved', 'Cancelled'
+    // tampil hanya di tab Pending (atau saat belum set apa-apa)
+    return $activeTab === null || $activeTab === 'Pending';
 })
 
                         ->action(function (Collection $records) {
