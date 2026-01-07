@@ -25,7 +25,9 @@ use Filament\Forms\Components\TextInput; // (dibiarkan walau tidak terpakai lagi
 use Illuminate\Support\Facades\Storage;
 use App\Services\MutasiPoh1ImportService;
 
-
+// ✅ BULK ACTION (Approve Terpilih)
+use Filament\Tables\Actions\BulkAction;
+use Illuminate\Support\Collection;
 
 // ===== Export =====
 use App\Filament\Exports\MutasiExporter;
@@ -121,9 +123,6 @@ class MutasiResource extends Resource
                         })
                         ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
-                    /**
-                     * ✅ Produk: tampil semua (preload)
-                     */
                     Forms\Components\Select::make('produk_id')
                         ->label('Produk')
                         ->relationship('produk', 'nama_produk')
@@ -281,7 +280,6 @@ class MutasiResource extends Resource
                 Tables\Columns\TextColumn::make('asal_display')
                     ->label('Asal')
                     ->getStateUsing(function (Mutasi $record): string {
-                        // ✅ perubahan sesuai instruksi: masuk => "Stok"
                         if ($record->jenis_mutasi === 'masuk') return 'Stok';
                         return $record->lokasi?->nama_lokasi ?? '-';
                     })
@@ -383,44 +381,6 @@ class MutasiResource extends Resource
                             )
                     )
                     ->action(fn() => null),
-
-
-
-                // Action::make('import-poh1')
-                //     ->label('Import Data') // ✅ perubahan label sesuai instruksi
-                //     ->icon('heroicon-o-arrow-up-tray')
-                //     ->color('warning')
-                //     ->form([
-                //         FileUpload::make('file')
-                //             ->label('File (CSV / XLSX)')
-                //             ->disk('local')
-                //             ->directory('imports')
-                //             ->required()
-                //             ->maxSize(1048576),
-                //         // ✅ perubahan: field gudang dihapus (tidak ditanyakan lagi)
-                //     ])
-                //     ->action(function (array $data) {
-                //         $relativePath = $data['file']; // ex: imports/xxxx.csv
-                //         $fullPath = Storage::disk('local')->path($relativePath);
-
-                //         // ✅ perubahan: gudang otomatis (tidak ditanya)
-                //         $gudangDefault = 'Gudang POH 1';
-
-                //         $result = app(MutasiPoh1ImportService::class)
-                //             ->import($fullPath, $gudangDefault, auth()->id());
-
-                //         $msg = "Selesai. Baris diproses: {$result['rows']}, Mutasi dibuat: {$result['mutasi_created']}, Produk: {$result['produk_upserted']}, Lokasi baru: {$result['lokasi_created']}.";
-
-                //         if (!empty($result['errors'])) {
-                //             $msg .= " Error: " . count($result['errors']) . " baris (cek log / coba perbaiki baris tersebut).";
-                //         }
-
-                //         Notification::make()
-                //             ->title('Import selesai')
-                //             ->body($msg)
-                //             ->success()
-                //             ->send();
-                //     }),
 
                 ExportAction::make('export-excel')
                     ->label('Export Excel')
@@ -575,6 +535,122 @@ class MutasiResource extends Resource
             ])
             ->bulkActions([
                 BulkActionGroup::make([
+                    // ✅ NEW: Approve banyak sekaligus (centang -> Approve Terpilih)
+                    BulkAction::make('approve_selected')
+                        ->label('Approve Terpilih')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('Approve Mutasi Terpilih')
+                        ->modalDescription('Semua mutasi yang dipilih (status pending) akan di-approve dan stok akan diperbarui.')
+                        ->visible(fn() => static::isSuperAdmin())
+                        ->action(function (Collection $records) {
+                            $approved = 0;
+                            $skipped = 0;
+                            $errors = [];
+
+                            foreach ($records as $rec) {
+                                /** @var Mutasi $rec */
+                                try {
+                                    DB::transaction(function () use ($rec, &$approved, &$skipped) {
+                                        $record = Mutasi::query()->lockForUpdate()->findOrFail($rec->id);
+
+                                        if ($record->status !== 'pending') {
+                                            $skipped++;
+                                            return;
+                                        }
+
+                                        $produkId = (int) $record->produk_id;
+                                        $lokasiGudangId = (int) $record->lokasi_id;
+                                        $jumlah = (int) $record->jumlah;
+
+                                        $pivotGudang = DB::table('produk_lokasi')
+                                            ->where('produk_id', $produkId)
+                                            ->where('lokasi_id', $lokasiGudangId)
+                                            ->lockForUpdate()
+                                            ->first();
+
+                                        $stokAwal = (int) ($pivotGudang->stok ?? 0);
+
+                                        if ($record->jenis_mutasi === 'keluar') {
+                                            if ((int) $record->lokasi_tujuan_id === $lokasiGudangId) {
+                                                throw new \RuntimeException('Tujuan tidak boleh sama dengan lokasi asal.');
+                                            }
+
+                                            if ($stokAwal < $jumlah) {
+                                                throw new \RuntimeException('Stok gudang asal tidak mencukupi.');
+                                            }
+
+                                            $stokAkhir = $stokAwal - $jumlah;
+                                        } else {
+                                            $stokAkhir = $stokAwal + $jumlah;
+                                        }
+
+                                        DB::table('produk_lokasi')->updateOrInsert(
+                                            ['produk_id' => $produkId, 'lokasi_id' => $lokasiGudangId],
+                                            [
+                                                'stok' => $stokAkhir,
+                                                'updated_at' => now(),
+                                                'created_at' => $pivotGudang ? ($pivotGudang->created_at ?? now()) : now(),
+                                            ]
+                                        );
+
+                                        if ($record->jenis_mutasi === 'keluar' && $record->lokasi_tujuan_id) {
+                                            $lokasiTujuanId = (int) $record->lokasi_tujuan_id;
+
+                                            $pivotTujuan = DB::table('produk_lokasi')
+                                                ->where('produk_id', $produkId)
+                                                ->where('lokasi_id', $lokasiTujuanId)
+                                                ->lockForUpdate()
+                                                ->first();
+
+                                            $stokTujuanAwal = (int) ($pivotTujuan->stok ?? 0);
+                                            $stokTujuanAkhir = $stokTujuanAwal + $jumlah;
+
+                                            DB::table('produk_lokasi')->updateOrInsert(
+                                                ['produk_id' => $produkId, 'lokasi_id' => $lokasiTujuanId],
+                                                [
+                                                    'stok' => $stokTujuanAkhir,
+                                                    'updated_at' => now(),
+                                                    'created_at' => $pivotTujuan ? ($pivotTujuan->created_at ?? now()) : now(),
+                                                ]
+                                            );
+                                        }
+
+                                        $record->update([
+                                            'stok_awal' => $stokAwal,
+                                            'stok_akhir' => $stokAkhir,
+                                            'status' => 'approved',
+                                            'approved_by' => auth()->id(),
+                                            'approved_at' => now(),
+                                        ]);
+
+                                        $approved++;
+                                    });
+                                } catch (\Throwable $e) {
+                                    $errors[] = "ID {$rec->id}: " . $e->getMessage();
+                                }
+                            }
+
+                            $body = "Approved: {$approved}, Skipped: {$skipped}";
+                            if (! empty($errors)) {
+                                $body .= ", Error: " . count($errors) . " (cek log / coba ulang)";
+                            }
+
+                            $notif = Notification::make()
+                                ->title('Approve Terpilih Selesai')
+                                ->body($body);
+
+                            if (! empty($errors)) {
+                                $notif->danger();
+                            } else {
+                                $notif->success();
+                            }
+
+                            $notif->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
                     ExportBulkAction::make('export-selected')
                         ->label('Export Terpilih')
                         ->icon('heroicon-o-arrow-down-tray')
@@ -590,7 +666,6 @@ class MutasiResource extends Resource
         return [
             'index' => Pages\ListMutasis::route('/'),
             'create' => Pages\CreateMutasi::route('/buat'),
-            // edit dihapus sesuai permintaan
         ];
     }
 }
