@@ -9,6 +9,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Actions\Action as TableAction;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -19,8 +20,7 @@ class ListMutasis extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()
-                ->label('Buat Mutasi'),
+            Actions\CreateAction::make()->label('Buat Mutasi'),
         ];
     }
 
@@ -41,75 +41,70 @@ class ListMutasis extends ListRecords
         ];
     }
 
-    protected function getTableActions(): array
+    /**
+     * ✅ Cara paling kompatibel di Filament v3:
+     * inject action lewat override table() di Page.
+     */
+    public function table(Table $table): Table
     {
-        return array_merge(parent::getTableActions(), [
-            TableAction::make('delete_approved')
-                ->label('Delete')
-                ->icon('heroicon-o-trash')
-                ->color('danger')
-                ->requiresConfirmation()
-                ->modalHeading('Hapus Mutasi (Rollback Stok)')
-                ->modalDescription('Mutasi akan dihapus dan stok akan dikembalikan seperti sebelum mutasi disetujui.')
-                ->modalSubmitActionLabel('Ya, hapus')
-                ->visible(function (Mutasi $record): bool {
-                    if ($record->status !== 'approved') {
-                        return false;
-                    }
+        // ambil table bawaan dari Resource (biar flow tidak berubah)
+        $table = parent::table($table);
 
-                    if (! $this->isApprovedTabActive()) {
-                        return false;
-                    }
+        return $table->actions(array_merge(
+            $table->getActions(),
+            [
+                TableAction::make('delete_approved')
+                    ->label('Delete')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('Hapus Mutasi (Rollback Stok)')
+                    ->modalDescription('Mutasi akan dihapus dan stok akan dikembalikan seperti sebelum mutasi disetujui.')
+                    ->modalSubmitActionLabel('Ya, hapus')
+                    ->visible(function (Mutasi $record): bool {
+                        // hanya tab Approved aktif
+                        if (! $this->isApprovedTabActive()) return false;
 
-                    // ✅ sesuai permission di UI kamu: "Hapus" / "Hapus Apa Saja"
-                    return auth()->check()
-                        && (auth()->user()->can('delete_mutasi') || auth()->user()->can('delete_any_mutasi'));
-                })
-                ->action(function (Mutasi $record): void {
-                    try {
-                        DB::transaction(function () use ($record) {
-                            $mutasi = Mutasi::query()->lockForUpdate()->findOrFail($record->id);
+                        // hanya record approved
+                        if ($record->status !== 'approved') return false;
 
-                            if ($mutasi->status !== 'approved') {
-                                return;
-                            }
+                        // ✅ permission sesuai DB kamu
+                        return auth()->check()
+                            && (auth()->user()->can('delete_mutasi') || auth()->user()->can('delete_any_mutasi'));
+                    })
+                    ->action(function (Mutasi $record): void {
+                        try {
+                            DB::transaction(function () use ($record) {
+                                $mutasi = Mutasi::query()->lockForUpdate()->findOrFail($record->id);
 
-                            $this->rollbackPivotStockFromApprovedMutasi($mutasi);
+                                if ($mutasi->status !== 'approved') return;
 
-                            $mutasi->delete(); // permanen (Mutasi tanpa SoftDeletes)
-                        });
+                                $this->rollbackPivotStockFromApprovedMutasi($mutasi);
 
-                        Notification::make()
-                            ->title('Berhasil')
-                            ->body('Mutasi berhasil dihapus dan stok berhasil di-rollback.')
-                            ->success()
-                            ->send();
-                    } catch (\Throwable $e) {
-                        Notification::make()
-                            ->title('Gagal Hapus')
-                            ->body($e->getMessage())
-                            ->danger()
-                            ->send();
-                    }
-                }),
-        ]);
+                                $mutasi->delete();
+                            });
+
+                            Notification::make()
+                                ->title('Berhasil')
+                                ->body('Mutasi berhasil dihapus dan stok berhasil di-rollback.')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title('Gagal Hapus')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+            ]
+        ));
     }
 
     private function isApprovedTabActive(): bool
     {
-        $active = null;
-
-        if (property_exists($this, 'activeTab')) {
-            $active = $this->activeTab;
-        }
-
-        if (! is_string($active) || $active === '') {
-            $active = request()->query('activeTab') ?? request()->query('tab');
-        }
-
-        if (! is_string($active) || $active === '') {
-            return false; // default biasanya Pending
-        }
+        $active = request()->query('activeTab') ?? request()->query('tab');
+        if (! is_string($active) || $active === '') return false;
 
         return mb_strtolower($active) === 'approved';
     }
@@ -185,7 +180,6 @@ class ListMutasis extends ListRecords
                     ]
                 );
             }
-
             return;
         }
     }
