@@ -543,7 +543,18 @@ class MutasiResource extends Resource
                         ->requiresConfirmation()
                         ->modalHeading('Approve Mutasi Terpilih')
                         ->modalDescription('Semua mutasi yang dipilih (status pending) akan di-approve dan stok akan diperbarui.')
-                        ->visible(fn() => static::isSuperAdmin())
+                        ->visible(function () {
+    if (! static::isSuperAdmin()) return false;
+
+    // Filament tabs kamu pakai query string: ?activeTab=Pending/Approved/Cancelled
+    $tab = (string) (request()->query('activeTab') ?? '');
+
+    // kalau tidak ada activeTab, biasanya defaultnya Pending
+    if ($tab === '') return true;
+
+    return mb_strtolower($tab) === 'pending';
+})
+
                         ->action(function (Collection $records) {
                             $approved = 0;
                             $skipped = 0;
