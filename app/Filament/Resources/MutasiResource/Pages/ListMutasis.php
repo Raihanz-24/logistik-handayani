@@ -41,10 +41,6 @@ class ListMutasis extends ListRecords
         ];
     }
 
-    /**
-     * ✅ Tambah tombol Delete hanya di TAB Disetujui + record approved + permission spatie.
-     * Tidak mengubah flow approve/cancel/create yang sudah ada di MutasiResource.
-     */
     protected function getTableActions(): array
     {
         return array_merge(parent::getTableActions(), [
@@ -57,34 +53,30 @@ class ListMutasis extends ListRecords
                 ->modalDescription('Mutasi akan dihapus dan stok akan dikembalikan seperti sebelum mutasi disetujui.')
                 ->modalSubmitActionLabel('Ya, hapus')
                 ->visible(function (Mutasi $record): bool {
-                    // hanya record approved
                     if ($record->status !== 'approved') {
                         return false;
                     }
 
-                    // hanya tab approved yang aktif
                     if (! $this->isApprovedTabActive()) {
                         return false;
                     }
 
-                    // spatie permission (customizable)
-                    return auth()->check() && auth()->user()->can('mutasi.delete');
+                    // ✅ sesuai permission di UI kamu: "Hapus" / "Hapus Apa Saja"
+                    return auth()->check()
+                        && (auth()->user()->can('delete_mutasi') || auth()->user()->can('delete_any_mutasi'));
                 })
                 ->action(function (Mutasi $record): void {
                     try {
                         DB::transaction(function () use ($record) {
-                            // lock record
                             $mutasi = Mutasi::query()->lockForUpdate()->findOrFail($record->id);
 
                             if ($mutasi->status !== 'approved') {
                                 return;
                             }
 
-                            // rollback stok pivot
                             $this->rollbackPivotStockFromApprovedMutasi($mutasi);
 
-                            // delete permanen (model tidak pakai soft delete)
-                            $mutasi->delete();
+                            $mutasi->delete(); // permanen (Mutasi tanpa SoftDeletes)
                         });
 
                         Notification::make()
@@ -103,12 +95,6 @@ class ListMutasis extends ListRecords
         ]);
     }
 
-    /**
-     * Deteksi tab aktif robust:
-     * - Filament biasanya pakai query string "activeTab"
-     * - sebagian install bisa pakai "tab"
-     * - pada beberapa versi, ada property $activeTab
-     */
     private function isApprovedTabActive(): bool
     {
         $active = null;
@@ -122,26 +108,18 @@ class ListMutasis extends ListRecords
         }
 
         if (! is_string($active) || $active === '') {
-            // default tab biasanya Pending
-            return false;
+            return false; // default biasanya Pending
         }
 
         return mb_strtolower($active) === 'approved';
     }
 
-    /**
-     * Rollback kebalikan dari approve:
-     * - masuk  : gudang(lokasi_id) -= jumlah
-     * - keluar : gudang(lokasi_id) += jumlah, tujuan(lokasi_tujuan_id) -= jumlah
-     */
     private function rollbackPivotStockFromApprovedMutasi(Mutasi $mutasi): void
     {
         $produkId = (int) $mutasi->produk_id;
         $jumlah   = max(0, (int) $mutasi->jumlah);
 
-        if ($produkId <= 0 || $jumlah <= 0) {
-            return;
-        }
+        if ($produkId <= 0 || $jumlah <= 0) return;
 
         if ($mutasi->jenis_mutasi === 'masuk') {
             $lokasiGudangId = (int) $mutasi->lokasi_id;
@@ -163,7 +141,6 @@ class ListMutasis extends ListRecords
                     'created_at' => $pivot?->created_at ?? now(),
                 ]
             );
-
             return;
         }
 
@@ -171,7 +148,6 @@ class ListMutasis extends ListRecords
             $lokasiAsalId   = (int) $mutasi->lokasi_id;
             $lokasiTujuanId = (int) ($mutasi->lokasi_tujuan_id ?? 0);
 
-            // asal +jumlah
             $pivotAsal = DB::table('produk_lokasi')
                 ->where('produk_id', $produkId)
                 ->where('lokasi_id', $lokasiAsalId)
@@ -190,7 +166,6 @@ class ListMutasis extends ListRecords
                 ]
             );
 
-            // tujuan -jumlah
             if ($lokasiTujuanId > 0) {
                 $pivotTujuan = DB::table('produk_lokasi')
                     ->where('produk_id', $produkId)
