@@ -58,6 +58,8 @@ class MutasiResource extends Resource
             'super admin',
             'Super Admin',
             'super-admin',
+            'Admin',
+            'admin',
         ]);
     }
 
