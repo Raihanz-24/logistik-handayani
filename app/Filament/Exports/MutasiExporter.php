@@ -3,11 +3,11 @@
 namespace App\Filament\Exports;
 
 use App\Models\Mutasi;
+use Carbon\CarbonInterface;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
 use Illuminate\Database\Eloquent\Builder;
-use Carbon\CarbonInterface;
 
 class MutasiExporter extends Exporter
 {
@@ -15,28 +15,24 @@ class MutasiExporter extends Exporter
 
     public static function modifyQuery(Builder $query): Builder
     {
-        $t = $query->getModel()->getTable(); // ex: 'mutasis'
+        $t = $query->getModel()->getTable(); // 'mutasis'
 
         return $query
             ->select([
                 "{$t}.id",
                 "{$t}.tanggal",
+                "{$t}.produk_id",
                 "{$t}.jenis_mutasi",
                 "{$t}.jumlah",
-                "{$t}.keterangan",
-                "{$t}.no_ref",
-                "{$t}.status",
-                "{$t}.user_id",
-                "{$t}.produk_id",
                 "{$t}.lokasi_id",
-                "{$t}.created_at",
-                "{$t}.updated_at",
-                "{$t}.created_by",
+                "{$t}.lokasi_tujuan_id",
+                "{$t}.stok_akhir",
+                "{$t}.status",
             ])
             ->with([
-                'user:id,name',
                 'produk:id,nama_produk',
                 'lokasi:id,nama_lokasi',
+                'lokasiTujuan:id,nama_lokasi',
             ])
             ->orderBy("{$t}.id", 'desc');
     }
@@ -44,43 +40,79 @@ class MutasiExporter extends Exporter
     public static function getColumns(): array
     {
         return [
-            ExportColumn::make('id')->label('ID'),
-
+            // 1) Tanggal
             ExportColumn::make('tanggal')
                 ->label('Tanggal')
                 ->formatStateUsing(function ($state, $record) {
                     $v = $record->tanggal;
+
                     if ($v instanceof CarbonInterface) {
-                        return $v->format('Y-m-d H:i:s');
+                        // buat human-friendly dan konsisten
+                        return $v->format('Y-m-d');
                     }
-                    return is_string($v) ? $v : null;
+
+                    // jika string sudah 'YYYY-mm-dd ...', ambil date saja
+                    if (is_string($v) && $v !== '') {
+                        return substr($v, 0, 10);
+                    }
+
+                    return null;
                 }),
 
-            ExportColumn::make('jenis_mutasi')->label('Jenis Mutasi'),
-
-            ExportColumn::make('jumlah')->label('Jumlah'),
-
-            ExportColumn::make('keterangan')->label('Keterangan'),
-
-            ExportColumn::make('no_ref')->label('Nomor Referensi'),
-
-            ExportColumn::make('status')->label('Status'),
-
-            ExportColumn::make('user.name')
-                ->label('Dicatat oleh')
-                ->formatStateUsing(fn($state, $record) => optional($record->user)->name),
-
+            // 2) Nama Produk
             ExportColumn::make('produk.nama_produk')
                 ->label('Nama Produk')
-                ->formatStateUsing(fn($state, $record) => optional($record->produk)->nama_produk),
+                ->formatStateUsing(fn ($state, $record) => optional($record->produk)->nama_produk),
 
-            ExportColumn::make('lokasi.nama_lokasi')
-                ->label('Lokasi')
-                ->formatStateUsing(fn($state, $record) => optional($record->lokasi)->nama_lokasi),
+            // 3) Jenis Mutasi
+            ExportColumn::make('jenis_mutasi')
+                ->label('Jenis Mutasi')
+                ->formatStateUsing(fn ($state) => $state === 'keluar' ? 'Keluar' : 'Masuk'),
 
-            ExportColumn::make('created_at')->label('Dibuat Pada'),
-            ExportColumn::make('updated_at')->label('Diperbarui Pada'),
-            ExportColumn::make('created_by')->label('Dibuat Oleh'),
+            // 4) Jumlah
+            ExportColumn::make('jumlah')
+                ->label('Jumlah')
+                ->formatStateUsing(fn ($state) => is_numeric($state) ? (int) $state : $state),
+
+            // 5) Asal
+            ExportColumn::make('asal_display')
+                ->label('Asal')
+                ->state(function (Mutasi $record) {
+                    // masuk = dari luar (tampilkan strip)
+                    if ($record->jenis_mutasi === 'masuk') {
+                        return '-';
+                    }
+
+                    // keluar = gudang asal (lokasi_id)
+                    return $record->lokasi?->nama_lokasi ?? '-';
+                }),
+
+            // 6) Tujuan
+            ExportColumn::make('tujuan_display')
+                ->label('Tujuan')
+                ->state(function (Mutasi $record) {
+                    // masuk = gudang tujuan (lokasi_id)
+                    if ($record->jenis_mutasi === 'masuk') {
+                        return $record->lokasi?->nama_lokasi ?? '-';
+                    }
+
+                    // keluar = lokasi_tujuan_id
+                    return $record->lokasiTujuan?->nama_lokasi ?? '-';
+                }),
+
+            // 7) Stok Akhir
+            ExportColumn::make('stok_akhir')
+                ->label('Stok Akhir')
+                ->formatStateUsing(fn ($state) => is_numeric($state) ? (int) $state : ($state ?? '-')),
+
+            // 8) Status
+            ExportColumn::make('status')
+                ->label('Status')
+                ->formatStateUsing(fn ($state) => match ($state) {
+                    'approved' => 'Disetujui',
+                    'cancelled' => 'Dibatalkan',
+                    default => 'Pending',
+                }),
         ];
     }
 
