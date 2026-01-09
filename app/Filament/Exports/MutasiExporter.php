@@ -8,8 +8,6 @@ use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
 use Illuminate\Database\Eloquent\Builder;
-use OpenSpout\Common\Entity\Style\Style;
-use OpenSpout\Common\Entity\Style\StyleBuilder;
 
 class MutasiExporter extends Exporter
 {
@@ -17,7 +15,7 @@ class MutasiExporter extends Exporter
 
     public static function modifyQuery(Builder $query): Builder
     {
-        $t = $query->getModel()->getTable(); // ex: 'mutasis'
+        $t = $query->getModel()->getTable(); // mutasis
 
         return $query
             ->select([
@@ -43,40 +41,32 @@ class MutasiExporter extends Exporter
     public static function getColumns(): array
     {
         return [
-            // 1) Tanggal (format Indonesia)
             ExportColumn::make('tanggal')
                 ->label('Tanggal')
                 ->formatStateUsing(function ($state, Mutasi $record) {
-                    if (! $record->tanggal) {
-                        return null;
-                    }
+                    if (! $record->tanggal) return null;
 
-                    // Aman untuk string/date cast
                     return Carbon::parse($record->tanggal)
                         ->locale('id')
-                        ->translatedFormat('l, d F Y'); // contoh: Jumat, 03 Januari 2026
+                        ->translatedFormat('l, d F Y');
                 }),
 
-            // 2) Nama Produk
             ExportColumn::make('produk.nama_produk')
                 ->label('Nama Produk')
-                ->formatStateUsing(fn ($state, Mutasi $record) => $record->produk?->nama_produk),
+                ->formatStateUsing(fn ($state, Mutasi $record) => $record->produk?->nama_produk ?? '-'),
 
-            // 3) Jenis Mutasi
             ExportColumn::make('jenis_mutasi')
                 ->label('Jenis Mutasi')
                 ->formatStateUsing(fn ($state, Mutasi $record) => $record->jenis_mutasi === 'keluar' ? 'Keluar' : 'Masuk'),
 
-            // 4) Jumlah (pastikan integer)
             ExportColumn::make('jumlah')
                 ->label('Jumlah')
                 ->formatStateUsing(fn ($state, Mutasi $record) => (int) ($record->jumlah ?? 0)),
 
-            // 5) Asal
             ExportColumn::make('asal_display')
                 ->label('Asal')
                 ->state(function (Mutasi $record): string {
-                    // masuk dari luar -> "Stok"
+                    // masuk dari luar
                     if ($record->jenis_mutasi === 'masuk') {
                         return 'Stok';
                     }
@@ -84,11 +74,10 @@ class MutasiExporter extends Exporter
                     return $record->lokasi?->nama_lokasi ?? '-';
                 }),
 
-            // 6) Tujuan
             ExportColumn::make('tujuan_display')
                 ->label('Tujuan')
                 ->state(function (Mutasi $record): string {
-                    // masuk -> gudang tujuan ada di lokasi_id
+                    // masuk -> tujuan = lokasi_id (gudang itu sendiri)
                     if ($record->jenis_mutasi === 'masuk') {
                         return $record->lokasi?->nama_lokasi ?? '-';
                     }
@@ -96,17 +85,14 @@ class MutasiExporter extends Exporter
                     return $record->lokasiTujuan?->nama_lokasi ?? '-';
                 }),
 
-            // 7) Stok Awal
             ExportColumn::make('stok_awal')
                 ->label('Stok Awal')
                 ->formatStateUsing(fn ($state, Mutasi $record) => is_null($record->stok_awal) ? '-' : (int) $record->stok_awal),
 
-            // 8) Stok Akhir
             ExportColumn::make('stok_akhir')
                 ->label('Stok Akhir')
                 ->formatStateUsing(fn ($state, Mutasi $record) => is_null($record->stok_akhir) ? '-' : (int) $record->stok_akhir),
 
-            // 9) Status (Indonesia)
             ExportColumn::make('status')
                 ->label('Status')
                 ->formatStateUsing(fn ($state, Mutasi $record) => match ($record->status) {
@@ -117,25 +103,6 @@ class MutasiExporter extends Exporter
         ];
     }
 
-    /**
-     * Rapikan header biar lebih enak dibaca.
-     * (Exporter bawaan hanya support style cell/header, tidak ada title row dan autosize kolom.)
-     */
-    public function getXlsxHeaderCellStyle(): ?Style
-    {
-        return (new StyleBuilder())
-            ->setFontBold()
-            ->setShouldWrapText()
-            ->build();
-    }
-
-    public function getXlsxCellStyle(): ?Style
-    {
-        return (new StyleBuilder())
-            ->setShouldWrapText()
-            ->build();
-    }
-
     public static function getCompletedNotificationTitle(Export $export): string
     {
         return 'Export Riwayat Mutasi Barang Warehouse POH 1 selesai';
@@ -143,7 +110,7 @@ class MutasiExporter extends Exporter
 
     public static function getCompletedNotificationBody(Export $export): string
     {
-        $body = 'Export selesai dengan total '
+        $body = 'Export mutasi selesai dengan total '
             . number_format($export->successful_rows) . ' '
             . str('baris')->plural($export->successful_rows) . ' berhasil diekspor.';
 
@@ -152,11 +119,6 @@ class MutasiExporter extends Exporter
         }
 
         return $body;
-    }
-
-    public function getFileName(Export $export): string
-    {
-        return 'riwayat_mutasi_warehouse_poh1_' . now()->format('Ymd_His');
     }
 
     public function getJobQueue(): ?string
