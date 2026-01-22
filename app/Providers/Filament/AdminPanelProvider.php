@@ -33,6 +33,7 @@ class AdminPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         return $panel
+             ->renderHook('head.end', fn () => view('filament.ga4'))
             ->sidebarCollapsibleOnDesktop()
             ->registration()
             ->default()
