@@ -415,6 +415,9 @@ class MutasiResource extends Resource
                                 $lokasiGudangId = (int) $record->lokasi_id;
                                 $jumlah = (int) $record->jumlah;
 
+                                // ✅ FIX: normalisasi jenis_mutasi biar "Keluar" / "keluar " tetap kebaca keluar
+                                $jenis = strtolower(trim((string) $record->jenis_mutasi));
+
                                 $pivotGudang = DB::table('produk_lokasi')
                                     ->where('produk_id', $produkId)
                                     ->where('lokasi_id', $lokasiGudangId)
@@ -423,7 +426,7 @@ class MutasiResource extends Resource
 
                                 $stokAwal = (int) ($pivotGudang->stok ?? 0);
 
-                                if ($record->jenis_mutasi === 'keluar') {
+                                if ($jenis === 'keluar') {
                                     if ((int) $record->lokasi_tujuan_id === $lokasiGudangId) {
                                         throw new \RuntimeException('Tujuan tidak boleh sama dengan lokasi asal.');
                                     }
@@ -446,7 +449,7 @@ class MutasiResource extends Resource
                                     ]
                                 );
 
-                                if ($record->jenis_mutasi === 'keluar' && $record->lokasi_tujuan_id) {
+                                if ($jenis === 'keluar' && $record->lokasi_tujuan_id) {
                                     $lokasiTujuanId = (int) $record->lokasi_tujuan_id;
 
                                     $pivotTujuan = DB::table('produk_lokasi')
@@ -538,7 +541,6 @@ class MutasiResource extends Resource
             ])
             ->bulkActions([
                 BulkActionGroup::make([
-                    // ✅ NEW: Approve banyak sekaligus (centang -> Approve Terpilih)
                     BulkAction::make('approve_selected')
                         ->label('Approve Terpilih')
                         ->icon('heroicon-o-check-circle')
@@ -547,16 +549,11 @@ class MutasiResource extends Resource
                         ->modalHeading('Approve Mutasi Terpilih')
                         ->modalDescription('Semua mutasi yang dipilih (status pending) akan di-approve dan stok akan diperbarui.')
                         ->visible(function ($livewire) {
-    if (! static::isSuperAdmin()) return false;
+                            if (! static::isSuperAdmin()) return false;
 
-    // Saat pindah tab, Livewire update property ini tanpa refresh
-    $activeTab = $livewire->activeTab ?? null;
-
-    // keys tab kamu: 'Pending', 'Approved', 'Cancelled'
-    // tampil hanya di tab Pending (atau saat belum set apa-apa)
-    return $activeTab === null || $activeTab === 'Pending';
-})
-
+                            $activeTab = $livewire->activeTab ?? null;
+                            return $activeTab === null || $activeTab === 'Pending';
+                        })
                         ->action(function (Collection $records) {
                             $approved = 0;
                             $skipped = 0;
@@ -577,6 +574,9 @@ class MutasiResource extends Resource
                                         $lokasiGudangId = (int) $record->lokasi_id;
                                         $jumlah = (int) $record->jumlah;
 
+                                        // ✅ FIX: normalisasi jenis_mutasi
+                                        $jenis = strtolower(trim((string) $record->jenis_mutasi));
+
                                         $pivotGudang = DB::table('produk_lokasi')
                                             ->where('produk_id', $produkId)
                                             ->where('lokasi_id', $lokasiGudangId)
@@ -585,7 +585,7 @@ class MutasiResource extends Resource
 
                                         $stokAwal = (int) ($pivotGudang->stok ?? 0);
 
-                                        if ($record->jenis_mutasi === 'keluar') {
+                                        if ($jenis === 'keluar') {
                                             if ((int) $record->lokasi_tujuan_id === $lokasiGudangId) {
                                                 throw new \RuntimeException('Tujuan tidak boleh sama dengan lokasi asal.');
                                             }
@@ -608,7 +608,7 @@ class MutasiResource extends Resource
                                             ]
                                         );
 
-                                        if ($record->jenis_mutasi === 'keluar' && $record->lokasi_tujuan_id) {
+                                        if ($jenis === 'keluar' && $record->lokasi_tujuan_id) {
                                             $lokasiTujuanId = (int) $record->lokasi_tujuan_id;
 
                                             $pivotTujuan = DB::table('produk_lokasi')
