@@ -2,18 +2,43 @@
 
 namespace App\Filament\Pages\Auth;
 
-use Filament\Actions\Action;
-use Filament\Forms\Components\Checkbox;
-use Filament\Forms\Components\Component;
-use Filament\Forms\Components\TextInput;
+use DanHarrin\LivewireRateLimiting\Exceptions\TooManyRequestsException;
+use Filament\Facades\Filament;
+use Filament\Http\Responses\Auth\Contracts\LoginResponse;
+use Filament\Models\Contracts\FilamentUser;
 use Filament\Pages\Auth\Login as BaseLogin;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Facades\Validator;
 
 class Login extends BaseLogin
 {
     protected static string $view = 'filament.pages.auth.login';
 
     protected static string $layout = 'filament.layouts.auth';
+
+    /**
+     * @var array{email: string, password: string, remember: bool}
+     */
+    public ?array $data = [
+        'email' => '',
+        'password' => '',
+        'remember' => false,
+    ];
+
+    public ?string $loginErrorMessage = null;
+
+    public function mount(): void
+    {
+        if (Filament::auth()->check()) {
+            redirect()->intended(Filament::getUrl());
+        }
+
+        $this->data = [
+            'email' => '',
+            'password' => '',
+            'remember' => false,
+        ];
+    }
 
     public function getTitle(): string|Htmlable
     {
@@ -27,49 +52,90 @@ class Login extends BaseLogin
 
     public function getSubheading(): string|Htmlable|null
     {
-        return 'Masuk untuk melanjutkan pengelolaan inventori dan mutasi barang.';
+        return 'Masuk untuk melanjutkan pengelolaan stok dan mutasi barang.';
     }
 
-    protected function getEmailFormComponent(): Component
+    /**
+     * @return array<string, string>
+     */
+    public function getExtraBodyAttributes(): array
     {
-        return TextInput::make('email')
-            ->label('Alamat email')
-            ->placeholder('nama@perusahaan.com')
-            ->prefixIcon('heroicon-m-envelope')
-            ->email()
-            ->required()
-            ->autocomplete('email')
-            ->autofocus()
-            ->extraInputAttributes([
-                'tabindex' => 1,
-                'inputmode' => 'email',
-            ]);
+        return [
+            'class' => 'wm-login-body',
+        ];
     }
 
-    protected function getPasswordFormComponent(): Component
+    public function authenticate(): ?LoginResponse
     {
-        return TextInput::make('password')
-            ->label('Kata sandi')
-            ->placeholder('Masukkan kata sandi')
-            ->prefixIcon('heroicon-m-lock-closed')
-            ->password()
-            ->revealable()
-            ->autocomplete('current-password')
-            ->required()
-            ->extraInputAttributes(['tabindex' => 2]);
+        $this->resetErrorBag();
+        $this->loginErrorMessage = null;
+
+        try {
+            $this->rateLimit(5);
+        } catch (TooManyRequestsException $exception) {
+            $this->showLoginFailure("Terlalu banyak percobaan masuk. Coba lagi dalam {$exception->secondsUntilAvailable} detik.");
+
+            return null;
+        }
+
+        $validator = Validator::make($this->data ?? [], [
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
+            'remember' => ['boolean'],
+        ], [
+            'email.required' => 'Alamat email wajib diisi.',
+            'email.email' => 'Masukkan alamat email yang valid.',
+            'password.required' => 'Kata sandi wajib diisi.',
+        ]);
+
+        if ($validator->fails()) {
+            $this->showLoginFailure($validator->errors()->first());
+
+            $this->data['password'] = '';
+
+            return null;
+        }
+
+        $data = $validator->validated();
+        $remember = (bool) ($data['remember'] ?? false);
+
+        if (! Filament::auth()->attempt([
+            'email' => $data['email'],
+            'password' => $data['password'],
+        ], $remember)) {
+            $this->showLoginFailure('Email atau kata sandi tidak sesuai. Periksa kembali data login Anda.');
+            $this->data['password'] = '';
+
+            return null;
+        }
+
+        $user = Filament::auth()->user();
+
+        if (
+            ($user instanceof FilamentUser) &&
+            (! $user->canAccessPanel(Filament::getCurrentPanel()))
+        ) {
+            Filament::auth()->logout();
+
+            $this->showLoginFailure('Akun Anda belum memiliki akses ke panel ini. Hubungi administrator.');
+            $this->data['password'] = '';
+
+            return null;
+        }
+
+        session()->regenerate();
+
+        return app(LoginResponse::class);
     }
 
-    protected function getRememberFormComponent(): Component
+    public function updated(string $property, mixed $value = null): void
     {
-        return Checkbox::make('remember')
-            ->label('Ingat saya di perangkat ini');
+        $this->loginErrorMessage = null;
+        $this->resetErrorBag();
     }
 
-    protected function getAuthenticateFormAction(): Action
+    private function showLoginFailure(string $message): void
     {
-        return Action::make('authenticate')
-            ->label('Masuk ke dashboard')
-            ->icon('heroicon-m-arrow-right-end-on-rectangle')
-            ->submit('authenticate');
+        $this->loginErrorMessage = $message;
     }
 }

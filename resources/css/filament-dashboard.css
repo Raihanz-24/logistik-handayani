@@ -97,6 +97,99 @@
     box-shadow: none;
 }
 
+.fi-body .fi-sidebar-header .fi-logo {
+    height: auto !important;
+    min-height: 3.45rem;
+}
+
+.wm-sidebar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.76rem;
+    min-width: 0;
+    border-radius: 1rem;
+}
+
+.wm-sidebar-brand__mark {
+    position: relative;
+    display: grid;
+    width: 2.7rem;
+    height: 2.7rem;
+    flex: 0 0 auto;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--wd-amber) 28%, var(--wd-border));
+    border-radius: 0.95rem;
+    background:
+        radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.95), transparent 36%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(245, 179, 1, 0.14));
+    box-shadow:
+        0 12px 28px rgba(15, 23, 42, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.dark .wm-sidebar-brand__mark {
+    border-color: rgba(245, 179, 1, 0.28);
+    background:
+        radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.18), transparent 38%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(245, 179, 1, 0.12));
+    box-shadow:
+        0 14px 30px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.wm-sidebar-brand__logo {
+    width: 2.18rem;
+    height: 2.18rem;
+    border-radius: 999px;
+    object-fit: cover;
+}
+
+.wm-sidebar-brand__text {
+    display: grid;
+    gap: 0.02rem;
+    min-width: 0;
+    line-height: 1;
+}
+
+.wm-sidebar-brand__title,
+.wm-sidebar-brand__subtitle {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wm-sidebar-brand__title {
+    color: var(--wd-text);
+    font-size: 1.04rem;
+    font-weight: 830;
+    letter-spacing: -0.035em;
+}
+
+.wm-sidebar-brand__subtitle {
+    margin-top: 0.18rem;
+    color: var(--wd-amber-light);
+    font-size: 0.73rem;
+    font-weight: 760;
+    letter-spacing: 0.155em;
+    text-transform: uppercase;
+}
+
+.fi-sidebar.fi-sidebar-open .wm-sidebar-brand__text,
+.fi-sidebar:not(.fi-sidebar-collapsed) .wm-sidebar-brand__text {
+    opacity: 1;
+}
+
+.fi-sidebar.fi-sidebar-collapsed .wm-sidebar-brand {
+    gap: 0;
+}
+
+.fi-sidebar.fi-sidebar-collapsed .wm-sidebar-brand__text {
+    width: 0;
+    opacity: 0;
+}
+
 .fi-body .fi-sidebar-nav {
     background: var(--wd-shell);
 }

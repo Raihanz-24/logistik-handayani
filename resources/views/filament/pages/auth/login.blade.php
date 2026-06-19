@@ -6,11 +6,7 @@
         <aside class="wm-login__showcase">
             <div class="wm-login__brand">
                 <span class="wm-login__brand-mark" aria-hidden="true">
-                    <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
-                        <path d="M6 10.25 16 5l10 5.25v11.5L16 27 6 21.75v-11.5Z" stroke="currentColor" stroke-width="2"/>
-                        <path d="m6.5 10.5 9.5 5 9.5-5M16 15.5V27" stroke="currentColor" stroke-width="2"/>
-                        <path d="m11 8 10 5.25v5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
+                    <img src="{{ asset('images/logo-pt-iss.jpg') }}" alt="">
                 </span>
                 <span>Warehouse Monitoring PT ISS</span>
             </div>
@@ -49,10 +45,7 @@
             <section class="wm-login__card">
                 <div class="wm-login__mobile-brand">
                     <span class="wm-login__brand-mark" aria-hidden="true">
-                        <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
-                            <path d="M6 10.25 16 5l10 5.25v11.5L16 27 6 21.75v-11.5Z" stroke="currentColor" stroke-width="2"/>
-                            <path d="m6.5 10.5 9.5 5 9.5-5M16 15.5V27" stroke="currentColor" stroke-width="2"/>
-                        </svg>
+                        <img src="{{ asset('images/logo-pt-iss.jpg') }}" alt="">
                     </span>
                     <span>Warehouse Monitoring PT ISS</span>
                 </div>
@@ -70,14 +63,85 @@
                     scopes: $this->getRenderHookScopes(),
                 ) }}
 
-                <x-filament-panels::form id="form" wire:submit="authenticate">
-                    {{ $this->form }}
+                <form class="wm-login__form" wire:submit.prevent="authenticate" novalidate>
+                    <div
+                        @class([
+                            'wm-login__form-alert',
+                            'wm-login__form-alert--visible' => filled($this->loginErrorMessage),
+                        ])
+                        aria-live="polite"
+                    >
+                        @if ($this->loginErrorMessage)
+                            <x-filament::icon icon="heroicon-m-exclamation-triangle" />
+                            <span>{{ $this->loginErrorMessage }}</span>
+                        @endif
+                    </div>
 
-                    <x-filament-panels::form.actions
-                        :actions="$this->getCachedFormActions()"
-                        :full-width="$this->hasFullWidthFormActions()"
-                    />
-                </x-filament-panels::form>
+                    <label class="wm-login__field" for="email">
+                        <span class="wm-login__label">Alamat email</span>
+                        <span class="wm-login__input-wrap">
+                            <x-filament::icon class="wm-login__input-icon" icon="heroicon-m-envelope" />
+                            <input
+                                id="email"
+                                type="email"
+                                inputmode="email"
+                                autocomplete="email"
+                                autofocus
+                                tabindex="1"
+                                wire:model="data.email"
+                                placeholder="nama@perusahaan.com"
+                                class="wm-login__input"
+                            >
+                        </span>
+                    </label>
+
+                    <label class="wm-login__field" for="password" x-data="{ showPassword: false }">
+                        <span class="wm-login__label">Kata sandi</span>
+                        <span class="wm-login__input-wrap">
+                            <x-filament::icon class="wm-login__input-icon" icon="heroicon-m-lock-closed" />
+                            <input
+                                id="password"
+                                x-bind:type="showPassword ? 'text' : 'password'"
+                                autocomplete="current-password"
+                                tabindex="2"
+                                wire:model="data.password"
+                                placeholder="Masukkan kata sandi"
+                                class="wm-login__input"
+                            >
+                            <button
+                                type="button"
+                                class="wm-login__reveal"
+                                x-on:click="showPassword = ! showPassword"
+                                x-bind:aria-label="showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'"
+                                tabindex="4"
+                            >
+                                <x-filament::icon x-show="! showPassword" icon="heroicon-m-eye" />
+                                <x-filament::icon x-cloak x-show="showPassword" icon="heroicon-m-eye-slash" />
+                            </button>
+                        </span>
+                    </label>
+
+                    <label class="wm-login__remember">
+                        <input
+                            type="checkbox"
+                            wire:model="data.remember"
+                            tabindex="3"
+                            class="wm-login__checkbox"
+                        >
+                        <span>Ingat saya di perangkat ini</span>
+                    </label>
+
+                    <button
+                        type="submit"
+                        class="wm-login__submit"
+                        wire:loading.attr="disabled"
+                        wire:target="authenticate"
+                    >
+                        <x-filament::icon class="wm-login__submit-icon" icon="heroicon-m-arrow-right-end-on-rectangle" />
+                        <span wire:loading.remove wire:target="authenticate">Masuk ke dashboard</span>
+                        <span wire:loading wire:target="authenticate">Memproses...</span>
+                    </button>
+                </form>
 
                 {{ \Filament\Support\Facades\FilamentView::renderHook(
                     \Filament\View\PanelsRenderHook::AUTH_LOGIN_FORM_AFTER,

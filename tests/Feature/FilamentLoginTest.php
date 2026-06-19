@@ -44,11 +44,9 @@ class FilamentLoginTest extends TestCase
         ]);
 
         Livewire::test(Login::class)
-            ->fillForm([
-                'email' => $user->email,
-                'password' => 'secure-password',
-                'remember' => true,
-            ])
+            ->set('data.email', $user->email)
+            ->set('data.password', 'secure-password')
+            ->set('data.remember', true)
             ->call('authenticate')
             ->assertHasNoFormErrors();
 
