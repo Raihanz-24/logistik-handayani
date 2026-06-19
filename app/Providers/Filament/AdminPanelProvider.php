@@ -88,6 +88,11 @@ class AdminPanelProvider extends PanelProvider
                     ->isActiveWhen(fn () => request()->routeIs('filament.admin.auth.profile'))
                     ->url(fn () => route('filament.admin.auth.profile', absolute: true)),
             ])
+            ->navigationGroups([
+                'Master Data',
+                'Pengaturan',
+                'Bantuan',
+            ])
             ->spa()
             ->profile(isSimple: false)
             ->unsavedChangesAlerts()
