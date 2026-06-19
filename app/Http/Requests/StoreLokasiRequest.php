@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Lokasi;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreLokasiRequest extends FormRequest
 {
@@ -24,8 +26,9 @@ class StoreLokasiRequest extends FormRequest
         return [
             'kode_lokasi' => 'required|unique:lokasis',
             'nama_lokasi' => 'required|string',
+            'jenis_lokasi' => ['required', Rule::in(array_keys(Lokasi::jenisOptions()))],
             'alamat' => 'nullable|string',
-            'keterangan' => 'nullable|string'
+            'keterangan' => 'nullable|string',
         ];
     }
 
@@ -35,8 +38,17 @@ class StoreLokasiRequest extends FormRequest
             'kode_lokasi.required' => 'Kode lokasi wajib diisi.',
             'kode_lokasi.unique' => 'Kode lokasi sudah digunakan.',
             'nama_lokasi.required' => 'Nama lokasi wajib diisi.',
+            'jenis_lokasi.required' => 'Jenis lokasi wajib dipilih.',
+            'jenis_lokasi.in' => 'Jenis lokasi tidak valid.',
             'alamat.string' => 'Harus berupa text.',
-            'keterangan.string' => 'Keterangan berupa text.'
+            'keterangan.string' => 'Keterangan berupa text.',
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (! $this->filled('jenis_lokasi')) {
+            $this->merge(['jenis_lokasi' => Lokasi::JENIS_GUDANG]);
+        }
     }
 }

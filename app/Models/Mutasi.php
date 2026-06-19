@@ -19,7 +19,7 @@ class Mutasi extends Model
         'status',
 
         'user_id',
-        'produk_id',
+        'barang_id',
 
         // gudang asal (keluar) / gudang tujuan (masuk)
         'lokasi_id',
@@ -51,9 +51,9 @@ class Mutasi extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function produk(): BelongsTo
+    public function barang(): BelongsTo
     {
-        return $this->belongsTo(Produk::class);
+        return $this->belongsTo(Barang::class);
     }
 
     public function lokasi(): BelongsTo

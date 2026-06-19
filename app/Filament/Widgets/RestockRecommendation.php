@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Resources\BarangResource;
 use App\Services\SawRestockRecommendationService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Carbon\Carbon;
@@ -19,6 +20,8 @@ class RestockRecommendation extends Widget
 
     protected int|string|array $columnSpan = 'full';
 
+    protected static bool $isLazy = false;
+
     /**
      * @return array<string, mixed>
      */
@@ -31,7 +34,15 @@ class RestockRecommendation extends Widget
             ? Carbon::parse($this->filters['endDate'])
             : null;
 
-        return app(SawRestockRecommendationService::class)
+        $result = app(SawRestockRecommendationService::class)
             ->calculate($start, $end);
+
+        $result['recommendations'] = $result['recommendations']
+            ->map(fn (array $item): array => $item + [
+                'url' => BarangResource::getUrl('edit', ['record' => $item['barang_id']]),
+                'score_percentage' => min(100, max(0, $item['nilai_preferensi'] * 100)),
+            ]);
+
+        return $result;
     }
 }

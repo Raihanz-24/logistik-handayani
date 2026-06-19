@@ -22,8 +22,8 @@ class StoreKategoriRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'nama' => 'required|unique:kategori_produks',
-            'slug' => 'required|unique:kategori_produks',
+            'nama' => 'required|unique:kategori_barangs',
+            'slug' => 'required|unique:kategori_barangs',
         ];
     }
 

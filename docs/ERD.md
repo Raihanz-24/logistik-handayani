@@ -1,6 +1,6 @@
-# ERD Project Mutasi Produk Backend
+# ERD Project Mutasi Barang Backend
 
-Dokumen ini disusun dari skema database aktual project lokal (`mutasi_backend`) dan dicocokkan dengan migration serta model Eloquent. Fokus utama aplikasi adalah master produk, master lokasi/gudang, stok per lokasi, histori mutasi stok, user, dan role/permission Filament Shield.
+Dokumen ini disusun dari skema database aktual project lokal (`mutasi_backend`) dan dicocokkan dengan migration serta model Eloquent. Fokus utama aplikasi adalah master barang, master lokasi/gudang, stok per lokasi, histori mutasi stok, user, dan role/permission Filament Shield.
 
 ## ERD Domain Utama
 
@@ -17,7 +17,7 @@ erDiagram
         timestamp updated_at NULL
     }
 
-    KATEGORI_PRODUKS {
+    KATEGORI_BARANGS {
         bigint_unsigned id PK
         varchar nama UK
         varchar slug UK
@@ -25,24 +25,20 @@ erDiagram
         timestamp updated_at NULL
     }
 
-    PRODUKS {
+    BARANGS {
         bigint_unsigned id PK
-        varchar nama_produk
-        varchar kode_produk UK
-        bigint_unsigned kategori_produk_id FK "nullable, set null"
+        varchar nama_barang
+        varchar kode_barang UK
+        bigint_unsigned kategori_barang_id FK "nullable, set null"
         varchar satuan
         text deskripsi NULL
-        int harga_beli "default 0"
-        int harga_jual "default 0"
-        varchar barcode NULL
-        varchar gambar NULL
         timestamp created_at NULL
         timestamp updated_at NULL
     }
 
-    KATEGORI_PRODUK_PRODUK {
-        bigint_unsigned kategori_produk_id PK, FK
-        bigint_unsigned produk_id PK, FK
+    BARANG_KATEGORI_BARANG {
+        bigint_unsigned kategori_barang_id PK, FK
+        bigint_unsigned barang_id PK, FK
         timestamp created_at NULL
         timestamp updated_at NULL
     }
@@ -51,14 +47,15 @@ erDiagram
         bigint_unsigned id PK
         varchar kode_lokasi UK
         varchar nama_lokasi
+        varchar jenis_lokasi "gudang atau lokasi_pemakaian"
         text alamat NULL
         varchar keterangan NULL
         timestamp created_at NULL
         timestamp updated_at NULL
     }
 
-    PRODUK_LOKASI {
-        bigint_unsigned produk_id PK, FK
+    BARANG_LOKASI {
+        bigint_unsigned barang_id PK, FK
         bigint_unsigned lokasi_id PK, FK
         int stok "default 0"
         timestamp created_at NULL
@@ -76,7 +73,7 @@ erDiagram
         varchar no_ref NULL
         enum status "pending, approved, cancelled; default pending"
         bigint_unsigned user_id FK
-        bigint_unsigned produk_id FK
+        bigint_unsigned barang_id FK
         bigint_unsigned lokasi_id FK
         bigint_unsigned lokasi_tujuan_id FK "nullable, set null"
         timestamp created_at NULL
@@ -94,14 +91,14 @@ erDiagram
     USERS ||--o{ MUTASIS : "approved_by/penyetuju"
     USERS ||--o{ MUTASIS : "cancelled_by/pembatal"
 
-    KATEGORI_PRODUKS ||--o{ PRODUKS : "kategori_produk_id"
-    KATEGORI_PRODUKS ||--o{ KATEGORI_PRODUK_PRODUK : "kategori_produk_id"
-    PRODUKS ||--o{ KATEGORI_PRODUK_PRODUK : "produk_id"
+    KATEGORI_BARANGS ||--o{ BARANGS : "kategori_barang_id"
+    KATEGORI_BARANGS ||--o{ BARANG_KATEGORI_BARANG : "kategori_barang_id"
+    BARANGS ||--o{ BARANG_KATEGORI_BARANG : "barang_id"
 
-    PRODUKS ||--o{ PRODUK_LOKASI : "produk_id"
-    LOKASIS ||--o{ PRODUK_LOKASI : "lokasi_id"
+    BARANGS ||--o{ BARANG_LOKASI : "barang_id"
+    LOKASIS ||--o{ BARANG_LOKASI : "lokasi_id"
 
-    PRODUKS ||--o{ MUTASIS : "produk_id"
+    BARANGS ||--o{ MUTASIS : "barang_id"
     LOKASIS ||--o{ MUTASIS : "lokasi_id/gudang terdampak"
     LOKASIS ||--o{ MUTASIS : "lokasi_tujuan_id/tujuan"
 ```
@@ -114,22 +111,24 @@ erDiagram
 | `users` -> `mutasis.created_by` | 1:N | FK `mutasis_created_by_foreign` | User yang membuat pengajuan/record mutasi. |
 | `users` -> `mutasis.approved_by` | 1:N | FK `mutasis_approved_by_foreign` | Nullable, otomatis `SET NULL` saat user penyetuju dihapus. |
 | `users` -> `mutasis.cancelled_by` | 1:N | FK `mutasis_cancelled_by_foreign` | Nullable, otomatis `SET NULL` saat user pembatal dihapus. |
-| `kategori_produks` -> `produks.kategori_produk_id` | 1:N | FK `produks_kategori_produk_id_foreign` | Nullable, otomatis `SET NULL` saat kategori dihapus. |
-| `kategori_produks` -> `produks` | M:N | Pivot `kategori_produk_produk` | Pivot masih aktif di model `Produk::kategoriProduks()` dan `KategoriProduk::produks()`. |
-| `produks` -> `lokasis` | M:N | Pivot `produk_lokasi` | Pivot menyimpan atribut `stok`. |
-| `produks` -> `mutasis` | 1:N | FK `mutasis_produk_id_foreign` | Satu produk memiliki banyak histori mutasi. |
+| `kategori_barangs` -> `barangs.kategori_barang_id` | 1:N | FK `barangs_kategori_barang_id_foreign` | Nullable, otomatis `SET NULL` saat kategori dihapus. |
+| `kategori_barangs` -> `barangs` | M:N | Pivot `barang_kategori_barang` | Pivot masih aktif di model `Barang::kategoriBarangs()` dan `KategoriBarang::barangs()`. |
+| `barangs` -> `lokasis` | M:N | Pivot `barang_lokasi` | Pivot menyimpan atribut `stok`. |
+| `barangs` -> `mutasis` | 1:N | FK `mutasis_barang_id_foreign` | Satu barang memiliki banyak histori mutasi. |
 | `lokasis` -> `mutasis.lokasi_id` | 1:N | FK `mutasis_lokasi_id_foreign` | Gudang/lokasi utama yang terdampak stok. |
 | `lokasis` -> `mutasis.lokasi_tujuan_id` | 1:N | FK `mutasis_lokasi_tujuan_id_foreign` | Nullable, dipakai sebagai tujuan pada mutasi keluar/transfer. |
 
 ## Aturan Bisnis Dari Struktur
 
-- `produk_lokasi` adalah sumber stok saat ini per kombinasi produk dan lokasi.
-- Primary key `produk_lokasi` adalah gabungan `produk_id + lokasi_id`, sehingga satu produk hanya punya satu baris stok untuk satu lokasi.
+- `barang_lokasi` adalah sumber stok saat ini per kombinasi barang dan lokasi.
+- Hanya lokasi dengan `jenis_lokasi = gudang` yang boleh memiliki saldo pada `barang_lokasi`.
+- Lokasi dengan `jenis_lokasi = lokasi_pemakaian` hanya menjadi tujuan barang habis pakai dan tidak menerima saldo stok.
+- Primary key `barang_lokasi` adalah gabungan `barang_id + lokasi_id`, sehingga satu barang hanya punya satu baris stok untuk satu lokasi.
 - `mutasis` menyimpan histori pergerakan stok. `stok_awal` dan `stok_akhir` adalah snapshot stok lokasi yang terdampak pada waktu mutasi.
 - `jenis_mutasi` hanya menerima `masuk` atau `keluar`.
 - `status` hanya menerima `pending`, `approved`, atau `cancelled`, dengan default `pending`.
 - `approved_by`, `cancelled_by`, dan `lokasi_tujuan_id` memakai `ON DELETE SET NULL`.
-- FK utama seperti `mutasis.user_id`, `mutasis.produk_id`, `mutasis.lokasi_id`, dan `mutasis.created_by` memakai aturan default MySQL/Laravel, yaitu tidak otomatis cascade dan tidak set null.
+- FK utama seperti `mutasis.user_id`, `mutasis.barang_id`, `mutasis.lokasi_id`, dan `mutasis.created_by` memakai aturan default MySQL/Laravel, yaitu tidak otomatis cascade dan tidak set null.
 
 ## ERD Role Dan Permission
 
@@ -195,7 +194,7 @@ erDiagram
 | `roles` | `guard_name` | Guard auth, pada project ini umumnya `web`. |
 | `roles` | `created_at`, `updated_at` | Timestamp role. |
 | `permissions` | `id` | Primary key permission. |
-| `permissions` | `name` | Nama permission, contoh `view_any_produk`, `widget_RestockRecommendation`. |
+| `permissions` | `name` | Nama permission, contoh `view_any_barang`, `widget_RestockRecommendation`. |
 | `permissions` | `guard_name` | Guard auth, pada project ini umumnya `web`. |
 | `permissions` | `created_at`, `updated_at` | Timestamp permission. |
 | `model_has_roles` | `role_id` | FK ke `roles.id`. |
@@ -317,8 +316,8 @@ Tabel berikut adalah bawaan Laravel/infrastruktur dan tidak menjadi relasi domai
 | `exports` | `user_id` | `users.id` | CASCADE |
 | `failed_import_rows` | `import_id` | `imports.id` | CASCADE |
 | `imports` | `user_id` | `users.id` | CASCADE |
-| `kategori_produk_produk` | `kategori_produk_id` | `kategori_produks.id` | CASCADE |
-| `kategori_produk_produk` | `produk_id` | `produks.id` | CASCADE |
+| `barang_kategori_barang` | `kategori_barang_id` | `kategori_barangs.id` | CASCADE |
+| `barang_kategori_barang` | `barang_id` | `barangs.id` | CASCADE |
 | `model_has_permissions` | `permission_id` | `permissions.id` | CASCADE |
 | `model_has_roles` | `role_id` | `roles.id` | CASCADE |
 | `mutasis` | `approved_by` | `users.id` | SET NULL |
@@ -326,11 +325,11 @@ Tabel berikut adalah bawaan Laravel/infrastruktur dan tidak menjadi relasi domai
 | `mutasis` | `created_by` | `users.id` | NO ACTION |
 | `mutasis` | `lokasi_id` | `lokasis.id` | NO ACTION |
 | `mutasis` | `lokasi_tujuan_id` | `lokasis.id` | SET NULL |
-| `mutasis` | `produk_id` | `produks.id` | NO ACTION |
+| `mutasis` | `barang_id` | `barangs.id` | NO ACTION |
 | `mutasis` | `user_id` | `users.id` | NO ACTION |
-| `produk_lokasi` | `lokasi_id` | `lokasis.id` | CASCADE |
-| `produk_lokasi` | `produk_id` | `produks.id` | CASCADE |
-| `produks` | `kategori_produk_id` | `kategori_produks.id` | SET NULL |
+| `barang_lokasi` | `lokasi_id` | `lokasis.id` | CASCADE |
+| `barang_lokasi` | `barang_id` | `barangs.id` | CASCADE |
+| `barangs` | `kategori_barang_id` | `kategori_barangs.id` | SET NULL |
 | `role_has_permissions` | `permission_id` | `permissions.id` | CASCADE |
 | `role_has_permissions` | `role_id` | `roles.id` | CASCADE |
 
@@ -339,12 +338,12 @@ Tabel berikut adalah bawaan Laravel/infrastruktur dan tidak menjadi relasi domai
 | Tabel | Key | Kolom |
 |---|---|---|
 | `users` | Unique | `email` |
-| `produks` | Unique | `kode_produk` |
+| `barangs` | Unique | `kode_barang` |
 | `lokasis` | Unique | `kode_lokasi` |
-| `kategori_produks` | Unique | `nama` |
-| `kategori_produks` | Unique | `slug` |
-| `produk_lokasi` | Composite PK | `produk_id`, `lokasi_id` |
-| `kategori_produk_produk` | Composite PK | `kategori_produk_id`, `produk_id` |
+| `kategori_barangs` | Unique | `nama` |
+| `kategori_barangs` | Unique | `slug` |
+| `barang_lokasi` | Composite PK | `barang_id`, `lokasi_id` |
+| `barang_kategori_barang` | Composite PK | `kategori_barang_id`, `barang_id` |
 | `roles` | Unique | `name`, `guard_name` |
 | `permissions` | Unique | `name`, `guard_name` |
 | `role_has_permissions` | Composite PK | `permission_id`, `role_id` |
@@ -355,8 +354,8 @@ Tabel berikut adalah bawaan Laravel/infrastruktur dan tidak menjadi relasi domai
 
 ## Catatan Konsistensi
 
-- Database aktual tidak memiliki kolom `produks.kategori`. File migration awal `2025_07_14_025632_create_produks_table.php` masih menampilkan kolom tersebut, sehingga ada indikasi migration/source pernah berubah setelah database dimigrasi atau ada migration pembersihan yang tidak tersimpan. ERD ini mengikuti database aktual yang sedang berjalan.
-- `produks.kategori_produk_id` ada sebagai FK langsung ke `kategori_produks`, tetapi model `Produk` juga masih memiliki relasi many-to-many ke `kategori_produks` melalui `kategori_produk_produk`. Jadi saat ini ada dua jalur kategori yang sama-sama tersedia di struktur.
-- Model `Produk::$fillable` belum memasukkan `kategori_produk_id`, walaupun kolom dan FK tersedia di database.
+- Database aktual tidak memiliki kolom `barangs.kategori`. File migration awal `2025_07_14_025632_create_barangs_table.php` masih menampilkan kolom tersebut, sehingga ada indikasi migration/source pernah berubah setelah database dimigrasi atau ada migration pembersihan yang tidak tersimpan. ERD ini mengikuti database aktual yang sedang berjalan.
+- `barangs.kategori_barang_id` ada sebagai FK langsung ke `kategori_barangs`, tetapi model `Barang` juga masih memiliki relasi many-to-many ke `kategori_barangs` melalui `barang_kategori_barang`. Jadi saat ini ada dua jalur kategori yang sama-sama tersedia di struktur.
+- Model `Barang::$fillable` belum memasukkan `kategori_barang_id`, walaupun kolom dan FK tersedia di database.
 - `model_has_roles.model_id` dan `model_has_permissions.model_id` tidak memiliki FK fisik ke `users.id` karena tabel tersebut polymorphic. Relasi ke `users` hanya berlaku secara logis saat `model_type = App\Models\User`.
 - `personal_access_tokens` dan `notifications` juga polymorphic, sehingga tidak memiliki FK fisik ke `users`.

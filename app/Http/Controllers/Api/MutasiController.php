@@ -5,16 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Requests\StoreMutasiRequest;
 use App\Http\Requests\UpdateMutasiRequest;
 use App\Models\Mutasi;
-use App\Models\Produk;
-use App\Models\Lokasi;
-use Illuminate\Http\Request;
-use App\Http\Controllers\Controller;
+use App\Services\MutasiStockService;
 
 class MutasiController extends BaseApiController
 {
     public function index()
     {
-        $mutasi = Mutasi::with('user', 'produk', 'lokasi')->get();
+        $mutasi = Mutasi::with('user', 'barang', 'lokasi', 'lokasiTujuan')->get();
+
         return $this->success($mutasi, 'Daftar seluruh mutasi');
     }
 
@@ -28,36 +26,24 @@ class MutasiController extends BaseApiController
             'status' => 'pending',
             'user_id' => $data['user_id'] ?? $user->id,
             'created_by' => $user->id,
-        ])->load('produk', 'lokasi', 'user');
+        ])->load('barang', 'lokasi', 'lokasiTujuan', 'user');
 
         return $this->success($mutasi, 'Mutasi berhasil dicatat dan menunggu approval', 201);
     }
 
-    public function approve(Mutasi $mutasi)
+    public function approve(Mutasi $mutasi, MutasiStockService $stockService)
     {
         if ($mutasi->status !== 'pending') {
             return $this->error('Mutasi sudah diproses.', 400);
         }
 
-        $produk = $mutasi->produk;
-        $lokasi = $mutasi->lokasi;
+        try {
+            $approved = $stockService->approve($mutasi, (int) auth()->id());
 
-        $stokSekarang = $produk->lokasi()->where('lokasi_id', $lokasi->id)->first()?->pivot->stok ?? 0;
-        $stokBaru = $mutasi->jenis_mutasi === 'masuk'
-            ? $stokSekarang + $mutasi->jumlah
-            : $stokSekarang - $mutasi->jumlah;
-
-        if ($stokBaru < 0) {
-            return $this->error('Stok tidak cukup untuk disetujui.', 422);
+            return $this->success($approved, 'Mutasi berhasil disetujui dan stok gudang diperbarui');
+        } catch (\RuntimeException $exception) {
+            return $this->error($exception->getMessage(), 422);
         }
-
-        $produk->lokasi()->syncWithoutDetaching([
-            $lokasi->id => ['stok' => $stokBaru]
-        ]);
-
-        $mutasi->update(['status' => 'approved']);
-
-        return $this->success($mutasi->fresh(), 'Mutasi berhasil disetujui dan stok diperbarui');
     }
 
     public function cancel(Mutasi $mutasi)
@@ -73,8 +59,10 @@ class MutasiController extends BaseApiController
 
     public function show(Mutasi $mutasi)
     {
-        $mutasi->load('produk', 'lokasi', 'user');
-        return $this->success($mutasi->load('produk', 'lokasi', 'user'), 'Detail mutasi');
+        return $this->success(
+            $mutasi->load('barang', 'lokasi', 'lokasiTujuan', 'user'),
+            'Detail mutasi',
+        );
     }
 
     public function update(UpdateMutasiRequest $request, Mutasi $mutasi)

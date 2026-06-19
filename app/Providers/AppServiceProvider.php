@@ -2,11 +2,10 @@
 
 namespace App\Providers;
 
-use App\Models\Produk;
-use App\Observers\ProdukObserver;
-use Illuminate\Support\ServiceProvider;
 use App\Models\User;
 use App\Observers\UserObserver;
+use Illuminate\Support\ServiceProvider;
+
 class AppServiceProvider extends ServiceProvider
 {
     /**
@@ -22,7 +21,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Produk::observe(ProdukObserver::class);
         User::observe(UserObserver::class);
     }
 }

@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Lokasi;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreMutasiRequest extends FormRequest
 {
@@ -22,8 +24,18 @@ class StoreMutasiRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'produk_id' => 'required|exists:produks,id',
-            'lokasi_id' => 'required|exists:lokasis,id',
+            'barang_id' => 'required|exists:barangs,id',
+            'lokasi_id' => [
+                'required',
+                Rule::exists('lokasis', 'id')
+                    ->where('jenis_lokasi', Lokasi::JENIS_GUDANG),
+            ],
+            'lokasi_tujuan_id' => [
+                'nullable',
+                'required_if:jenis_mutasi,keluar',
+                'different:lokasi_id',
+                'exists:lokasis,id',
+            ],
             'tanggal' => 'required|date',
             'jenis_mutasi' => 'required|in:masuk,keluar',
             'jumlah' => 'required|integer|min:1',
@@ -37,10 +49,13 @@ class StoreMutasiRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'produk_id.required' => 'Produk wajib diisi.',
-            'produk_id.exists' => 'Produk tidak ditemukan.',
-            'lokasi_id.required' => 'Lokasi wajib diisi.',
-            'lokasi_id.exists' => 'Lokasi tidak ditemukan.',
+            'barang_id.required' => 'Barang wajib diisi.',
+            'barang_id.exists' => 'Barang tidak ditemukan.',
+            'lokasi_id.required' => 'Gudang wajib diisi.',
+            'lokasi_id.exists' => 'Gudang tidak ditemukan atau lokasi tersebut bukan gudang.',
+            'lokasi_tujuan_id.required_if' => 'Lokasi tujuan wajib diisi untuk barang keluar.',
+            'lokasi_tujuan_id.different' => 'Lokasi tujuan tidak boleh sama dengan gudang asal.',
+            'lokasi_tujuan_id.exists' => 'Lokasi tujuan tidak ditemukan.',
             'tanggal.required' => 'Tanggal wajib diisi.',
             'tanggal.date' => 'Tanggal tidak valid.',
             'jenis_mutasi.required' => 'Jenis mutasi wajib diisi.',
@@ -54,4 +69,10 @@ class StoreMutasiRequest extends FormRequest
         ];
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->input('jenis_mutasi') === 'masuk') {
+            $this->merge(['lokasi_tujuan_id' => null]);
+        }
+    }
 }

@@ -2,48 +2,37 @@
 
 namespace App\Filament\Resources;
 
-use id;
+use App\Filament\Resources\MutasiResource\Pages;
+use App\Models\Lokasi;
+use App\Models\Mutasi;
+use App\Services\MutasiExcelExportService;
 use Closure;
 use Filament\Forms;
-use Filament\Tables;
-use App\Models\Mutasi;
-use App\Models\Produk;
+use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
-use Filament\Tables\Table;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Tables;
+use Filament\Tables\Actions\Action;
+use Filament\Tables\Actions\BulkAction;
+use Filament\Tables\Actions\BulkActionGroup;
+// ✅ BULK ACTION (Approve Terpilih)
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Filament\Tables\Actions\Action;
-
-use Filament\Tables\Filters\Filter;
-use Filament\Forms\Components\Section;
-
-// import
-use Filament\Tables\Actions\BulkAction;
-use Illuminate\Support\Facades\Storage;
-use App\Filament\Exports\MutasiExporter;
-use Filament\Notifications\Notification;
-use App\Services\MutasiPoh1ImportService;
-
-// ✅ BULK ACTION (Approve Terpilih)
-use Filament\Forms\Components\FileUpload;
-use Filament\Tables\Actions\ExportAction;
-
-// ===== Export =====
-use Illuminate\Database\Eloquent\Builder;
-use Filament\Tables\Actions\BulkActionGroup;
-use Filament\Tables\Actions\ExportBulkAction;
-use App\Filament\Resources\MutasiResource\Pages;
-use Filament\Actions\Exports\Enums\ExportFormat;
-use Filament\Forms\Components\TextInput; // (dibiarkan walau tidak terpakai lagi, boleh kamu hapus kalau mau)
 
 class MutasiResource extends Resource
 {
     protected static ?string $model = Mutasi::class;
 
     protected static ?string $navigationGroup = 'Master Data';
+
     protected static ?string $navigationLabel = 'Mutasi';
+
     protected static ?string $pluralLabel = 'Mutasi';
+
     protected static ?string $slug = 'mutasi';
 
     protected static string $superAdminRole = 'super_admin';
@@ -51,7 +40,9 @@ class MutasiResource extends Resource
     protected static function isSuperAdmin(): bool
     {
         $user = auth()->user();
-        if (! $user) return false;
+        if (! $user) {
+            return false;
+        }
 
         return $user->hasRole([
             static::$superAdminRole,
@@ -64,25 +55,29 @@ class MutasiResource extends Resource
     }
 
     /**
-     * Stok tersedia = stok fisik (produk_lokasi) - total pending keluar (mutasis)
+     * Stok tersedia = stok fisik (barang_lokasi) - total pending keluar (mutasis)
      */
-    public static function getStokTersedia(?int $produkId, ?int $lokasiId, ?int $excludeMutasiId = null): int
+    public static function getStokTersedia(?int $barangId, ?int $lokasiId, ?int $excludeMutasiId = null): int
     {
-        if (! $produkId || ! $lokasiId) {
+        if (! $barangId || ! $lokasiId) {
             return 0;
         }
 
-        $stokFisik = (int) (DB::table('produk_lokasi')
-            ->where('produk_id', $produkId)
+        if (! Lokasi::query()->gudang()->whereKey($lokasiId)->exists()) {
+            return 0;
+        }
+
+        $stokFisik = (int) (DB::table('barang_lokasi')
+            ->where('barang_id', $barangId)
             ->where('lokasi_id', $lokasiId)
             ->value('stok') ?? 0);
 
         $reserved = (int) Mutasi::query()
             ->where('status', 'pending')
             ->where('jenis_mutasi', 'keluar')
-            ->where('produk_id', $produkId)
+            ->where('barang_id', $barangId)
             ->where('lokasi_id', $lokasiId)
-            ->when($excludeMutasiId, fn($q) => $q->where('id', '!=', $excludeMutasiId))
+            ->when($excludeMutasiId, fn ($q) => $q->where('id', '!=', $excludeMutasiId))
             ->sum('jumlah');
 
         return max(0, $stokFisik - $reserved);
@@ -100,14 +95,14 @@ class MutasiResource extends Resource
                         ->dehydrated(true),
 
                     Forms\Components\Hidden::make('created_by')
-                        ->default(fn() => auth()->id())
+                        ->default(fn () => auth()->id())
                         ->dehydrated(true),
 
                     Forms\Components\DatePicker::make('tanggal')
                         ->label('Tanggal')
                         ->default(now())
                         ->required()
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\Select::make('jenis_mutasi')
                         ->label('Jenis Mutasi')
@@ -124,30 +119,47 @@ class MutasiResource extends Resource
                                 $set('lokasi_tujuan_id', null);
                             }
                         })
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
-                    Forms\Components\Select::make('produk_id')
-                        ->label('Produk')
-                        ->relationship('produk', 'nama_produk')
+                    Forms\Components\Select::make('barang_id')
+                        ->label('Barang')
+                        ->relationship('barang', 'nama_barang')
                         ->preload()
                         ->native(false)
                         ->searchable()
                         ->required()
                         ->live()
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\Select::make('lokasi_id')
-                        ->label(fn(Forms\Get $get) => $get('jenis_mutasi') === 'masuk'
+                        ->label(fn (Forms\Get $get) => $get('jenis_mutasi') === 'masuk'
                             ? 'Gudang Tujuan'
                             : 'Gudang Asal')
-                        ->relationship('lokasi', 'nama_lokasi')
+                        ->relationship(
+                            name: 'lokasi',
+                            titleAttribute: 'nama_lokasi',
+                            modifyQueryUsing: fn (Builder $query): Builder => $query
+                                ->gudang()
+                                ->orderBy('nama_lokasi'),
+                        )
+                        ->getOptionLabelFromRecordUsing(
+                            fn (Lokasi $record): string => "{$record->nama_lokasi} ({$record->kode_lokasi})"
+                        )
                         ->preload()
                         ->native(false)
                         ->searchable()
                         ->required()
                         ->live()
                         ->reactive()
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->helperText('Hanya lokasi bertipe Gudang yang dapat menyimpan dan mengeluarkan stok.')
+                        ->rules([
+                            function (string $attribute, mixed $value, Closure $fail): void {
+                                if (! Lokasi::query()->gudang()->whereKey($value)->exists()) {
+                                    $fail('Lokasi yang dipilih bukan gudang.');
+                                }
+                            },
+                        ])
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\TextInput::make('jumlah')
                         ->label('Jumlah')
@@ -156,73 +168,92 @@ class MutasiResource extends Resource
                         ->minValue(1)
                         ->live()
                         ->helperText(function (Forms\Get $get) {
-                            if ($get('jenis_mutasi') !== 'keluar') return null;
-
-                            $produkId = (int) ($get('produk_id') ?? 0);
-                            $lokasiId = (int) ($get('lokasi_id') ?? 0);
-
-                            if (! $produkId || ! $lokasiId) {
-                                return 'Pilih Produk dan Gudang Asal untuk melihat stok tersedia.';
+                            if ($get('jenis_mutasi') !== 'keluar') {
+                                return null;
                             }
 
-                            $stok = static::getStokTersedia($produkId, $lokasiId);
+                            $barangId = (int) ($get('barang_id') ?? 0);
+                            $lokasiId = (int) ($get('lokasi_id') ?? 0);
+
+                            if (! $barangId || ! $lokasiId) {
+                                return 'Pilih Barang dan Gudang Asal untuk melihat stok tersedia.';
+                            }
+
+                            $stok = static::getStokTersedia($barangId, $lokasiId);
+
                             return "Stok tersedia (dikurangi pending): {$stok}";
                         })
                         ->rules([
-                            fn(Forms\Get $get) => function (string $attribute, $value, Closure $fail) use ($get) {
-                                if ($get('jenis_mutasi') !== 'keluar') return;
+                            fn (Forms\Get $get) => function (string $attribute, $value, Closure $fail) use ($get) {
+                                if ($get('jenis_mutasi') !== 'keluar') {
+                                    return;
+                                }
 
-                                $produkId = (int) ($get('produk_id') ?? 0);
+                                $barangId = (int) ($get('barang_id') ?? 0);
                                 $lokasiId = (int) ($get('lokasi_id') ?? 0);
-                                if (! $produkId || ! $lokasiId) return;
+                                if (! $barangId || ! $lokasiId) {
+                                    return;
+                                }
 
                                 $minta = (int) $value;
-                                $stok = static::getStokTersedia($produkId, $lokasiId);
+                                $stok = static::getStokTersedia($barangId, $lokasiId);
 
                                 if ($minta > $stok) {
                                     $fail("Stok tidak mencukupi. Stok tersedia (dikurangi pending): {$stok}.");
                                 }
                             },
                         ])
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\TextInput::make('no_ref')
                         ->label('No. Referensi')
                         ->maxLength(255)
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\TextInput::make('keterangan')
                         ->label('Keterangan')
                         ->maxLength(255)
                         ->columnSpanFull()
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\Select::make('lokasi_tujuan_id')
-                        ->label('Tujuan (Lokasi/Gudang)')
-                        ->relationship('lokasiTujuan', 'nama_lokasi')
+                        ->label('Lokasi Tujuan')
+                        ->relationship(
+                            name: 'lokasiTujuan',
+                            titleAttribute: 'nama_lokasi',
+                            modifyQueryUsing: fn (Builder $query): Builder => $query
+                                ->orderBy('jenis_lokasi')
+                                ->orderBy('nama_lokasi'),
+                        )
+                        ->getOptionLabelFromRecordUsing(function (Lokasi $record): string {
+                            $jenis = Lokasi::jenisOptions()[$record->jenis_lokasi] ?? 'Lokasi';
+
+                            return "{$record->nama_lokasi} ({$jenis})";
+                        })
                         ->preload()
                         ->native(false)
                         ->searchable()
-                        ->visible(fn(Forms\Get $get) => $get('jenis_mutasi') === 'keluar')
-                        ->required(fn(Forms\Get $get) => $get('jenis_mutasi') === 'keluar')
+                        ->visible(fn (Forms\Get $get) => $get('jenis_mutasi') === 'keluar')
+                        ->required(fn (Forms\Get $get) => $get('jenis_mutasi') === 'keluar')
+                        ->helperText('Pilih gudang lain untuk transfer stok, atau Lokasi Pemakaian untuk barang habis pakai.')
                         ->rules([
-                            fn(Forms\Get $get) => function (string $attribute, $value, $fail) use ($get) {
+                            fn (Forms\Get $get) => function (string $attribute, $value, $fail) use ($get) {
                                 if ($get('jenis_mutasi') === 'keluar' && $value && $value == $get('lokasi_id')) {
                                     $fail('Tujuan tidak boleh sama dengan lokasi asal.');
                                 }
                             },
                         ])
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\Select::make('user_id')
                         ->label('Dicatat oleh')
                         ->relationship('user', 'name')
-                        ->default(fn() => auth()->id())
+                        ->default(fn () => auth()->id())
                         ->preload()
                         ->native(false)
                         ->searchable()
                         ->required()
-                        ->disabled(fn($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\Select::make('status_view')
                         ->label('Status')
@@ -233,7 +264,7 @@ class MutasiResource extends Resource
                         ])
                         ->disabled()
                         ->dehydrated(false)
-                        ->default(fn(?Mutasi $record) => $record?->status ?? 'pending'),
+                        ->default(fn (?Mutasi $record) => $record?->status ?? 'pending'),
                 ]),
         ]);
     }
@@ -253,25 +284,25 @@ class MutasiResource extends Resource
                 Tables\Columns\TextColumn::make('jenis_mutasi')
                     ->label('Jenis')
                     ->badge()
-                    ->formatStateUsing(fn(?string $state) => $state === 'keluar' ? 'Keluar' : 'Masuk'),
+                    ->formatStateUsing(fn (?string $state) => $state === 'keluar' ? 'Keluar' : 'Masuk'),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Status')
                     ->badge()
-                    ->formatStateUsing(fn(?string $state) => match ($state) {
+                    ->formatStateUsing(fn (?string $state) => match ($state) {
                         'approved' => 'Disetujui',
                         'cancelled' => 'Dibatalkan',
                         default => 'Pending',
                     })
-                    ->color(fn(?string $state) => match ($state) {
+                    ->color(fn (?string $state) => match ($state) {
                         'approved' => 'success',
                         'cancelled' => 'danger',
                         default => 'warning',
                     })
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('produk.nama_produk')
-                    ->label('Produk')
+                Tables\Columns\TextColumn::make('barang.nama_barang')
+                    ->label('Barang')
                     ->sortable()
                     ->searchable(),
 
@@ -281,12 +312,15 @@ class MutasiResource extends Resource
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('asal_display')
-                    ->label('Asal')
+                    ->label('Sumber Barang')
                     ->getStateUsing(function (Mutasi $record): string {
-                        if ($record->jenis_mutasi === 'masuk') return 'Stok';
+                        if ($record->jenis_mutasi === 'masuk') {
+                            return 'Pengadaan / Barang Baru';
+                        }
+
                         return $record->lokasi?->nama_lokasi ?? '-';
                     })
-                    ->sortable(query: fn(Builder $query, string $direction) => $query->orderBy('lokasi_id', $direction)),
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy('lokasi_id', $direction)),
 
                 Tables\Columns\TextColumn::make('tujuan_display')
                     ->label('Tujuan')
@@ -294,7 +328,14 @@ class MutasiResource extends Resource
                         if ($record->jenis_mutasi === 'masuk') {
                             return $record->lokasi?->nama_lokasi ?? '-';
                         }
-                        return $record->lokasiTujuan?->nama_lokasi ?? '-';
+                        $tujuan = $record->lokasiTujuan;
+                        if (! $tujuan) {
+                            return '-';
+                        }
+
+                        $jenis = Lokasi::jenisOptions()[$tujuan->jenis_lokasi] ?? 'Lokasi';
+
+                        return "{$tujuan->nama_lokasi} ({$jenis})";
                     }),
 
                 Tables\Columns\TextColumn::make('stok_akhir')
@@ -338,10 +379,14 @@ class MutasiResource extends Resource
                     ])
                     ->query(function (Builder $query, array $data) {
                         $from = $data['from'] ?? null;
-                        $to   = $data['to'] ?? null;
+                        $to = $data['to'] ?? null;
 
-                        if ($from) $query->whereDate('tanggal', '>=', $from);
-                        if ($to)   $query->whereDate('tanggal', '<=', $to);
+                        if ($from) {
+                            $query->whereDate('tanggal', '>=', $from);
+                        }
+                        if ($to) {
+                            $query->whereDate('tanggal', '<=', $to);
+                        }
 
                         return $query;
                     }),
@@ -362,43 +407,28 @@ class MutasiResource extends Resource
                     ]),
             ])
             ->headerActions([
-                Action::make('import-poh1')
-                    ->label('Import Data')
-                    ->icon('heroicon-o-arrow-up-tray')
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->modalHeading('Maintenance')
-                    ->modalDescription('Fitur ini sedang maintanance, silahkan hubungi developer untuk info lebih lanjut.')
-                    ->modalSubmitAction(
-                        fn($action) => $action
-                            ->label('Oke')
-                            ->color('gray')
-                    )
-                    ->modalCancelAction(
-                        fn($action) => $action
-                            ->label('Hubungi')
-                            ->color('success')
-                            ->url(
-                                'https://wa.me/6281213523914?text=' . urlencode('Halo developer, fitur import sedang maintenance. Mohon info lebih lanjut.'),
-                                true
-                            )
-                    )
-                    ->action(fn() => null),
-
-                ExportAction::make('export-excel')
+                Action::make('export-excel')
                     ->label('Export Excel')
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('success')
-                    ->exporter(MutasiExporter::class)
-                    ->formats([ExportFormat::Xlsx])
-                    ->fileName(fn() => 'mutasi_' . now()->format('Ymd_His')),
+                    ->tooltip('Unduh sesuai tab, filter, pencarian, dan urutan tabel saat ini')
+                    ->action(function ($livewire) {
+                        return app(MutasiExcelExportService::class)->download(
+                            query: $livewire->getTableQueryForExport(),
+                            context: [
+                                'active_tab' => $livewire->activeTab ?? null,
+                                'filters' => $livewire->tableFilters ?? [],
+                                'search' => $livewire->tableSearch ?? null,
+                            ],
+                        );
+                    }),
             ])
             ->actions([
                 Tables\Actions\Action::make('approve')
                     ->label('Approve')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn(Mutasi $record) => static::isSuperAdmin() && $record->status === 'pending')
+                    ->visible(fn (Mutasi $record) => static::isSuperAdmin() && $record->status === 'pending')
                     ->requiresConfirmation()
                     ->modalHeading('Setujui Mutasi')
                     ->modalDescription('Apakah Anda yakin ingin menyetujui mutasi ini? Setelah disetujui, stok akan diperbarui dan data tidak bisa diubah.')
@@ -411,15 +441,20 @@ class MutasiResource extends Resource
                                     throw new \RuntimeException('Mutasi bukan status pending.');
                                 }
 
-                                $produkId = (int) $record->produk_id;
+                                $barangId = (int) $record->barang_id;
                                 $lokasiGudangId = (int) $record->lokasi_id;
                                 $jumlah = (int) $record->jumlah;
+
+                                $gudang = Lokasi::query()->find($lokasiGudangId);
+                                if (! $gudang?->isGudang()) {
+                                    throw new \RuntimeException('Lokasi stok harus bertipe Gudang.');
+                                }
 
                                 // ✅ FIX: normalisasi jenis_mutasi biar "Keluar" / "keluar " tetap kebaca keluar
                                 $jenis = strtolower(trim((string) $record->jenis_mutasi));
 
-                                $pivotGudang = DB::table('produk_lokasi')
-                                    ->where('produk_id', $produkId)
+                                $pivotGudang = DB::table('barang_lokasi')
+                                    ->where('barang_id', $barangId)
                                     ->where('lokasi_id', $lokasiGudangId)
                                     ->lockForUpdate()
                                     ->first();
@@ -440,8 +475,8 @@ class MutasiResource extends Resource
                                     $stokAkhir = $stokAwal + $jumlah;
                                 }
 
-                                DB::table('produk_lokasi')->updateOrInsert(
-                                    ['produk_id' => $produkId, 'lokasi_id' => $lokasiGudangId],
+                                DB::table('barang_lokasi')->updateOrInsert(
+                                    ['barang_id' => $barangId, 'lokasi_id' => $lokasiGudangId],
                                     [
                                         'stok' => $stokAkhir,
                                         'updated_at' => now(),
@@ -449,11 +484,11 @@ class MutasiResource extends Resource
                                     ]
                                 );
 
-                                if ($jenis === 'keluar' && $record->lokasi_tujuan_id) {
+                                if ($jenis === 'keluar' && $record->lokasiTujuan?->isGudang()) {
                                     $lokasiTujuanId = (int) $record->lokasi_tujuan_id;
 
-                                    $pivotTujuan = DB::table('produk_lokasi')
-                                        ->where('produk_id', $produkId)
+                                    $pivotTujuan = DB::table('barang_lokasi')
+                                        ->where('barang_id', $barangId)
                                         ->where('lokasi_id', $lokasiTujuanId)
                                         ->lockForUpdate()
                                         ->first();
@@ -461,8 +496,8 @@ class MutasiResource extends Resource
                                     $stokTujuanAwal = (int) ($pivotTujuan->stok ?? 0);
                                     $stokTujuanAkhir = $stokTujuanAwal + $jumlah;
 
-                                    DB::table('produk_lokasi')->updateOrInsert(
-                                        ['produk_id' => $produkId, 'lokasi_id' => $lokasiTujuanId],
+                                    DB::table('barang_lokasi')->updateOrInsert(
+                                        ['barang_id' => $barangId, 'lokasi_id' => $lokasiTujuanId],
                                         [
                                             'stok' => $stokTujuanAkhir,
                                             'updated_at' => now(),
@@ -498,7 +533,7 @@ class MutasiResource extends Resource
                     ->label('Batalkan')
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
-                    ->visible(fn(Mutasi $record) => static::isSuperAdmin() && $record->status === 'pending')
+                    ->visible(fn (Mutasi $record) => static::isSuperAdmin() && $record->status === 'pending')
                     ->form([
                         Forms\Components\Textarea::make('cancel_reason')
                             ->label('Alasan pembatalan')
@@ -549,9 +584,12 @@ class MutasiResource extends Resource
                         ->modalHeading('Approve Mutasi Terpilih')
                         ->modalDescription('Semua mutasi yang dipilih (status pending) akan di-approve dan stok akan diperbarui.')
                         ->visible(function ($livewire) {
-                            if (! static::isSuperAdmin()) return false;
+                            if (! static::isSuperAdmin()) {
+                                return false;
+                            }
 
                             $activeTab = $livewire->activeTab ?? null;
+
                             return $activeTab === null || $activeTab === 'Pending';
                         })
                         ->action(function (Collection $records) {
@@ -567,18 +605,24 @@ class MutasiResource extends Resource
 
                                         if ($record->status !== 'pending') {
                                             $skipped++;
+
                                             return;
                                         }
 
-                                        $produkId = (int) $record->produk_id;
+                                        $barangId = (int) $record->barang_id;
                                         $lokasiGudangId = (int) $record->lokasi_id;
                                         $jumlah = (int) $record->jumlah;
+
+                                        $gudang = Lokasi::query()->find($lokasiGudangId);
+                                        if (! $gudang?->isGudang()) {
+                                            throw new \RuntimeException('Lokasi stok harus bertipe Gudang.');
+                                        }
 
                                         // ✅ FIX: normalisasi jenis_mutasi
                                         $jenis = strtolower(trim((string) $record->jenis_mutasi));
 
-                                        $pivotGudang = DB::table('produk_lokasi')
-                                            ->where('produk_id', $produkId)
+                                        $pivotGudang = DB::table('barang_lokasi')
+                                            ->where('barang_id', $barangId)
                                             ->where('lokasi_id', $lokasiGudangId)
                                             ->lockForUpdate()
                                             ->first();
@@ -599,8 +643,8 @@ class MutasiResource extends Resource
                                             $stokAkhir = $stokAwal + $jumlah;
                                         }
 
-                                        DB::table('produk_lokasi')->updateOrInsert(
-                                            ['produk_id' => $produkId, 'lokasi_id' => $lokasiGudangId],
+                                        DB::table('barang_lokasi')->updateOrInsert(
+                                            ['barang_id' => $barangId, 'lokasi_id' => $lokasiGudangId],
                                             [
                                                 'stok' => $stokAkhir,
                                                 'updated_at' => now(),
@@ -608,11 +652,11 @@ class MutasiResource extends Resource
                                             ]
                                         );
 
-                                        if ($jenis === 'keluar' && $record->lokasi_tujuan_id) {
+                                        if ($jenis === 'keluar' && $record->lokasiTujuan?->isGudang()) {
                                             $lokasiTujuanId = (int) $record->lokasi_tujuan_id;
 
-                                            $pivotTujuan = DB::table('produk_lokasi')
-                                                ->where('produk_id', $produkId)
+                                            $pivotTujuan = DB::table('barang_lokasi')
+                                                ->where('barang_id', $barangId)
                                                 ->where('lokasi_id', $lokasiTujuanId)
                                                 ->lockForUpdate()
                                                 ->first();
@@ -620,8 +664,8 @@ class MutasiResource extends Resource
                                             $stokTujuanAwal = (int) ($pivotTujuan->stok ?? 0);
                                             $stokTujuanAkhir = $stokTujuanAwal + $jumlah;
 
-                                            DB::table('produk_lokasi')->updateOrInsert(
-                                                ['produk_id' => $produkId, 'lokasi_id' => $lokasiTujuanId],
+                                            DB::table('barang_lokasi')->updateOrInsert(
+                                                ['barang_id' => $barangId, 'lokasi_id' => $lokasiTujuanId],
                                                 [
                                                     'stok' => $stokTujuanAkhir,
                                                     'updated_at' => now(),
@@ -641,13 +685,13 @@ class MutasiResource extends Resource
                                         $approved++;
                                     });
                                 } catch (\Throwable $e) {
-                                    $errors[] = "ID {$rec->id}: " . $e->getMessage();
+                                    $errors[] = "ID {$rec->id}: ".$e->getMessage();
                                 }
                             }
 
                             $body = "Approved: {$approved}, Skipped: {$skipped}";
                             if (! empty($errors)) {
-                                $body .= ", Error: " . count($errors) . " (cek log / coba ulang)";
+                                $body .= ', Error: '.count($errors).' (cek log / coba ulang)';
                             }
 
                             $notif = Notification::make()
@@ -663,13 +707,6 @@ class MutasiResource extends Resource
                             $notif->send();
                         })
                         ->deselectRecordsAfterCompletion(),
-
-                    ExportBulkAction::make('export-selected')
-                        ->label('Export Terpilih')
-                        ->icon('heroicon-o-arrow-down-tray')
-                        ->exporter(MutasiExporter::class)
-                        ->formats([ExportFormat::Xlsx])
-                        ->fileName(fn() => 'mutasi_terpilih_' . now()->format('Ymd_His')),
                 ]),
             ]);
     }

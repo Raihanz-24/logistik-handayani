@@ -1,0 +1,18 @@
+{
+  "resources/css/app.css": {
+    "file": "assets/app-BTzBjI6Y.css",
+    "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/css/filament-dashboard.css": {
+    "file": "assets/filament-dashboard-DojTj0wz.css",
+    "src": "resources/css/filament-dashboard.css",
+    "isEntry": true
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-CAiCLEjY.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true
+  }
+}

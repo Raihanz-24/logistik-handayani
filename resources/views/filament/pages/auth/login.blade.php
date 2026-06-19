@@ -12,14 +12,14 @@
                         <path d="m11 8 10 5.25v5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                     </svg>
                 </span>
-                <span>{{ config('app.name') }}</span>
+                <span>Warehouse Monitoring PT ISS</span>
             </div>
 
             <div class="wm-login__hero">
-                <span class="wm-login__eyebrow">Inventory intelligence</span>
+                <span class="wm-login__eyebrow">Operasional gudang</span>
                 <h2>Operasional gudang dalam satu kendali.</h2>
                 <p>
-                    Pantau stok, kelola perpindahan produk, dan ambil keputusan lebih cepat
+                    Pantau stok, kelola perpindahan barang, dan ambil keputusan lebih cepat
                     melalui dashboard yang terintegrasi.
                 </p>
 
@@ -54,7 +54,7 @@
                             <path d="m6.5 10.5 9.5 5 9.5-5M16 15.5V27" stroke="currentColor" stroke-width="2"/>
                         </svg>
                     </span>
-                    <span>{{ config('app.name') }}</span>
+                    <span>Warehouse Monitoring PT ISS</span>
                 </div>
 
                 <header class="wm-login__header">
@@ -91,7 +91,7 @@
             </section>
 
             <footer class="wm-login__footer">
-                &copy; {{ now()->year }} {{ config('app.name') }}. Seluruh hak dilindungi.
+                &copy; {{ now()->year }} Warehouse Monitoring PT ISS. Seluruh hak dilindungi.
             </footer>
         </main>
     </div>

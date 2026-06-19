@@ -7,12 +7,11 @@ use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class MutasiRelationManager extends RelationManager
 {
     protected static string $relationship = 'mutasi';
+
     protected static ?string $title = 'History Mutasi';
 
     public function form(Form $form): Form
@@ -42,7 +41,7 @@ class MutasiRelationManager extends RelationManager
                     ->searchable(),
                 Tables\Columns\TextColumn::make('status')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('produk.nama_produk')
+                Tables\Columns\TextColumn::make('barang.nama_barang')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('lokasi.nama_lokasi')
                     ->searchable(),

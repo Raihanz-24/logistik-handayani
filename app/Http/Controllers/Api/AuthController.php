@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Api\BaseApiController;
 use App\Http\Requests\AuthLoginRequest;
 use App\Http\Requests\StoreUserRequest;
 use App\Models\User;
@@ -17,7 +16,7 @@ class AuthController extends BaseApiController
 
         $user = User::where('email', $data['email'])->first();
 
-        if (!$user || !Hash::check($data['password'], $user->password)) {
+        if (! $user || ! Hash::check($data['password'], $user->password)) {
             return response()->json(['message' => 'Login gagal'], 401);
         }
 
@@ -26,9 +25,8 @@ class AuthController extends BaseApiController
         return $this->success([
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => $user
+            'user' => $user,
         ], 'Login berhasil');
-
 
     }
 
@@ -37,6 +35,7 @@ class AuthController extends BaseApiController
         $data = $request->validated();
         $data['password'] = Hash::make($data['password']);
         $user = User::create($data);
+
         return $this->success($user, 'Registrasi berhasil', 201);
     }
 
@@ -46,7 +45,7 @@ class AuthController extends BaseApiController
 
         return response()->json([
             'success' => true,
-            'message' => 'Logout berhasil'
+            'message' => 'Logout berhasil',
         ]);
     }
 }

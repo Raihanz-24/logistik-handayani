@@ -17,7 +17,7 @@ class Login extends BaseLogin
 
     public function getTitle(): string|Htmlable
     {
-        return 'Masuk';
+        return 'Masuk - Warehouse Monitoring PT ISS';
     }
 
     public function getHeading(): string|Htmlable
@@ -27,7 +27,7 @@ class Login extends BaseLogin
 
     public function getSubheading(): string|Htmlable|null
     {
-        return 'Masuk untuk melanjutkan pengelolaan inventori dan mutasi produk.';
+        return 'Masuk untuk melanjutkan pengelolaan inventori dan mutasi barang.';
     }
 
     protected function getEmailFormComponent(): Component

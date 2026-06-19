@@ -2,11 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreKategoriRequest;
 use App\Http\Requests\UpdateKategoriRequest;
-use App\Models\KategoriProduk;
-use Illuminate\Http\Request;
+use App\Models\KategoriBarang;
 
 class KategoriController extends BaseApiController
 {
@@ -15,7 +13,8 @@ class KategoriController extends BaseApiController
      */
     public function index()
     {
-        $categories = KategoriProduk::all();
+        $categories = KategoriBarang::all();
+
         return $this->success($categories, 'Daftar kategori');
     }
 
@@ -24,14 +23,15 @@ class KategoriController extends BaseApiController
      */
     public function store(StoreKategoriRequest $request)
     {
-        $kategori = KategoriProduk::create($request->validated());
+        $kategori = KategoriBarang::create($request->validated());
+
         return $this->success($kategori, 'Kategori berhasil ditambahkan', 201);
     }
 
     /**
      * Display the specified resource.
      */
-    public function show(KategoriProduk $kategori)
+    public function show(KategoriBarang $kategori)
     {
         return $this->success($kategori, 'Detail kategori');
     }
@@ -39,18 +39,20 @@ class KategoriController extends BaseApiController
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateKategoriRequest $request, KategoriProduk $kategori)
+    public function update(UpdateKategoriRequest $request, KategoriBarang $kategori)
     {
         $kategori->update($request->validated());
+
         return $this->success($kategori, 'Kategori berhasil diperbarui');
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(KategoriProduk $kategori)
+    public function destroy(KategoriBarang $kategori)
     {
         $kategori->delete();
+
         return $this->success(null, 'Kategori berhasil dihapus');
     }
 }

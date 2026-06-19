@@ -2,8 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\Barang;
+use App\Models\Lokasi;
 use App\Models\Mutasi;
-use App\Models\Produk;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -29,37 +30,39 @@ class SawRestockRecommendationService
         $weights = $this->normalizedWeights();
         $limit ??= (int) config('saw-restock.limit', 5);
 
-        $usageByProduct = Mutasi::query()
-            ->select('produk_id')
+        $usageByBarang = Mutasi::query()
+            ->select('barang_id')
             ->selectRaw('COUNT(*) as frekuensi_pemakaian')
             ->selectRaw('COALESCE(SUM(jumlah), 0) as jumlah_pemakaian')
             ->where('jenis_mutasi', 'keluar')
             ->where('status', 'approved')
             ->whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
-            ->groupBy('produk_id')
+            ->groupBy('barang_id')
             ->get()
-            ->keyBy('produk_id');
+            ->keyBy('barang_id');
 
-        $stockByProduct = DB::table('produk_lokasi')
-            ->select('produk_id')
+        $stockByBarang = DB::table('barang_lokasi')
+            ->join('lokasis', 'lokasis.id', '=', 'barang_lokasi.lokasi_id')
+            ->where('lokasis.jenis_lokasi', Lokasi::JENIS_GUDANG)
+            ->select('barang_lokasi.barang_id')
             ->selectRaw('COALESCE(SUM(stok), 0) as sisa_stok')
-            ->groupBy('produk_id')
-            ->pluck('sisa_stok', 'produk_id');
+            ->groupBy('barang_lokasi.barang_id')
+            ->pluck('sisa_stok', 'barang_lokasi.barang_id');
 
-        $alternatives = Produk::query()
-            ->orderBy('nama_produk')
-            ->get(['id', 'kode_produk', 'nama_produk', 'satuan'])
-            ->map(function (Produk $produk) use ($usageByProduct, $stockByProduct): array {
-                $usage = $usageByProduct->get($produk->id);
+        $alternatives = Barang::query()
+            ->orderBy('nama_barang')
+            ->get(['id', 'kode_barang', 'nama_barang', 'satuan'])
+            ->map(function (Barang $barang) use ($usageByBarang, $stockByBarang): array {
+                $usage = $usageByBarang->get($barang->id);
 
                 return [
-                    'produk_id' => $produk->id,
-                    'kode_produk' => $produk->kode_produk,
-                    'nama_produk' => $produk->nama_produk,
-                    'satuan' => $produk->satuan,
+                    'barang_id' => $barang->id,
+                    'kode_barang' => $barang->kode_barang,
+                    'nama_barang' => $barang->nama_barang,
+                    'satuan' => $barang->satuan,
                     'frekuensi_pemakaian' => (int) ($usage?->frekuensi_pemakaian ?? 0),
                     'jumlah_pemakaian' => (int) ($usage?->jumlah_pemakaian ?? 0),
-                    'sisa_stok' => (int) ($stockByProduct->get($produk->id, 0)),
+                    'sisa_stok' => (int) ($stockByBarang->get($barang->id, 0)),
                 ];
             });
 
@@ -119,13 +122,13 @@ class SawRestockRecommendationService
                     $first['sisa_stok'],
                     -$first['jumlah_pemakaian'],
                     -$first['frekuensi_pemakaian'],
-                    $first['nama_produk'],
+                    $first['nama_barang'],
                 ] <=> [
                     -$second['nilai_preferensi'],
                     $second['sisa_stok'],
                     -$second['jumlah_pemakaian'],
                     -$second['frekuensi_pemakaian'],
-                    $second['nama_produk'],
+                    $second['nama_barang'],
                 ];
             })
             ->take(max(1, $limit))

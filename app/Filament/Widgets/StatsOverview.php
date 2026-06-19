@@ -2,56 +2,93 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Resources\BarangResource;
 use App\Filament\Resources\LokasiResource;
-use App\Filament\Resources\ProdukResource;
-use App\Filament\Resources\UserResource;
+use App\Filament\Resources\MutasiResource;
+use App\Models\Barang;
+use App\Models\BarangLokasi;
 use App\Models\Lokasi;
-use App\Models\Produk;
-use App\Models\User;
+use App\Models\Mutasi;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
+use Carbon\Carbon;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
-use Filament\Widgets\StatsOverviewWidget as BaseWidget;
-use Filament\Widgets\StatsOverviewWidget\Stat;
+use Filament\Widgets\Widget;
 
-class StatsOverview extends BaseWidget
+class StatsOverview extends Widget
 {
-    use HasWidgetShield, InteractsWithPageFilters;
+    use HasWidgetShield;
+    use InteractsWithPageFilters;
 
-    protected ?string $heading = 'Statistik';
-    protected static ?int $sort = 0;
+    protected static string $view = 'filament.widgets.stats-overview';
 
-    protected function getStats(): array
+    protected static ?int $sort = -5;
+
+    protected int|string|array $columnSpan = 'full';
+
+    protected static bool $isLazy = false;
+
+    protected function getViewData(): array
     {
-        $filters = $this->filters ?? [];
+        [$start, $end] = $this->resolveDateRange();
 
-        $produkQuery = Produk::query();
-        $userQuery   = User::query();
-        $lokasiQuery = Lokasi::query();
-
-        if (!empty($filters['startDate'])) {
-            $produkQuery->whereDate('created_at', '>=', $filters['startDate']);
-            $userQuery->whereDate('created_at', '>=', $filters['startDate']);
-            $lokasiQuery->whereDate('created_at', '>=', $filters['startDate']);
-        }
-
-        if (!empty($filters['endDate'])) {
-            $produkQuery->whereDate('created_at', '<=', $filters['endDate']);
-            $userQuery->whereDate('created_at', '<=', $filters['endDate']);
-            $lokasiQuery->whereDate('created_at', '<=', $filters['endDate']);
-        }
+        $approvedMutations = Mutasi::query()
+            ->where('status', 'approved')
+            ->whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
+            ->count();
 
         return [
-            Stat::make('Total Produk', $produkQuery->count())
-                ->url(ProdukResource::getUrl('index'))
-                ->description('Klik untuk melihat semua produk'),
-
-            Stat::make('Total Pengguna', $userQuery->count())
-                ->url(UserResource::getUrl('index')) // ✅ FIX: tidak hardcode route
-                ->description('Klik untuk melihat semua pengguna'),
-
-            Stat::make('Total Lokasi', $lokasiQuery->count())
-                ->url(LokasiResource::getUrl('index'))
-                ->description('Klik untuk melihat semua lokasi'),
+            'periodLabel' => $start->translatedFormat('d M').' - '.$end->translatedFormat('d M Y'),
+            'cards' => [
+                [
+                    'label' => 'Total barang',
+                    'value' => Barang::query()->count(),
+                    'description' => 'Barang terdaftar dalam sistem',
+                    'icon' => 'heroicon-o-cube',
+                    'tone' => 'amber',
+                    'url' => BarangResource::getUrl('index'),
+                ],
+                [
+                    'label' => 'Total stok',
+                    'value' => (int) BarangLokasi::query()
+                        ->whereHas('lokasi', fn ($query) => $query->gudang())
+                        ->sum('stok'),
+                    'description' => 'Unit tersedia di seluruh gudang',
+                    'icon' => 'heroicon-o-archive-box',
+                    'tone' => 'blue',
+                    'url' => BarangResource::getUrl('index'),
+                ],
+                [
+                    'label' => 'Mutasi disetujui',
+                    'value' => $approvedMutations,
+                    'description' => 'Transaksi pada periode aktif',
+                    'icon' => 'heroicon-o-arrows-right-left',
+                    'tone' => 'green',
+                    'url' => MutasiResource::getUrl('index'),
+                ],
+                [
+                    'label' => 'Gudang aktif',
+                    'value' => Lokasi::query()->gudang()->count(),
+                    'description' => 'Lokasi penyimpanan terdaftar',
+                    'icon' => 'heroicon-o-building-storefront',
+                    'tone' => 'cyan',
+                    'url' => LokasiResource::getUrl('index'),
+                ],
+            ],
         ];
+    }
+
+    private function resolveDateRange(): array
+    {
+        $end = filled($this->filters['endDate'] ?? null)
+            ? Carbon::parse($this->filters['endDate'])->endOfDay()
+            : now()->endOfDay();
+
+        $start = filled($this->filters['startDate'] ?? null)
+            ? Carbon::parse($this->filters['startDate'])->startOfDay()
+            : $end->copy()->subDays(29)->startOfDay();
+
+        return $start->greaterThan($end)
+            ? [$end->copy()->startOfDay(), $start->copy()->endOfDay()]
+            : [$start, $end];
     }
 }

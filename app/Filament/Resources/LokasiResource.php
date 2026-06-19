@@ -3,7 +3,6 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\LokasiResource\Pages;
-use App\Filament\Resources\LokasiResource\RelationManagers;
 use App\Models\Lokasi;
 use Filament\Actions\Action;
 use Filament\Forms;
@@ -12,16 +11,18 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class LokasiResource extends Resource
 {
     protected static ?string $model = Lokasi::class;
+
     protected static ?string $navigationGroup = 'Master Data';
+
     protected static ?string $navigationLabel = 'Lokasi';
+
     protected static ?string $pluralLabel = 'Lokasi';
+
     protected static ?string $slug = 'lokasi';
 
     public static function getGloballySearchableAttributes(): array
@@ -33,8 +34,10 @@ class LokasiResource extends Resource
     {
         return [
             'Kode lokasi' => $record->kode_lokasi,
+            'Jenis' => Lokasi::jenisOptions()[$record->jenis_lokasi] ?? '-',
         ];
     }
+
     public static function getGlobalSearchResultActions(Model $record): array
     {
         return [
@@ -47,7 +50,8 @@ class LokasiResource extends Resource
     {
         return $form
             ->schema([
-                Section::make('Lokasi')
+                Section::make('Data Lokasi')
+                    ->description('Bedakan gudang penyimpan stok dengan lokasi tempat barang digunakan.')
                     ->collapsible()
                     ->columns(2)
                     ->schema([
@@ -58,11 +62,29 @@ class LokasiResource extends Resource
                         Forms\Components\TextInput::make('nama_lokasi')
                             ->required()
                             ->maxLength(255),
+                        Forms\Components\Select::make('jenis_lokasi')
+                            ->label('Jenis Lokasi')
+                            ->options(Lokasi::jenisOptions())
+                            ->default(Lokasi::JENIS_GUDANG)
+                            ->required()
+                            ->native(false)
+                            ->helperText('Gudang menyimpan saldo stok. Lokasi Pemakaian hanya menjadi tujuan barang habis pakai.')
+                            ->rules([
+                                fn (?Lokasi $record) => function (string $attribute, mixed $value, \Closure $fail) use ($record): void {
+                                    if (! $record || $value !== Lokasi::JENIS_PEMAKAIAN) {
+                                        return;
+                                    }
+
+                                    if ($record->barang()->exists() || $record->mutasi()->exists()) {
+                                        $fail('Lokasi ini sudah memiliki stok atau riwayat sebagai gudang sehingga jenisnya tidak dapat diubah.');
+                                    }
+                                },
+                            ]),
                         Forms\Components\Textarea::make('alamat')
                             ->columnSpanFull(),
                         Forms\Components\TextInput::make('keterangan')
                             ->maxLength(255),
-                    ])
+                    ]),
             ]);
     }
 
@@ -79,6 +101,12 @@ class LokasiResource extends Resource
                 Tables\Columns\TextColumn::make('nama_lokasi')
                     ->limit(30)
                     ->searchable(),
+                Tables\Columns\TextColumn::make('jenis_lokasi')
+                    ->label('Jenis')
+                    ->badge()
+                    ->formatStateUsing(fn (string $state): string => Lokasi::jenisOptions()[$state] ?? $state)
+                    ->color(fn (string $state): string => $state === Lokasi::JENIS_GUDANG ? 'success' : 'info')
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('keterangan')
                     ->limit(30)
                     ->searchable(),
@@ -92,18 +120,19 @@ class LokasiResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('jenis_lokasi')
+                    ->label('Jenis Lokasi')
+                    ->options(Lokasi::jenisOptions()),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make()
-                    ->modalHeading(fn($record) => 'Hapus Lokasi: ' . $record->kode_lokasi),
+                    ->visible(fn (Lokasi $record): bool => ! $record->barang()->exists()
+                        && ! $record->mutasi()->exists()
+                        && ! $record->mutasiTujuan()->exists())
+                    ->modalHeading(fn ($record) => 'Hapus Lokasi: '.$record->kode_lokasi),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->bulkActions([]);
     }
 
     public static function getRelations(): array

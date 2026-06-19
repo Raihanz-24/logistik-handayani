@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Lokasi;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class UpdateLokasiRequest extends FormRequest
 {
@@ -24,10 +27,11 @@ class UpdateLokasiRequest extends FormRequest
         $lokasiId = $this->route('lokasi')?->id ?? $this->route('lokasi');
 
         return [
-            'kode_lokasi' => 'sometimes|unique:lokasis,kode_lokasi,' . $lokasiId,
+            'kode_lokasi' => 'sometimes|unique:lokasis,kode_lokasi,'.$lokasiId,
             'nama_lokasi' => 'sometimes|string',
+            'jenis_lokasi' => ['sometimes', Rule::in(array_keys(Lokasi::jenisOptions()))],
             'alamat' => 'nullable|string',
-            'keterangan' => 'nullable|string'
+            'keterangan' => 'nullable|string',
         ];
     }
 
@@ -36,8 +40,27 @@ class UpdateLokasiRequest extends FormRequest
         return [
             'kode_lokasi.unique' => 'Kode lokasi sudah digunakan.',
             'nama_lokasi.string' => 'Harus berupa text.',
+            'jenis_lokasi.in' => 'Jenis lokasi tidak valid.',
             'alamat.string' => 'Harus berupa text.',
-            'keterangan.string' => 'Keterangan berupa text.'
+            'keterangan.string' => 'Keterangan berupa text.',
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $lokasi = $this->route('lokasi');
+
+            if (
+                $lokasi instanceof Lokasi
+                && $this->input('jenis_lokasi') === Lokasi::JENIS_PEMAKAIAN
+                && ($lokasi->barang()->exists() || $lokasi->mutasi()->exists())
+            ) {
+                $validator->errors()->add(
+                    'jenis_lokasi',
+                    'Lokasi ini sudah memiliki stok atau riwayat sebagai gudang sehingga jenisnya tidak dapat diubah.',
+                );
+            }
+        });
     }
 }

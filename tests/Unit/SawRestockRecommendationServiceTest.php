@@ -7,31 +7,31 @@ use PHPUnit\Framework\TestCase;
 
 class SawRestockRecommendationServiceTest extends TestCase
 {
-    public function test_it_ranks_products_using_saw_benefit_and_cost_normalization(): void
+    public function test_it_ranks_barangs_using_saw_benefit_and_cost_normalization(): void
     {
         $alternatives = collect([
             [
-                'produk_id' => 1,
-                'kode_produk' => 'A',
-                'nama_produk' => 'Produk A',
+                'barang_id' => 1,
+                'kode_barang' => 'A',
+                'nama_barang' => 'Barang A',
                 'satuan' => 'pcs',
                 'frekuensi_pemakaian' => 3,
                 'jumlah_pemakaian' => 30,
                 'sisa_stok' => 2,
             ],
             [
-                'produk_id' => 2,
-                'kode_produk' => 'B',
-                'nama_produk' => 'Produk B',
+                'barang_id' => 2,
+                'kode_barang' => 'B',
+                'nama_barang' => 'Barang B',
                 'satuan' => 'pcs',
                 'frekuensi_pemakaian' => 2,
                 'jumlah_pemakaian' => 40,
                 'sisa_stok' => 10,
             ],
             [
-                'produk_id' => 3,
-                'kode_produk' => 'C',
-                'nama_produk' => 'Produk C',
+                'barang_id' => 3,
+                'kode_barang' => 'C',
+                'nama_barang' => 'Barang C',
                 'satuan' => 'pcs',
                 'frekuensi_pemakaian' => 1,
                 'jumlah_pemakaian' => 5,
@@ -49,7 +49,7 @@ class SawRestockRecommendationServiceTest extends TestCase
             ],
         );
 
-        $this->assertSame(['A', 'B', 'C'], $recommendations->pluck('kode_produk')->all());
+        $this->assertSame(['A', 'B', 'C'], $recommendations->pluck('kode_barang')->all());
         $this->assertSame([1, 2, 3], $recommendations->pluck('peringkat')->all());
 
         $first = $recommendations->first();
@@ -58,7 +58,7 @@ class SawRestockRecommendationServiceTest extends TestCase
         $this->assertSame(2, $first['sisa_stok']);
         $this->assertEqualsWithDelta(0.694444, $first['nilai_preferensi'], 0.000001);
 
-        $zeroStockProduct = $recommendations->last();
-        $this->assertEqualsWithDelta(1.0, $zeroStockProduct['normalisasi_stok'], 0.000001);
+        $zeroStockBarang = $recommendations->last();
+        $this->assertEqualsWithDelta(1.0, $zeroStockBarang['normalisasi_stok'], 0.000001);
     }
 }

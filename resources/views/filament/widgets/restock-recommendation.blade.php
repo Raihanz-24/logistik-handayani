@@ -1,86 +1,103 @@
 <x-filament-widgets::widget>
-    <x-filament::section>
-        <x-slot name="heading">
-            Rekomendasi Prioritas Restock (SAW)
-        </x-slot>
-
-        <x-slot name="description">
-            Top 5 produk periode {{ $start->translatedFormat('d M Y') }} - {{ $end->translatedFormat('d M Y') }}.
-            Frekuensi dan jumlah pemakaian adalah benefit, sedangkan sisa stok adalah cost.
-        </x-slot>
+    <section class="wd-panel wd-saw">
+        <header class="wd-panel__header">
+            <div>
+                <span class="wd-kicker">Sistem pendukung keputusan</span>
+                <h2>Prioritas restock metode SAW</h2>
+                <p>
+                    Top 5 rekomendasi periode {{ $start->translatedFormat('d M Y') }}
+                    - {{ $end->translatedFormat('d M Y') }}.
+                </p>
+            </div>
+            <span class="wd-method-badge">
+                <x-filament::icon icon="heroicon-m-calculator" />
+                Simple Additive Weighting
+            </span>
+        </header>
 
         @if ($recommendations->isEmpty())
-            <div class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                Belum ada produk yang dapat dihitung.
+            <div class="wd-empty-chart">
+                <x-filament::icon icon="heroicon-o-chart-bar-square" />
+                <strong>Belum ada rekomendasi</strong>
+                <span>Tambahkan histori mutasi keluar pada periode yang dipilih.</span>
             </div>
         @else
-            <div class="overflow-x-auto">
-                <table class="w-full table-auto divide-y divide-gray-200 text-sm dark:divide-white/10">
-                    <thead>
-                        <tr class="text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                            <th class="px-3 py-3 text-center">Rank</th>
-                            <th class="px-3 py-3">Produk</th>
-                            <th class="px-3 py-3 text-right">Frekuensi</th>
-                            <th class="px-3 py-3 text-right">Jumlah Pakai</th>
-                            <th class="px-3 py-3 text-right">Sisa Stok</th>
-                            <th class="px-3 py-3 text-right">Nilai SAW</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-white/10">
-                        @foreach ($recommendations as $item)
-                            <tr class="hover:bg-gray-50 dark:hover:bg-white/5">
-                                <td class="px-3 py-3 text-center">
-                                    <span @class([
-                                        'inline-flex h-7 w-7 items-center justify-center rounded-full font-semibold',
-                                        'bg-primary-500 text-white' => $item['peringkat'] === 1,
-                                        'bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200' => $item['peringkat'] !== 1,
-                                    ])>
-                                        {{ $item['peringkat'] }}
-                                    </span>
-                                </td>
-                                <td class="px-3 py-3">
-                                    <div class="font-medium text-gray-950 dark:text-white">
-                                        {{ $item['nama_produk'] }}
-                                    </div>
-                                    <div class="text-xs text-gray-500 dark:text-gray-400">
-                                        {{ $item['kode_produk'] }}
-                                    </div>
-                                </td>
-                                <td class="px-3 py-3 text-right">
-                                    {{ number_format($item['frekuensi_pemakaian']) }} kali
-                                    <div class="text-xs text-gray-500">
-                                        N: {{ number_format($item['normalisasi_frekuensi'], 3) }}
-                                    </div>
-                                </td>
-                                <td class="px-3 py-3 text-right">
-                                    {{ number_format($item['jumlah_pemakaian']) }} {{ $item['satuan'] }}
-                                    <div class="text-xs text-gray-500">
-                                        N: {{ number_format($item['normalisasi_jumlah'], 3) }}
-                                    </div>
-                                </td>
-                                <td class="px-3 py-3 text-right">
-                                    {{ number_format($item['sisa_stok']) }} {{ $item['satuan'] }}
-                                    <div class="text-xs text-gray-500">
-                                        N: {{ number_format($item['normalisasi_stok'], 3) }}
-                                    </div>
-                                </td>
-                                <td class="px-3 py-3 text-right">
-                                    <x-filament::badge color="warning">
-                                        {{ number_format($item['nilai_preferensi'], 4) }}
-                                    </x-filament::badge>
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+            @php($winner = $recommendations->first())
+
+            <div class="wd-saw-layout">
+                <article class="wd-winner">
+                    <div class="wd-winner__glow"></div>
+                    <div class="wd-winner__rank">#1 Prioritas utama</div>
+                    <span class="wd-winner__code">{{ $winner['kode_barang'] }}</span>
+                    <h3>{{ $winner['nama_barang'] }}</h3>
+                    <p>Barang dengan nilai preferensi tertinggi untuk segera dilakukan restock.</p>
+
+                    <div class="wd-winner__score">
+                        <span>Nilai preferensi</span>
+                        <strong>{{ number_format($winner['nilai_preferensi'], 4) }}</strong>
+                    </div>
+
+                    <div class="wd-winner__metrics">
+                        <div>
+                            <span>Frekuensi</span>
+                            <strong>{{ number_format($winner['frekuensi_pemakaian']) }}x</strong>
+                        </div>
+                        <div>
+                            <span>Pemakaian</span>
+                            <strong>{{ number_format($winner['jumlah_pemakaian']) }}</strong>
+                        </div>
+                        <div>
+                            <span>Sisa stok</span>
+                            <strong>{{ number_format($winner['sisa_stok']) }}</strong>
+                        </div>
+                    </div>
+
+                    <a href="{{ $winner['url'] }}" class="wd-winner__action">
+                        Lihat detail barang
+                        <x-filament::icon icon="heroicon-m-arrow-right" />
+                    </a>
+                </article>
+
+                <div class="wd-ranking">
+                    <div class="wd-ranking__heading">
+                        <div>
+                            <strong>Peringkat rekomendasi</strong>
+                            <span>Semakin tinggi skor, semakin mendesak prioritas restock.</span>
+                        </div>
+                        <span>Skor SAW</span>
+                    </div>
+
+                    @foreach ($recommendations as $item)
+                        <a href="{{ $item['url'] }}" class="wd-rank-row">
+                            <span class="wd-rank-row__number wd-rank-row__number--{{ $item['peringkat'] }}">
+                                {{ $item['peringkat'] }}
+                            </span>
+                            <div class="wd-rank-row__barang">
+                                <strong>{{ $item['nama_barang'] }}</strong>
+                                <span>{{ $item['kode_barang'] }} · Sisa {{ number_format($item['sisa_stok']) }} {{ $item['satuan'] }}</span>
+                            </div>
+                            <div class="wd-rank-row__progress">
+                                <div>
+                                    <span style="--score-width: {{ $item['score_percentage'] }}%"></span>
+                                </div>
+                                <small>
+                                    {{ number_format($item['frekuensi_pemakaian']) }}x frekuensi ·
+                                    {{ number_format($item['jumlah_pemakaian']) }} pemakaian
+                                </small>
+                            </div>
+                            <strong class="wd-rank-row__score">
+                                {{ number_format($item['nilai_preferensi'], 4) }}
+                            </strong>
+                        </a>
+                    @endforeach
+                </div>
             </div>
 
-            <div class="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                Bobot:
-                frekuensi {{ number_format($weights['frekuensi_pemakaian'] * 100, 2) }}%,
-                jumlah pemakaian {{ number_format($weights['jumlah_pemakaian'] * 100, 2) }}%,
-                sisa stok {{ number_format($weights['sisa_stok'] * 100, 2) }}%.
-            </div>
+            <footer class="wd-saw-footer">
+                <span><i class="wd-dot wd-dot--amber"></i> Frekuensi benefit {{ number_format($weights['frekuensi_pemakaian'] * 100, 1) }}%</span>
+                <span><i class="wd-dot wd-dot--green"></i> Jumlah pemakaian benefit {{ number_format($weights['jumlah_pemakaian'] * 100, 1) }}%</span>
+                <span><i class="wd-dot wd-dot--blue"></i> Sisa stok cost {{ number_format($weights['sisa_stok'] * 100, 1) }}%</span>
+            </footer>
         @endif
-    </x-filament::section>
+    </section>
 </x-filament-widgets::widget>

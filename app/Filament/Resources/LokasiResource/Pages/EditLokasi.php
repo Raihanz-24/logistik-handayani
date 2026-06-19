@@ -22,6 +22,7 @@ class EditLokasi extends EditRecord
     {
         return 'Ubah Lokasi';
     }
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');

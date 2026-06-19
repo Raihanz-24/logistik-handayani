@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
 use App\Models\User;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class UserController extends BaseApiController
@@ -13,6 +12,7 @@ class UserController extends BaseApiController
     public function index()
     {
         $users = User::all();
+
         return $this->success($users, 'Daftar user');
     }
 
@@ -21,6 +21,7 @@ class UserController extends BaseApiController
         $data = $request->validated();
         $data['password'] = Hash::make($data['password']);
         $user = User::create($data);
+
         return $this->success($user, 'User berhasil ditambahkan', 201);
     }
 
@@ -36,18 +37,21 @@ class UserController extends BaseApiController
             $data['password'] = Hash::make($data['password']);
         }
         $user->update($data);
+
         return $this->success($user, 'User berhasil diperbarui');
     }
 
     public function destroy(User $user)
     {
         $user->delete();
+
         return $this->success(null, 'User berhasil dihapus');
     }
 
     public function history(User $user)
     {
-        $mutasi = $user->mutasi()->with('produk', 'lokasi')->get();
-        return $this->success($mutasi, 'Histori mutasi oleh user: ' . $user->name);
+        $mutasi = $user->mutasi()->with('barang', 'lokasi')->get();
+
+        return $this->success($mutasi, 'Histori mutasi oleh user: '.$user->name);
     }
 }

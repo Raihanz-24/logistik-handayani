@@ -4,18 +4,18 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
-use Filament\Forms\Form;
 use Filament\Forms\Components\Section;
-use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Select;
-use Filament\Resources\Resource;
-use Filament\Tables\Table;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Actions\EditAction;
-use Filament\Tables\Actions\DeleteAction;
-use Filament\Tables\Actions\BulkActionGroup;
-use Filament\Tables\Actions\DeleteBulkAction;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Form;
 use Filament\Notifications\Notification;
+use Filament\Resources\Resource;
+use Filament\Tables\Actions\BulkActionGroup;
+use Filament\Tables\Actions\DeleteAction;
+use Filament\Tables\Actions\DeleteBulkAction;
+use Filament\Tables\Actions\EditAction;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Table;
 use Illuminate\Validation\Rules\Password;
 
 class UserResource extends Resource
@@ -24,8 +24,11 @@ class UserResource extends Resource
 
     // Sidebar
     protected static ?string $navigationGroup = 'Master Data';
+
     protected static ?int $navigationSort = 9999; // makin besar = makin bawah
+
     protected static ?string $navigationIcon = 'heroicon-o-users';
+
     protected static ?string $navigationLabel = 'Pengguna';
 
     public static function getModelLabel(): string
@@ -88,16 +91,16 @@ class UserResource extends Resource
                             ->revealable()
                             ->confirmed() // butuh field password_confirmation
                             ->rules([Password::min(8)->numbers()->symbols()])
-                            ->required(fn(string $operation) => $operation === 'create')
+                            ->required(fn (string $operation) => $operation === 'create')
                             // edit: jangan overwrite password kalau kosong
-                            ->dehydrated(fn($state) => filled($state)),
+                            ->dehydrated(fn ($state) => filled($state)),
 
                         TextInput::make('password_confirmation')
                             ->label('Konfirmasi Password')
                             ->password()
                             ->revealable()
                             ->dehydrated(false)
-                            ->required(fn(string $operation) => $operation === 'create'),
+                            ->required(fn (string $operation) => $operation === 'create'),
                     ]),
 
                 Section::make('Role Akses')
@@ -108,7 +111,7 @@ class UserResource extends Resource
                             ->relationship(
                                 name: 'roles',
                                 titleAttribute: 'name',
-                                modifyQueryUsing: fn($query) => $query->where('guard_name', $guardName),
+                                modifyQueryUsing: fn ($query) => $query->where('guard_name', $guardName),
                             )
                             ->multiple()
                             ->preload()
@@ -196,6 +199,7 @@ class UserResource extends Resource
 
                                 if ($reason) {
                                     $skipped++;
+
                                     continue;
                                 }
 
@@ -216,9 +220,9 @@ class UserResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListUsers::route('/'),
+            'index' => Pages\ListUsers::route('/'),
             'create' => Pages\CreateUser::route('/create'),
-            'edit'   => Pages\EditUser::route('/{record}/edit'),
+            'edit' => Pages\EditUser::route('/{record}/edit'),
         ];
     }
 }

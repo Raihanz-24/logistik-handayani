@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Lokasi;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -19,6 +20,7 @@ class LokasiFactory extends Factory
         return [
             'kode_lokasi' => strtoupper(fake()->unique()->lexify('LOK???')),
             'nama_lokasi' => fake()->company(),
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
             'alamat' => fake()->address(),
             'keterangan' => fake()->sentence(),
         ];
