@@ -16,6 +16,7 @@ use Filament\Tables;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\BulkAction;
 use Filament\Tables\Actions\BulkActionGroup;
+use Filament\Tables\Enums\ActionsPosition;
 // ✅ BULK ACTION (Approve Terpilih)
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
@@ -570,7 +571,7 @@ class MutasiResource extends Resource
                                 ->send();
                         }
                     }),
-            ])
+            ], ActionsPosition::BeforeColumns)
             ->bulkActions([
                 BulkActionGroup::make([
                     BulkAction::make('approve_selected')
