@@ -22,6 +22,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class MutasiResource extends Resource
 {
@@ -153,11 +154,7 @@ class MutasiResource extends Resource
                         ->reactive()
                         ->helperText('Hanya lokasi bertipe Gudang yang dapat menyimpan dan mengeluarkan stok.')
                         ->rules([
-                            function (string $attribute, mixed $value, Closure $fail): void {
-                                if (! Lokasi::query()->gudang()->whereKey($value)->exists()) {
-                                    $fail('Lokasi yang dipilih bukan gudang.');
-                                }
-                            },
+                            Rule::exists('lokasis', 'id')->where('jenis_lokasi', Lokasi::JENIS_GUDANG),
                         ])
                         ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
