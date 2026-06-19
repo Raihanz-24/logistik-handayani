@@ -2,11 +2,13 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Pages\Auth\Login;
+use App\Filament\Widgets\AccountWidget;
 use Awcodes\LightSwitch\Enums\Alignment;
 use Awcodes\LightSwitch\LightSwitchPlugin;
+use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Devonab\FilamentEasyFooter\EasyFooterPlugin;
 use Filament\Http\Middleware\Authenticate;
-use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -16,8 +18,7 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Platform;
-use Filament\Widgets;
-use Filament\Widgets\AccountWidget;
+use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -25,70 +26,67 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
-use Filament\Support\Facades\FilamentView;
-use Filament\View\PanelsRenderHook;
-
 class AdminPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
     {
         return $panel
             ->renderHook(
-            PanelsRenderHook::HEAD_END,
-            fn (): string => view('filament.ga4')->render()
-        )
-             //->renderHook('head.end', fn () => view('filament.ga4'))
+                PanelsRenderHook::HEAD_END,
+                fn (): string => view('filament.ga4')->render()
+            )
+             // ->renderHook('head.end', fn () => view('filament.ga4'))
             ->sidebarCollapsibleOnDesktop()
             ->registration()
             ->default()
             ->id('admin')
             ->path('admin')
-            ->login()
+            ->login(Login::class)
             ->colors([
-                'primary' => Color::Amber,
-            ])
+                    'primary' => Color::Amber,
+                ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
-                // Pages\Dashboard::class,
-            ])
+                    // Pages\Dashboard::class,
+                ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
-                AccountWidget::class,
-            ])
+                    AccountWidget::class,
+                ])
 
             // === Aktifkan pusat notifikasi (ikon lonceng) ===
             ->databaseNotifications()
 
             ->middleware([
-                EncryptCookies::class,
-                AddQueuedCookiesToResponse::class,
-                StartSession::class,
-                AuthenticateSession::class,
-                ShareErrorsFromSession::class,
-                VerifyCsrfToken::class,
-                SubstituteBindings::class,
-                DisableBladeIconComponents::class,
-                DispatchServingFilamentEvent::class,
-            ])
+                    EncryptCookies::class,
+                    AddQueuedCookiesToResponse::class,
+                    StartSession::class,
+                    AuthenticateSession::class,
+                    ShareErrorsFromSession::class,
+                    VerifyCsrfToken::class,
+                    SubstituteBindings::class,
+                    DisableBladeIconComponents::class,
+                    DispatchServingFilamentEvent::class,
+                ])
             ->plugins([
-                FilamentShieldPlugin::make(),
-            ])
+                    FilamentShieldPlugin::make(),
+                ])
             ->authMiddleware([
-                Authenticate::class,
-            ])
+                    Authenticate::class,
+                ])
             ->navigationItems([
-                NavigationItem::make('Ubah Profil')
-                    ->group('Pengaturan')
-                    ->isActiveWhen(fn() => request()->routeIs('filament.admin.auth.profile'))
-                    ->url(fn() => route('filament.admin.auth.profile', absolute: true)),
-            ])
+                    NavigationItem::make('Ubah Profil')
+                        ->group('Pengaturan')
+                        ->isActiveWhen(fn () => request()->routeIs('filament.admin.auth.profile'))
+                        ->url(fn () => route('filament.admin.auth.profile', absolute: true)),
+                ])
             ->spa()
             ->profile(isSimple: false)
             ->unsavedChangesAlerts()
             ->globalSearchKeyBindings(['command+k', 'ctrl+k'])
             ->globalSearchDebounce('750ms')
-            ->globalSearchFieldSuffix(fn(): ?string => match (Platform::detect()) {
+            ->globalSearchFieldSuffix(fn (): ?string => match (Platform::detect()) {
                 Platform::Windows, Platform::Linux => 'CTRL+K',
                 Platform::Mac => '⌘K',
                 default => null,
@@ -106,8 +104,7 @@ class AdminPanelProvider extends PanelProvider
                 EasyFooterPlugin::make()
                     ->footerEnabled()
                     ->withFooterPosition('footer')
-                    ->withLoadTime('Halaman ini dimuat')
-            ])
-        ;
+                    ->withLoadTime('Halaman ini dimuat'),
+            ]);
     }
 }
