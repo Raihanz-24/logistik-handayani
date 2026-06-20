@@ -37,6 +37,10 @@ class MutasiController extends BaseApiController
             return $this->error('Mutasi sudah diproses.', 400);
         }
 
+        if (! auth()->user()?->can('approve', $mutasi)) {
+            return $this->error('Akun Anda tidak memiliki akses untuk approve mutasi.', 403);
+        }
+
         try {
             $approved = $stockService->approve($mutasi, (int) auth()->id());
 

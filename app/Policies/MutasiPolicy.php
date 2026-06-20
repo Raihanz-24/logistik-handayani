@@ -10,6 +10,16 @@ class MutasiPolicy
 {
     use HandlesAuthorization;
 
+    private function isApprovalUser(User $user): bool
+    {
+        return $user->hasRole([
+            'super_admin',
+            'super admin',
+            'Super Admin',
+            'super-admin',
+        ]);
+    }
+
     /**
      * Determine whether the user can view any models.
      */
@@ -104,5 +114,15 @@ class MutasiPolicy
     public function reorder(User $user): bool
     {
         return $user->can('{{ Reorder }}');
+    }
+
+    public function approveAny(User $user): bool
+    {
+        return $this->isApprovalUser($user);
+    }
+
+    public function approve(User $user, Mutasi $mutasi): bool
+    {
+        return $this->isApprovalUser($user) && $mutasi->status === 'pending';
     }
 }

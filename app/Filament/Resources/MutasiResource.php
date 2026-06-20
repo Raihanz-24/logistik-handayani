@@ -51,9 +51,21 @@ class MutasiResource extends Resource
             'super admin',
             'Super Admin',
             'super-admin',
-            'Admin',
-            'admin',
         ]);
+    }
+
+    protected static function canApproveAny(): bool
+    {
+        $user = auth()->user();
+
+        return $user?->can('approveAny', Mutasi::class) ?? false;
+    }
+
+    protected static function canApproveRecord(Mutasi $record): bool
+    {
+        $user = auth()->user();
+
+        return $user?->can('approve', $record) ?? false;
     }
 
     /**
@@ -426,12 +438,16 @@ class MutasiResource extends Resource
                     ->label('Approve')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn (Mutasi $record) => static::isSuperAdmin() && $record->status === 'pending')
+                    ->visible(fn (Mutasi $record) => static::canApproveRecord($record))
                     ->requiresConfirmation()
                     ->modalHeading('Setujui Mutasi')
                     ->modalDescription('Apakah Anda yakin ingin menyetujui mutasi ini? Setelah disetujui, stok akan diperbarui dan data tidak bisa diubah.')
                     ->action(function (Mutasi $record) {
                         try {
+                            if (! static::canApproveAny()) {
+                                throw new \RuntimeException('Akun Anda tidak memiliki akses untuk approve mutasi.');
+                            }
+
                             DB::transaction(function () use ($record) {
                                 $record->refresh();
 
@@ -582,7 +598,7 @@ class MutasiResource extends Resource
                         ->modalHeading('Approve Mutasi Terpilih')
                         ->modalDescription('Semua mutasi yang dipilih (status pending) akan di-approve dan stok akan diperbarui.')
                         ->visible(function ($livewire) {
-                            if (! static::isSuperAdmin()) {
+                            if (! static::canApproveAny()) {
                                 return false;
                             }
 
@@ -591,6 +607,16 @@ class MutasiResource extends Resource
                             return $activeTab === null || $activeTab === 'Pending';
                         })
                         ->action(function (Collection $records) {
+                            if (! static::canApproveAny()) {
+                                Notification::make()
+                                    ->title('Akses Ditolak')
+                                    ->body('Akun Anda tidak memiliki akses untuk approve mutasi.')
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
                             $approved = 0;
                             $skipped = 0;
                             $errors = [];
