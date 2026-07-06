@@ -62,9 +62,6 @@ class AdminPanelProvider extends PanelProvider
                 AccountWidget::class,
             ])
 
-            // === Aktifkan pusat notifikasi (ikon lonceng) ===
-            ->databaseNotifications()
-
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

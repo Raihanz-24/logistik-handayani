@@ -10,6 +10,9 @@ use Closure;
 use Filament\Forms;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
+use Filament\Infolists\Components\Section as InfolistSection;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -63,6 +66,10 @@ class MutasiResource extends Resource
 
     protected static function canApproveRecord(Mutasi $record): bool
     {
+        if ($record->status !== 'pending') {
+            return false;
+        }
+
         $user = auth()->user();
 
         return $user?->can('approve', $record) ?? false;
@@ -279,10 +286,133 @@ class MutasiResource extends Resource
         ]);
     }
 
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist
+            ->schema([
+                InfolistSection::make('Ringkasan Mutasi')
+                    ->icon('heroicon-o-document-text')
+                    ->columns(3)
+                    ->schema([
+                        TextEntry::make('id')
+                            ->label('ID Mutasi')
+                            ->formatStateUsing(fn (int $state): string => "#{$state}"),
+
+                        TextEntry::make('tanggal')
+                            ->label('Tanggal')
+                            ->date('d F Y'),
+
+                        TextEntry::make('status')
+                            ->label('Status')
+                            ->badge()
+                            ->formatStateUsing(fn (?string $state): string => match ($state) {
+                                'approved' => 'Disetujui',
+                                'cancelled' => 'Dibatalkan',
+                                default => 'Pending',
+                            })
+                            ->color(fn (?string $state): string => match ($state) {
+                                'approved' => 'success',
+                                'cancelled' => 'danger',
+                                default => 'warning',
+                            }),
+
+                        TextEntry::make('no_ref')
+                            ->label('No. Referensi')
+                            ->placeholder('-'),
+
+                        TextEntry::make('user.name')
+                            ->label('Dicatat oleh')
+                            ->placeholder('-'),
+
+                        TextEntry::make('created_at')
+                            ->label('Waktu Dibuat')
+                            ->dateTime('d M Y H:i'),
+                    ]),
+
+                InfolistSection::make('Pergerakan Barang')
+                    ->icon('heroicon-o-arrows-right-left')
+                    ->columns(3)
+                    ->schema([
+                        TextEntry::make('barang.nama_barang')
+                            ->label('Barang')
+                            ->placeholder('-'),
+
+                        TextEntry::make('jenis_mutasi')
+                            ->label('Jenis Mutasi')
+                            ->badge()
+                            ->formatStateUsing(fn (?string $state): string => $state === 'keluar' ? 'Keluar' : 'Masuk')
+                            ->color(fn (?string $state): string => $state === 'keluar' ? 'danger' : 'success'),
+
+                        TextEntry::make('jumlah')
+                            ->label('Jumlah')
+                            ->numeric(),
+
+                        TextEntry::make('sumber_barang')
+                            ->label('Sumber Barang')
+                            ->state(fn (Mutasi $record): string => $record->jenis_mutasi === 'masuk'
+                                ? 'Pengadaan / Barang Baru'
+                                : ($record->lokasi?->nama_lokasi ?? '-')),
+
+                        TextEntry::make('tujuan_barang')
+                            ->label('Tujuan')
+                            ->state(function (Mutasi $record): string {
+                                if ($record->jenis_mutasi === 'masuk') {
+                                    return $record->lokasi?->nama_lokasi ?? '-';
+                                }
+
+                                return $record->lokasiTujuan?->nama_lokasi ?? '-';
+                            }),
+
+                        TextEntry::make('stok_perubahan')
+                            ->label('Perubahan Stok Gudang')
+                            ->state(fn (Mutasi $record): string => $record->stok_awal === null || $record->stok_akhir === null
+                                ? '-'
+                                : "{$record->stok_awal} → {$record->stok_akhir}"),
+
+                        TextEntry::make('keterangan')
+                            ->label('Keterangan')
+                            ->placeholder('-')
+                            ->columnSpanFull(),
+                    ]),
+
+                InfolistSection::make('Jejak Proses')
+                    ->icon('heroicon-o-shield-check')
+                    ->columns(3)
+                    ->schema([
+                        TextEntry::make('createdBy.name')
+                            ->label('Dibuat oleh')
+                            ->placeholder('-'),
+
+                        TextEntry::make('approvedBy.name')
+                            ->label('Disetujui oleh')
+                            ->placeholder('-'),
+
+                        TextEntry::make('approved_at')
+                            ->label('Waktu Disetujui')
+                            ->dateTime('d M Y H:i')
+                            ->placeholder('-'),
+
+                        TextEntry::make('cancelledBy.name')
+                            ->label('Dibatalkan oleh')
+                            ->placeholder('-'),
+
+                        TextEntry::make('cancelled_at')
+                            ->label('Waktu Dibatalkan')
+                            ->dateTime('d M Y H:i')
+                            ->placeholder('-'),
+
+                        TextEntry::make('cancel_reason')
+                            ->label('Alasan Pembatalan')
+                            ->placeholder('-'),
+                    ]),
+            ]);
+    }
+
     public static function table(Table $table): Table
     {
         return $table
             ->defaultSort('id', direction: 'desc')
+            ->recordUrl(fn (Mutasi $record): string => static::getUrl('view', ['record' => $record]))
             ->paginationPageOptions([5, 25, 50, 100, 250])
             ->defaultPaginationPageOption(5)
             ->columns([
@@ -740,6 +870,7 @@ class MutasiResource extends Resource
         return [
             'index' => Pages\ListMutasis::route('/'),
             'create' => Pages\CreateMutasi::route('/buat'),
+            'view' => Pages\ViewMutasi::route('/{record}'),
         ];
     }
 }
