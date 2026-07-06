@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\MutasiResource\Pages;
+use App\Models\Barang;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
 use App\Services\MutasiExcelExportService;
@@ -150,6 +151,7 @@ class MutasiResource extends Resource
                         ->searchable()
                         ->required()
                         ->live()
+                        ->hidden(fn (string $operation): bool => $operation === 'create')
                         ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
                     Forms\Components\Select::make('lokasi_id')
@@ -220,7 +222,79 @@ class MutasiResource extends Resource
                                 }
                             },
                         ])
+                        ->hidden(fn (string $operation): bool => $operation === 'create')
                         ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
+
+                    Forms\Components\Repeater::make('items')
+                        ->label('Daftar Barang')
+                        ->helperText('Gunakan tombol Tambah Barang untuk memasukkan barang berikutnya.')
+                        ->schema([
+                            Forms\Components\Select::make('barang_id')
+                                ->label('Nama Barang')
+                                ->options(fn () => Barang::query()
+                                    ->orderBy('nama_barang')
+                                    ->pluck('nama_barang', 'id'))
+                                ->searchable()
+                                ->preload()
+                                ->native(false)
+                                ->required()
+                                ->rules(['exists:barangs,id'])
+                                ->distinct()
+                                ->disableOptionsWhenSelectedInSiblingRepeaterItems()
+                                ->live(),
+
+                            Forms\Components\TextInput::make('jumlah')
+                                ->label('Jumlah Barang')
+                                ->integer()
+                                ->minValue(1)
+                                ->required()
+                                ->live()
+                                ->helperText(function (Forms\Get $get): ?string {
+                                    if ($get('../../jenis_mutasi') !== 'keluar') {
+                                        return null;
+                                    }
+
+                                    $barangId = (int) ($get('barang_id') ?? 0);
+                                    $lokasiId = (int) ($get('../../lokasi_id') ?? 0);
+
+                                    if (! $barangId || ! $lokasiId) {
+                                        return 'Pilih barang dan gudang asal untuk melihat stok tersedia.';
+                                    }
+
+                                    $stok = static::getStokTersedia($barangId, $lokasiId);
+
+                                    return "Stok tersedia (dikurangi pending): {$stok}";
+                                })
+                                ->rules([
+                                    fn (Forms\Get $get) => function (string $attribute, $value, Closure $fail) use ($get): void {
+                                        if ($get('../../jenis_mutasi') !== 'keluar') {
+                                            return;
+                                        }
+
+                                        $barangId = (int) ($get('barang_id') ?? 0);
+                                        $lokasiId = (int) ($get('../../lokasi_id') ?? 0);
+
+                                        if (! $barangId || ! $lokasiId) {
+                                            return;
+                                        }
+
+                                        $stok = static::getStokTersedia($barangId, $lokasiId);
+                                        if ((int) $value > $stok) {
+                                            $fail("Stok tidak mencukupi. Stok tersedia (dikurangi pending): {$stok}.");
+                                        }
+                                    },
+                                ]),
+                        ])
+                        ->columns(2)
+                        ->defaultItems(1)
+                        ->minItems(1)
+                        ->addActionLabel('Tambah Barang')
+                        ->addAction(fn (Forms\Components\Actions\Action $action) => $action
+                            ->icon('heroicon-m-plus')
+                            ->color('primary'))
+                        ->reorderable(false)
+                        ->columnSpanFull()
+                        ->visible(fn (string $operation): bool => $operation === 'create'),
 
                     Forms\Components\TextInput::make('no_ref')
                         ->label('No. Referensi')
