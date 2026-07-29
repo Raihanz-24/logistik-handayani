@@ -24,7 +24,7 @@ class MutasiController extends BaseApiController
         $mutasi = Mutasi::create([
             ...$data,
             'status' => 'pending',
-            'user_id' => $data['user_id'] ?? $user->id,
+            'user_id' => $user->id,
             'created_by' => $user->id,
         ])->load('barang', 'lokasi', 'lokasiTujuan', 'user');
 

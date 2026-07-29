@@ -120,6 +120,10 @@ class MutasiResource extends Resource
                         ->default(fn () => auth()->id())
                         ->dehydrated(true),
 
+                    Forms\Components\Hidden::make('user_id')
+                        ->default(fn () => auth()->id())
+                        ->dehydrated(true),
+
                     Forms\Components\DatePicker::make('tanggal')
                         ->label('Tanggal')
                         ->default(now())
@@ -336,15 +340,9 @@ class MutasiResource extends Resource
                         ])
                         ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
 
-                    Forms\Components\Select::make('user_id')
+                    Forms\Components\Placeholder::make('dicatat_oleh')
                         ->label('Dicatat oleh')
-                        ->relationship('user', 'name')
-                        ->default(fn () => auth()->id())
-                        ->preload()
-                        ->native(false)
-                        ->searchable()
-                        ->required()
-                        ->disabled(fn ($record) => in_array($record?->status, ['approved', 'cancelled'])),
+                        ->content(fn (?Mutasi $record): string => $record?->user?->name ?? auth()->user()?->name ?? '-'),
 
                     Forms\Components\Select::make('status_view')
                         ->label('Status')

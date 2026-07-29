@@ -42,7 +42,6 @@ class StoreMutasiRequest extends FormRequest
             'keterangan' => 'nullable|string',
             'no_ref' => 'nullable|string',
             // 'status' => 'in:pending,approved,cancelled',
-            'user_id' => 'nullable|exists:users,id',
         ];
     }
 
@@ -65,7 +64,6 @@ class StoreMutasiRequest extends FormRequest
             'jumlah.min' => 'Jumlah minimal 1.',
             'no_ref.string' => 'Nomor referensi harus berupa teks.',
             // 'status.in' => 'Status hanya bisa: pending, approved, cancelled.',
-            'user_id.exists' => 'User tidak ditemukan.',
         ];
     }
 

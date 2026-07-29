@@ -104,10 +104,14 @@ class CreateMutasi extends CreateRecord
 
         return DB::transaction(function () use ($data, $items): Mutasi {
             $firstRecord = null;
+            $actorId = (int) auth()->id();
 
             foreach ($items as $item) {
                 $record = Mutasi::query()->create([
                     ...$data,
+                    'status' => 'pending',
+                    'user_id' => $actorId,
+                    'created_by' => $actorId,
                     'barang_id' => (int) $item['barang_id'],
                     'jumlah' => (int) $item['jumlah'],
                 ]);
