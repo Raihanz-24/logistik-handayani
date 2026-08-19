@@ -7,8 +7,10 @@ use App\Models\Barang;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
 use App\Services\MutasiExcelExportService;
+use App\Services\MutasiExcelImportService;
 use Closure;
 use Filament\Forms;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
 use Filament\Infolists\Components\Section as InfolistSection;
@@ -21,12 +23,12 @@ use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\BulkAction;
 use Filament\Tables\Actions\BulkActionGroup;
 use Filament\Tables\Enums\ActionsPosition;
-// ✅ BULK ACTION (Approve Terpilih)
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class MutasiResource extends Resource
@@ -85,7 +87,10 @@ class MutasiResource extends Resource
             return 0;
         }
 
-        if (! Lokasi::query()->gudang()->whereKey($lokasiId)->exists()) {
+        if (! Lokasi::query()
+            ->where('jenis_lokasi', Lokasi::JENIS_GUDANG)
+            ->whereKey($lokasiId)
+            ->exists()) {
             return 0;
         }
 
@@ -166,7 +171,7 @@ class MutasiResource extends Resource
                             name: 'lokasi',
                             titleAttribute: 'nama_lokasi',
                             modifyQueryUsing: fn (Builder $query): Builder => $query
-                                ->gudang()
+                                ->where('jenis_lokasi', Lokasi::JENIS_GUDANG)
                                 ->orderBy('nama_lokasi'),
                         )
                         ->getOptionLabelFromRecordUsing(
@@ -619,6 +624,69 @@ class MutasiResource extends Resource
                     ]),
             ])
             ->headerActions([
+                Action::make('import-excel')
+                    ->label('Import Excel')
+                    ->icon('heroicon-o-arrow-up-tray')
+                    ->color('primary')
+                    ->modalHeading('Import Mutasi dari Excel')
+                    ->modalDescription('Upload file Excel format export mutasi atau format weekly issued POMI. Data akan dibaca otomatis dan dibuat sebagai mutasi.')
+                    ->form([
+                        FileUpload::make('file')
+                            ->label('File Excel')
+                            ->disk('local')
+                            ->directory('imports/mutasi')
+                            ->acceptedFileTypes([
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                'application/octet-stream',
+                            ])
+                            ->maxSize(10240)
+                            ->required()
+                            ->helperText('Gunakan file .xlsx. Format yang didukung: export Mutasi sistem atau weekly issued POMI.'),
+
+                        Forms\Components\Select::make('status_mode')
+                            ->label('Status Hasil Import')
+                            ->options([
+                                'pending' => 'Pending - perlu approve sebelum stok berubah',
+                                'approved' => 'Langsung disetujui - stok gudang langsung diperbarui',
+                            ])
+                            ->default('pending')
+                            ->native(false)
+                            ->required()
+                            ->helperText('Pilih Pending jika stok gudang belum dipastikan cukup.'),
+                    ])
+                    ->action(function (array $data): void {
+                        $file = is_array($data['file']) ? reset($data['file']) : $data['file'];
+                        $path = Storage::disk('local')->path($file);
+
+                        try {
+                            $result = app(MutasiExcelImportService::class)->import(
+                                path: $path,
+                                actorId: (int) auth()->id(),
+                                statusMode: $data['status_mode'] ?? 'pending',
+                            );
+
+                            $body = "Format: {$result['format']} | Berhasil: {$result['imported']} | Dilewati: {$result['skipped']} | Gagal: {$result['failed']}";
+
+                            if ($result['errors'] !== []) {
+                                $body .= ' | Contoh error: '.implode(' ; ', $result['errors']);
+                            }
+
+                            Notification::make()
+                                ->title('Import mutasi selesai')
+                                ->body($body)
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $exception) {
+                            Notification::make()
+                                ->title('Import mutasi gagal')
+                                ->body($exception->getMessage())
+                                ->danger()
+                                ->send();
+                        } finally {
+                            Storage::disk('local')->delete($file);
+                        }
+                    }),
+
                 Action::make('export-excel')
                     ->label('Export Excel')
                     ->icon('heroicon-o-arrow-down-tray')
@@ -666,7 +734,7 @@ class MutasiResource extends Resource
                                     throw new \RuntimeException('Lokasi stok harus bertipe Gudang.');
                                 }
 
-                                // ✅ FIX: normalisasi jenis_mutasi biar "Keluar" / "keluar " tetap kebaca keluar
+                                // Normalisasi jenis_mutasi agar variasi kapital/spasi tetap terbaca.
                                 $jenis = strtolower(trim((string) $record->jenis_mutasi));
 
                                 $pivotGudang = DB::table('barang_lokasi')
@@ -844,7 +912,7 @@ class MutasiResource extends Resource
                                             throw new \RuntimeException('Lokasi stok harus bertipe Gudang.');
                                         }
 
-                                        // ✅ FIX: normalisasi jenis_mutasi
+                                        // Normalisasi jenis_mutasi.
                                         $jenis = strtolower(trim((string) $record->jenis_mutasi));
 
                                         $pivotGudang = DB::table('barang_lokasi')

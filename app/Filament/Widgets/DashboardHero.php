@@ -36,9 +36,11 @@ class DashboardHero extends Widget
             'currentDate' => now()->translatedFormat('l, d F Y'),
             'currentTime' => now()->format('H:i'),
             'totalStock' => (int) BarangLokasi::query()
-                ->whereHas('lokasi', fn ($query) => $query->gudang())
+                ->whereHas('lokasi', fn ($query) => $query->where('jenis_lokasi', Lokasi::JENIS_GUDANG))
                 ->sum('stok'),
-            'activeLocations' => Lokasi::query()->gudang()->count(),
+            'activeLocations' => Lokasi::query()
+                ->where('jenis_lokasi', Lokasi::JENIS_GUDANG)
+                ->count(),
             'pendingMutations' => Mutasi::query()->where('status', 'pending')->count(),
         ];
     }
