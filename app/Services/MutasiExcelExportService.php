@@ -13,8 +13,9 @@ class MutasiExcelExportService
 {
     private const HEADERS = [
         'No.', 'Tanggal', 'Kode Barang', 'Nama Barang', 'Jenis', 'Jumlah', 'Satuan',
-        'Sumber Barang', 'Lokasi Tujuan', 'No. Referensi', 'Status', 'Stok Awal',
-        'Stok Akhir', 'Dicatat Oleh',
+        'Sumber Barang', 'Rak Asal', 'Lokasi Tujuan', 'Rak Tujuan', 'Kondisi Asal',
+        'Kondisi Setelah Mutasi', 'No. Referensi', 'Status', 'Stok Awal', 'Stok Akhir',
+        'Dicatat Oleh',
     ];
 
     public function download(Builder $query, array $context = []): StreamedResponse
@@ -79,14 +80,14 @@ class MutasiExcelExportService
         $this->writeSheetView($writer, frozenRows: 5);
 
         $writer->startElement('cols');
-        foreach ([6, 14, 16, 30, 12, 12, 11, 28, 32, 18, 14, 12, 12, 22] as $index => $width) {
+        foreach ([6, 14, 16, 30, 20, 12, 11, 28, 14, 32, 14, 16, 20, 18, 14, 12, 12, 22] as $index => $width) {
             $this->writeColumn($writer, $index + 1, $width);
         }
         $writer->endElement();
 
         $writer->startElement('sheetData');
         $this->writeRow($writer, 1, [
-            $this->textCell('A1', 'LAPORAN MUTASI BARANG GUDANG PT ISS INDONESIA', 1),
+            $this->textCell('A1', 'LAPORAN MUTASI BARANG LOGISTIK TAMAN AIR HANDAYANI PAITON', 1),
         ], 36);
         $this->writeRow($writer, 2, [
             $this->textCell('A2', 'AREA PAITON ENERGY', 2),
@@ -111,6 +112,8 @@ class MutasiExcelExportService
                 'barang:id,nama_barang,kode_barang,satuan',
                 'lokasi:id,nama_lokasi',
                 'lokasiTujuan:id,nama_lokasi,jenis_lokasi',
+                'posisiRakAsal:id,kode',
+                'posisiRakTujuan:id,kode',
                 'user:id,name',
             ])
             ->lazy(500)
@@ -120,25 +123,30 @@ class MutasiExcelExportService
                 $source = $type === 'masuk'
                     ? 'Pengadaan / Barang Baru'
                     : ($mutasi->lokasi?->nama_lokasi ?? '-');
-                $destination = $type === 'masuk'
-                    ? ($mutasi->lokasi?->nama_lokasi ?? '-')
-                    : $this->destinationLabel($mutasi);
+                $destination = match ($type) {
+                    'masuk', 'perubahan_kondisi' => $mutasi->lokasi?->nama_lokasi ?? '-',
+                    default => $this->destinationLabel($mutasi),
+                };
 
                 $this->writeRow($writer, $rowNumber, [
                     $this->numberCell("A{$rowNumber}", $sequence, $style),
                     $this->textCell("B{$rowNumber}", $mutasi->tanggal?->format('d/m/Y') ?? '-', $style),
                     $this->textCell("C{$rowNumber}", $mutasi->barang?->kode_barang ?? '-', $style),
                     $this->textCell("D{$rowNumber}", $mutasi->barang?->nama_barang ?? '-', $style),
-                    $this->textCell("E{$rowNumber}", $type === 'keluar' ? 'Keluar' : 'Masuk', $style),
+                    $this->textCell("E{$rowNumber}", Mutasi::jenisOptions()[$type] ?? $type, $style),
                     $this->numberCell("F{$rowNumber}", (int) $mutasi->jumlah, $style),
                     $this->textCell("G{$rowNumber}", $mutasi->barang?->satuan ?? '-', $style),
                     $this->textCell("H{$rowNumber}", $source, $style),
-                    $this->textCell("I{$rowNumber}", $destination, $style),
-                    $this->textCell("J{$rowNumber}", $mutasi->no_ref ?: '-', $style),
-                    $this->textCell("K{$rowNumber}", $this->statusLabel($mutasi->status), $style),
-                    $this->nullableNumberCell("L{$rowNumber}", $mutasi->stok_awal, $style),
-                    $this->nullableNumberCell("M{$rowNumber}", $mutasi->stok_akhir, $style),
-                    $this->textCell("N{$rowNumber}", $mutasi->user?->name ?? '-', $style),
+                    $this->textCell("I{$rowNumber}", $mutasi->posisiRakAsal?->kode ?? '-', $style),
+                    $this->textCell("J{$rowNumber}", $destination, $style),
+                    $this->textCell("K{$rowNumber}", $mutasi->posisiRakTujuan?->kode ?? '-', $style),
+                    $this->textCell("L{$rowNumber}", Mutasi::kondisiOptions()[$mutasi->kondisi_asal] ?? '-', $style),
+                    $this->textCell("M{$rowNumber}", Mutasi::kondisiOptions()[$mutasi->kondisi_tujuan] ?? '-', $style),
+                    $this->textCell("N{$rowNumber}", $mutasi->no_ref ?: '-', $style),
+                    $this->textCell("O{$rowNumber}", $this->statusLabel($mutasi->status), $style),
+                    $this->nullableNumberCell("P{$rowNumber}", $mutasi->stok_awal, $style),
+                    $this->nullableNumberCell("Q{$rowNumber}", $mutasi->stok_akhir, $style),
+                    $this->textCell("R{$rowNumber}", $mutasi->user?->name ?? '-', $style),
                 ], 24);
 
                 $rowNumber++;
@@ -153,13 +161,13 @@ class MutasiExcelExportService
         $writer->endElement();
 
         $writer->startElement('autoFilter');
-        $writer->writeAttribute('ref', 'A5:N'.max(5, $rowNumber - 1));
+        $writer->writeAttribute('ref', 'A5:R'.max(5, $rowNumber - 1));
         $writer->endElement();
 
         $writer->startElement('mergeCells');
         $mergeRanges = $totalRows === 0
-            ? ['A1:N1', 'A2:N2', 'A3:N3', 'A6:N6']
-            : ['A1:N1', 'A2:N2', 'A3:N3'];
+            ? ['A1:R1', 'A2:R2', 'A3:R3', 'A6:R6']
+            : ['A1:R1', 'A2:R2', 'A3:R3'];
         foreach ($mergeRanges as $range) {
             $writer->startElement('mergeCell');
             $writer->writeAttribute('ref', $range);
@@ -403,7 +411,7 @@ XML;
         return <<<'XML'
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-<Application>Warehouse Monitoring</Application>
+<Application>Logistik Taman Air Handayani Paiton</Application>
 <HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>1</vt:i4></vt:variant></vt:vector></HeadingPairs>
 <TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr>Laporan Mutasi</vt:lpstr></vt:vector></TitlesOfParts>
 </Properties>
@@ -413,7 +421,7 @@ XML;
     private function corePropertiesXml(): string
     {
         $timestamp = now()->utc()->format('Y-m-d\TH:i:s\Z');
-        $creator = htmlspecialchars(auth()->user()?->name ?? 'Warehouse Monitoring', ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        $creator = htmlspecialchars(auth()->user()?->name ?? config('app.name'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
 
         return <<<XML
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>

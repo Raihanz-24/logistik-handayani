@@ -67,6 +67,7 @@ class LokasiResource extends Resource
                             ->options(Lokasi::jenisOptions())
                             ->default(Lokasi::JENIS_GUDANG)
                             ->required()
+                            ->live()
                             ->native(false)
                             ->helperText('Gudang menyimpan saldo stok. Lokasi Pemakaian hanya menjadi tujuan barang habis pakai.')
                             ->rules([
@@ -80,6 +81,66 @@ class LokasiResource extends Resource
                                     }
                                 },
                             ]),
+                        Forms\Components\Toggle::make('menggunakan_rak')
+                            ->label('Gunakan Rak')
+                            ->helperText('Aktifkan jika gudang memiliki rak bertingkat.')
+                            ->default(false)
+                            ->live()
+                            ->visible(fn (Forms\Get $get): bool => $get('jenis_lokasi') === Lokasi::JENIS_GUDANG)
+                            ->afterStateUpdated(function (bool $state, Forms\Set $set): void {
+                                if (! $state) {
+                                    $set('jumlah_rak', 0);
+                                    $set('konfigurasi_rak', []);
+                                }
+                            }),
+                        Forms\Components\TextInput::make('jumlah_rak')
+                            ->label('Jumlah Rak')
+                            ->integer()
+                            ->minValue(1)
+                            ->maxValue(50)
+                            ->required(fn (Forms\Get $get): bool => (bool) $get('menggunakan_rak'))
+                            ->dehydrated(false)
+                            ->live(onBlur: true)
+                            ->visible(fn (Forms\Get $get): bool => $get('jenis_lokasi') === Lokasi::JENIS_GUDANG
+                                && (bool) $get('menggunakan_rak'))
+                            ->afterStateUpdated(function ($state, Forms\Get $get, Forms\Set $set): void {
+                                $count = max(0, min(50, (int) $state));
+                                $current = array_values($get('konfigurasi_rak') ?? []);
+                                $configuration = [];
+
+                                for ($index = 0; $index < $count; $index++) {
+                                    $configuration[] = [
+                                        'nomor_rak' => $index + 1,
+                                        'jumlah_tingkat' => (int) ($current[$index]['jumlah_tingkat'] ?? 1),
+                                    ];
+                                }
+
+                                $set('konfigurasi_rak', $configuration);
+                            }),
+                        Forms\Components\Repeater::make('konfigurasi_rak')
+                            ->label('Konfigurasi Tingkat Setiap Rak')
+                            ->schema([
+                                Forms\Components\Hidden::make('nomor_rak'),
+                                Forms\Components\Placeholder::make('kode_rak')
+                                    ->label('Rak')
+                                    ->content(fn (Forms\Get $get): string => 'Rak '.($get('nomor_rak') ?: '-')),
+                                Forms\Components\TextInput::make('jumlah_tingkat')
+                                    ->label('Jumlah Tingkat')
+                                    ->integer()
+                                    ->minValue(1)
+                                    ->maxValue(50)
+                                    ->required()
+                                    ->helperText(fn (Forms\Get $get): string => $get('nomor_rak')
+                                        ? "Kode otomatis: RK{$get('nomor_rak')}-01 sampai RK{$get('nomor_rak')}-".str_pad((string) ($get('jumlah_tingkat') ?: 1), 2, '0', STR_PAD_LEFT)
+                                        : 'Kode dibuat otomatis.'),
+                            ])
+                            ->columns(2)
+                            ->addable(false)
+                            ->deletable(false)
+                            ->reorderable(false)
+                            ->visible(fn (Forms\Get $get): bool => $get('jenis_lokasi') === Lokasi::JENIS_GUDANG
+                                && (bool) $get('menggunakan_rak'))
+                            ->columnSpanFull(),
                         Forms\Components\Textarea::make('alamat')
                             ->columnSpanFull(),
                         Forms\Components\TextInput::make('keterangan')
@@ -107,6 +168,13 @@ class LokasiResource extends Resource
                     ->formatStateUsing(fn (string $state): string => Lokasi::jenisOptions()[$state] ?? $state)
                     ->color(fn (string $state): string => $state === Lokasi::JENIS_GUDANG ? 'success' : 'info')
                     ->sortable(),
+                Tables\Columns\TextColumn::make('rak_summary')
+                    ->label('Rak')
+                    ->state(fn (Lokasi $record): string => ! $record->menggunakan_rak
+                        ? 'Tanpa rak'
+                        : $record->raks()->where('aktif', true)->count().' rak')
+                    ->badge()
+                    ->color(fn (Lokasi $record): string => $record->menggunakan_rak ? 'success' : 'gray'),
                 Tables\Columns\TextColumn::make('keterangan')
                     ->limit(30)
                     ->searchable(),

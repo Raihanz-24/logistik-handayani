@@ -23,6 +23,7 @@ class StoreUserRequest extends FormRequest
     {
         return [
             'name' => 'required|string',
+            'username' => ['required', 'string', 'min:3', 'max:50', 'regex:/^[a-zA-Z0-9._-]+$/', 'unique:users,username'],
             'email' => 'required|email|unique:users',
             'password' => 'required|min:8',
         ];
@@ -32,11 +33,19 @@ class StoreUserRequest extends FormRequest
     {
         return [
             'name.required' => 'Nama wajib diisi.',
+            'username.required' => 'Username wajib diisi.',
+            'username.unique' => 'Username sudah digunakan.',
+            'username.regex' => 'Username hanya boleh berisi huruf, angka, titik, garis bawah, dan tanda minus.',
             'email.required' => 'Email wajib diisi.',
             'email.unique' => 'Email sudah digunakan.',
             'email.email' => 'Harus berupa email.',
             'password.required' => 'Password wajib diisi.',
             'password.min' => 'Password minimal 8 karakter.',
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->merge(['username' => strtolower(trim((string) $this->input('username')))]);
     }
 }

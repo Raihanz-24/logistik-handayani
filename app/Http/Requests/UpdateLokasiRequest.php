@@ -32,6 +32,9 @@ class UpdateLokasiRequest extends FormRequest
             'jenis_lokasi' => ['sometimes', Rule::in(array_keys(Lokasi::jenisOptions()))],
             'alamat' => 'nullable|string',
             'keterangan' => 'nullable|string',
+            'menggunakan_rak' => 'sometimes|boolean',
+            'konfigurasi_rak' => 'nullable|array|max:50',
+            'konfigurasi_rak.*.jumlah_tingkat' => 'required_if:menggunakan_rak,true|integer|min:1|max:50',
         ];
     }
 

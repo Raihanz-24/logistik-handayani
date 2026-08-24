@@ -10,9 +10,17 @@ class Mutasi extends Model
 {
     use HasFactory;
 
+    public const KONDISI_BAIK = 'baik';
+
+    public const KONDISI_RUSAK = 'rusak';
+
+    public const KONDISI_HILANG = 'hilang';
+
     protected $fillable = [
         'tanggal',
         'jenis_mutasi',
+        'kondisi_asal',
+        'kondisi_tujuan',
         'jumlah',
         'keterangan',
         'no_ref',
@@ -26,6 +34,8 @@ class Mutasi extends Model
 
         // tujuan mutasi keluar
         'lokasi_tujuan_id',
+        'posisi_rak_asal_id',
+        'posisi_rak_tujuan_id',
 
         // audit
         'created_by',
@@ -38,7 +48,29 @@ class Mutasi extends Model
         // snapshot stok gudang yang terdampak (lokasi_id)
         'stok_awal',
         'stok_akhir',
+        'stok_kondisi_asal_awal',
+        'stok_kondisi_asal_akhir',
+        'stok_kondisi_tujuan_awal',
+        'stok_kondisi_tujuan_akhir',
     ];
+
+    public static function kondisiOptions(): array
+    {
+        return [
+            self::KONDISI_BAIK => 'Baik',
+            self::KONDISI_RUSAK => 'Rusak',
+            self::KONDISI_HILANG => 'Hilang',
+        ];
+    }
+
+    public static function jenisOptions(): array
+    {
+        return [
+            'masuk' => 'Masuk',
+            'keluar' => 'Keluar / Transfer',
+            'perubahan_kondisi' => 'Perubahan Kondisi',
+        ];
+    }
 
     protected $casts = [
         'tanggal' => 'date',
@@ -65,6 +97,16 @@ class Mutasi extends Model
     public function lokasiTujuan(): BelongsTo
     {
         return $this->belongsTo(Lokasi::class, 'lokasi_tujuan_id');
+    }
+
+    public function posisiRakAsal(): BelongsTo
+    {
+        return $this->belongsTo(PosisiRak::class, 'posisi_rak_asal_id');
+    }
+
+    public function posisiRakTujuan(): BelongsTo
+    {
+        return $this->belongsTo(PosisiRak::class, 'posisi_rak_tujuan_id');
     }
 
     public function createdBy(): BelongsTo

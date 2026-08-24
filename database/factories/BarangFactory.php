@@ -21,9 +21,9 @@ class BarangFactory extends Factory
     {
         return [
             'nama_barang' => $this->faker->word(),
-            'kode_barang' => strtoupper($this->faker->unique()->bothify('PRD###')),
             'satuan' => $this->faker->randomElement(['pcs', 'kg', 'liter']),
             'deskripsi' => $this->faker->sentence(),
+            'gambar' => null,
         ];
     }
 }

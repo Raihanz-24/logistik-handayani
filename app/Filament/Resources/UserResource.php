@@ -78,6 +78,16 @@ class UserResource extends Resource
                             ->required()
                             ->maxLength(255),
 
+                        TextInput::make('username')
+                            ->label('Username')
+                            ->required()
+                            ->minLength(3)
+                            ->maxLength(50)
+                            ->regex('/^[a-zA-Z0-9._-]+$/')
+                            ->unique(ignoreRecord: true)
+                            ->dehydrateStateUsing(fn (string $state): string => strtolower(trim($state)))
+                            ->helperText('Digunakan untuk login. Boleh memakai huruf, angka, titik, garis bawah, dan tanda minus.'),
+
                         TextInput::make('email')
                             ->label('Email')
                             ->email()
@@ -129,6 +139,12 @@ class UserResource extends Resource
                 TextColumn::make('name')
                     ->label('Nama')
                     ->searchable()
+                    ->sortable(),
+
+                TextColumn::make('username')
+                    ->label('Username')
+                    ->searchable()
+                    ->copyable()
                     ->sortable(),
 
                 TextColumn::make('email')

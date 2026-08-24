@@ -21,6 +21,8 @@ class LokasiFactory extends Factory
             'kode_lokasi' => strtoupper(fake()->unique()->lexify('LOK???')),
             'nama_lokasi' => fake()->company(),
             'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+            'menggunakan_rak' => false,
+            'konfigurasi_rak' => null,
             'alamat' => fake()->address(),
             'keterangan' => fake()->sentence(),
         ];

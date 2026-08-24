@@ -27,6 +27,8 @@ class MutasiFactory extends Factory
         return [
             'tanggal' => now(),
             'jenis_mutasi' => $jenis,
+            'kondisi_asal' => $jenis === 'keluar' ? Mutasi::KONDISI_BAIK : null,
+            'kondisi_tujuan' => Mutasi::KONDISI_BAIK,
             'jumlah' => $this->faker->numberBetween(1, 50),
             'keterangan' => $this->faker->optional()->sentence(),
             'status' => $this->faker->randomElement(['pending', 'approved', 'cancelled']),

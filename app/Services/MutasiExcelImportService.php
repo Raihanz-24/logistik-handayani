@@ -77,18 +77,39 @@ class MutasiExcelImportService
                         );
                     }
 
-                    $mutasi = Mutasi::query()->create([
+                    $targetWarehouse = match ($row['jenis_mutasi']) {
+                        'masuk', 'perubahan_kondisi' => $warehouse,
+                        'keluar' => $destination?->isGudang() ? $destination : null,
+                    };
+                    $targetPositionId = null;
+                    if ($targetWarehouse && ! empty($row['rak_tujuan'])) {
+                        $targetPositionId = $targetWarehouse->posisiRaks()
+                            ->where('kode', $row['rak_tujuan'])
+                            ->where('aktif', true)
+                            ->value('id');
+                    }
+
+                    $mutationData = app(MutasiDataService::class)->prepare([
                         'tanggal' => $row['tanggal']->toDateString(),
                         'jenis_mutasi' => $row['jenis_mutasi'],
+                        'kondisi_asal' => $row['jenis_mutasi'] === 'masuk'
+                            ? null
+                            : ($row['kondisi_asal'] ?? Mutasi::KONDISI_BAIK),
+                        'kondisi_tujuan' => $row['kondisi_tujuan'] ?? Mutasi::KONDISI_BAIK,
                         'jumlah' => $row['jumlah'],
                         'keterangan' => $row['keterangan'],
                         'no_ref' => $row['no_ref'],
-                        'status' => self::STATUS_PENDING,
-                        'user_id' => $actor->id,
-                        'created_by' => $actor->id,
                         'barang_id' => $barang->id,
                         'lokasi_id' => $warehouse->id,
                         'lokasi_tujuan_id' => $destination?->id,
+                        'posisi_rak_tujuan_id' => $targetPositionId,
+                    ]);
+
+                    $mutasi = Mutasi::query()->create([
+                        ...$mutationData,
+                        'status' => self::STATUS_PENDING,
+                        'user_id' => $actor->id,
+                        'created_by' => $actor->id,
                     ]);
 
                     if ($statusMode === 'approved') {
@@ -187,6 +208,9 @@ class MutasiExcelImportService
                     'gudang' => $warehouse ?: 'Warehouse POH 1',
                     'lokasi_tujuan' => $type === 'keluar' ? ($destination ?: 'Lokasi Pemakaian') : null,
                     'tujuan_is_gudang' => $type === 'keluar' && $this->isWarehouseLabel($destination),
+                    'rak_tujuan' => $this->cleanNullable($this->cellByHeader($cells, $headerMap, 'rak_tujuan')),
+                    'kondisi_asal' => $this->normalizeCondition($this->cellByHeader($cells, $headerMap, 'kondisi_asal')),
+                    'kondisi_tujuan' => $this->normalizeCondition($this->cellByHeader($cells, $headerMap, 'kondisi_tujuan')),
                     'no_ref' => $this->reference(
                         $this->cellByHeader($cells, $headerMap, 'no_referensi'),
                         [$sheet['title'], $rowNumber, $name, $date->toDateString(), $type, $quantity],
@@ -416,12 +440,7 @@ class MutasiExcelImportService
             DB::table('barangs')->whereKey($barang->id)->update($payload);
             $barang = Barang::query()->findOrFail($barang->id);
         } else {
-            $code ??= $this->uniqueBarangCode($name);
-            $id = DB::table('barangs')->insertGetId($payload + [
-                'kode_barang' => $code,
-                'created_at' => now(),
-            ]);
-            $barang = Barang::query()->findOrFail($id);
+            $barang = Barang::query()->create($payload);
         }
 
         if ($categoryModel && Schema::hasTable('barang_kategori_barang')) {
@@ -481,7 +500,7 @@ class MutasiExcelImportService
             'kode_lokasi' => $this->uniqueLokasiCode($name, $type),
             'jenis_lokasi' => $type,
             'alamat' => $type === Lokasi::JENIS_GUDANG
-                ? 'PT ISS Indonesia Area Paiton Energy'
+                ? 'Logistik Taman Air Handayani Paiton'
                 : 'Area pemakaian Paiton Energy',
             'keterangan' => 'Dibuat otomatis dari import mutasi Excel.',
         ]);
@@ -560,9 +579,17 @@ class MutasiExcelImportService
 
         return match ($value) {
             'masuk', 'in', 'barang masuk' => 'masuk',
-            'keluar', 'out', 'barang keluar' => 'keluar',
+            'keluar', 'keluar / transfer', 'out', 'barang keluar' => 'keluar',
+            'perubahan kondisi', 'perubahan_kondisi' => 'perubahan_kondisi',
             default => null,
         };
+    }
+
+    private function normalizeCondition(?string $value): ?string
+    {
+        $value = Str::lower($this->cleanNullable($value) ?? '');
+
+        return array_key_exists($value, Mutasi::kondisiOptions()) ? $value : null;
     }
 
     private function normalizeHeader(string $value): ?string
@@ -578,6 +605,9 @@ class MutasiExcelImportService
             'satuan' => 'satuan',
             'sumber_barang' => 'sumber_barang',
             'lokasi_tujuan', 'tujuan' => 'lokasi_tujuan',
+            'rak_tujuan' => 'rak_tujuan',
+            'kondisi_asal', 'dari' => 'kondisi_asal',
+            'kondisi_setelah_mutasi', 'kondisi_tujuan', 'menjadi' => 'kondisi_tujuan',
             'no_referensi', 'no_ref', 'nomor_referensi' => 'no_referensi',
             'status' => 'status',
             default => null,

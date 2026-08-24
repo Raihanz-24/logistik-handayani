@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Requests\StoreMutasiRequest;
 use App\Http\Requests\UpdateMutasiRequest;
 use App\Models\Mutasi;
+use App\Services\MutasiDataService;
 use App\Services\MutasiStockService;
 
 class MutasiController extends BaseApiController
@@ -16,9 +17,13 @@ class MutasiController extends BaseApiController
         return $this->success($mutasi, 'Daftar seluruh mutasi');
     }
 
-    public function store(StoreMutasiRequest $request)
+    public function store(StoreMutasiRequest $request, MutasiDataService $dataService)
     {
-        $data = $request->validated();
+        try {
+            $data = $dataService->prepare($request->validated());
+        } catch (\RuntimeException $exception) {
+            return $this->error($exception->getMessage(), 422);
+        }
         $user = auth()->user();
 
         $mutasi = Mutasi::create([

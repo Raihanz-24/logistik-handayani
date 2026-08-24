@@ -20,7 +20,7 @@
             </p>
 
             <div class="wg-hero__meta">
-                <span><i class="wd-pulse"></i> Warehouse Monitoring PT ISS</span>
+                <span><i class="wd-pulse"></i> Logistik Taman Air Handayani Paiton</span>
                 <span>Estimasi baca 5 menit</span>
             </div>
         </div>

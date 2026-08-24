@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Requests\AuthLoginRequest;
 use App\Http\Requests\StoreUserRequest;
 use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -14,13 +15,15 @@ class AuthController extends BaseApiController
     {
         $data = $request->validated();
 
-        $user = User::where('email', $data['email'])->first();
+        $user = User::where('username', strtolower(trim($data['username'])))->first();
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
             return response()->json(['message' => 'Login gagal'], 401);
         }
 
         $token = $user->createToken('api-token')->plainTextToken;
+
+        app(AuditLogger::class)->authentication($user, 'login_api', $request);
 
         return $this->success([
             'access_token' => $token,

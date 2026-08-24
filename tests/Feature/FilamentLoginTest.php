@@ -39,12 +39,13 @@ class FilamentLoginTest extends TestCase
         ]);
 
         $user = User::factory()->create([
+            'username' => 'admin',
             'email' => 'admin@example.com',
             'password' => Hash::make('secure-password'),
         ]);
 
         Livewire::test(Login::class)
-            ->set('data.email', $user->email)
+            ->set('data.username', $user->username)
             ->set('data.password', 'secure-password')
             ->set('data.remember', true)
             ->call('authenticate')

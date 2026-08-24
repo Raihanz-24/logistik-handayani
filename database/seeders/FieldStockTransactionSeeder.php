@@ -123,12 +123,16 @@ class FieldStockTransactionSeeder extends Seeder
                     $payload['kategori_barang_id'] = $category->id;
                 }
 
-                DB::table('barangs')->updateOrInsert(
-                    ['kode_barang' => $code],
-                    $payload + ['created_at' => now()],
-                );
+                $barang = Barang::query()
+                    ->where('kode_barang', $code)
+                    ->orWhere('nama_barang', $item['nama_barang'])
+                    ->first();
 
-                $barang = Barang::query()->where('kode_barang', $code)->firstOrFail();
+                if ($barang) {
+                    $barang->update($payload);
+                } else {
+                    $barang = Barang::query()->create($payload);
+                }
 
                 DB::table('barang_kategori_barang')->insertOrIgnore([
                     'barang_id' => $barang->id,
@@ -229,6 +233,9 @@ class FieldStockTransactionSeeder extends Seeder
                     ['barang_id' => $barangId, 'lokasi_id' => $warehouseId],
                     [
                         'stok' => $stock,
+                        'stok_baik' => $stock,
+                        'stok_rusak' => 0,
+                        'stok_hilang' => 0,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ],
@@ -263,9 +270,15 @@ class FieldStockTransactionSeeder extends Seeder
         Mutasi::query()->create([
             'tanggal' => $date->toDateString(),
             'jenis_mutasi' => $type,
+            'kondisi_asal' => $type === 'masuk' ? null : Mutasi::KONDISI_BAIK,
+            'kondisi_tujuan' => Mutasi::KONDISI_BAIK,
             'jumlah' => $quantity,
             'stok_awal' => $stockBefore,
             'stok_akhir' => $stockAfter,
+            'stok_kondisi_asal_awal' => $type === 'masuk' ? null : $stockBefore,
+            'stok_kondisi_asal_akhir' => $type === 'masuk' ? null : $stockAfter,
+            'stok_kondisi_tujuan_awal' => $type === 'masuk' ? $stockBefore : null,
+            'stok_kondisi_tujuan_akhir' => $type === 'masuk' ? $stockAfter : null,
             'keterangan' => $note,
             'no_ref' => self::SEED_PREFIX.'-'.str_pad((string) $sequence, 5, '0', STR_PAD_LEFT),
             'status' => 'approved',

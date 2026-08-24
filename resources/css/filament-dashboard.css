@@ -141,15 +141,19 @@
 .wm-sidebar-brand__logo {
     width: 2.18rem;
     height: 2.18rem;
-    border-radius: 999px;
-    object-fit: cover;
+    object-fit: contain;
+}
+
+.wm-sidebar-brand__mark picture {
+    display: contents;
 }
 
 .wm-sidebar-brand__text {
     display: grid;
-    gap: 0.02rem;
+    max-width: 11.25rem;
+    gap: 0.08rem;
     min-width: 0;
-    line-height: 1;
+    line-height: 1.05;
 }
 
 .wm-sidebar-brand__title,
@@ -162,17 +166,17 @@
 
 .wm-sidebar-brand__title {
     color: var(--wd-text);
-    font-size: 1.04rem;
-    font-weight: 830;
-    letter-spacing: -0.035em;
+    font-size: 0.94rem;
+    font-weight: 820;
+    letter-spacing: -0.025em;
 }
 
 .wm-sidebar-brand__subtitle {
-    margin-top: 0.18rem;
+    margin-top: 0.08rem;
     color: var(--wd-amber-light);
-    font-size: 0.73rem;
-    font-weight: 760;
-    letter-spacing: 0.155em;
+    font-size: 0.64rem;
+    font-weight: 780;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
 }
 

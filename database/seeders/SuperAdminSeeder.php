@@ -39,10 +39,13 @@ class SuperAdminSeeder extends Seeder
         Role::findOrCreate('user', $guard);
         $superAdminRole = Role::findOrCreate('super_admin', $guard);
 
+        $existingUser = User::query()->where('email', $email)->first();
+
         $user = User::query()->updateOrCreate(
             ['email' => $email],
             [
                 'name' => $name !== '' ? $name : 'Super Administrator',
+                'username' => $existingUser?->username ?: 'superadmin',
                 'password' => Hash::make($password),
             ],
         );
@@ -51,6 +54,6 @@ class SuperAdminSeeder extends Seeder
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        $this->command?->info("Super admin {$user->email} siap digunakan.");
+        $this->command?->info("Super admin {$user->username} siap digunakan.");
     }
 }

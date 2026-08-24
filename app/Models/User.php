@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -23,6 +24,7 @@ class User extends Authenticatable implements FilamentUser
      */
     protected $fillable = [
         'name',
+        'username',
         'email',
         'password',
     ];
@@ -50,6 +52,13 @@ class User extends Authenticatable implements FilamentUser
         ];
     }
 
+    protected function username(): Attribute
+    {
+        return Attribute::make(
+            set: fn (mixed $value): string => strtolower(trim((string) $value)),
+        );
+    }
+
     public function mutasi()
     {
         return $this->hasMany(Mutasi::class);
@@ -63,5 +72,10 @@ class User extends Authenticatable implements FilamentUser
     public function mutasiDibuat()
     {
         return $this->hasMany(\App\Models\Mutasi::class, 'created_by'); // untuk delete user
+    }
+
+    public function mutasiRakDibuat()
+    {
+        return $this->hasMany(MutasiRak::class, 'created_by');
     }
 }

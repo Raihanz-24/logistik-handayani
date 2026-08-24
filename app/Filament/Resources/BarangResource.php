@@ -5,14 +5,18 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\BarangResource\Pages;
 use App\Filament\Resources\UserResource\RelationManagers\MutasiRelationManager;
 use App\Models\Barang;
+use App\Services\BarangImageService;
 use Filament\Actions\Action;
 use Filament\Forms;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class BarangResource extends Resource
 {
@@ -78,13 +82,37 @@ class BarangResource extends Resource
                                             ->maxLength(255),
                                     ]),
                             ]),
-                        Forms\Components\TextInput::make('kode_barang')
-                            ->required()
-                            ->maxLength(255),
+                        Forms\Components\Placeholder::make('kode_barang_preview')
+                            ->label('Kode Barang')
+                            ->content(fn (?Barang $record): string => $record?->kode_barang ?? 'Dibuat otomatis saat barang disimpan')
+                            ->helperText('Format otomatis: BRG-001, BRG-002, dan seterusnya.'),
                         Forms\Components\TextInput::make('satuan')
                             ->required()
                             ->maxLength(255),
                         Forms\Components\Textarea::make('deskripsi')
+                            ->columnSpanFull(),
+                        FileUpload::make('gambar')
+                            ->label('Gambar Barang')
+                            ->helperText('Opsional. Maksimal 3 MB. Gambar otomatis dikompres dan disimpan sebagai WebP.')
+                            ->image()
+                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                            ->maxSize(3072)
+                            ->disk('public')
+                            ->directory('barang')
+                            ->visibility('public')
+                            ->imagePreviewHeight('220')
+                            ->imageResizeMode('contain')
+                            ->imageResizeTargetWidth('2000')
+                            ->imageResizeTargetHeight('2000')
+                            ->imageResizeUpscale(false)
+                            ->openable()
+                            ->downloadable()
+                            ->saveUploadedFileUsing(
+                                fn (TemporaryUploadedFile $file): string => app(BarangImageService::class)->store($file),
+                            )
+                            ->deleteUploadedFileUsing(
+                                fn (string $file): bool => Storage::disk('public')->delete($file),
+                            )
                             ->columnSpanFull(),
                     ]),
             ]);
@@ -97,6 +125,12 @@ class BarangResource extends Resource
             ->paginationPageOptions([5, 25, 50, 100, 250])
             ->defaultPaginationPageOption(5)
             ->columns([
+                Tables\Columns\ImageColumn::make('gambar')
+                    ->label('Gambar')
+                    ->disk('public')
+                    ->height(48)
+                    ->width(48)
+                    ->square(),
                 Tables\Columns\TextColumn::make('nama_barang')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('kode_barang')

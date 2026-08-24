@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Requests\StoreLokasiRequest;
 use App\Http\Requests\UpdateLokasiRequest;
 use App\Models\Lokasi;
+use App\Services\RakGudangService;
+use Illuminate\Support\Facades\DB;
 
 class LokasiController extends BaseApiController
 {
@@ -17,7 +19,13 @@ class LokasiController extends BaseApiController
 
     public function store(StoreLokasiRequest $request)
     {
-        $lokasi = Lokasi::create($request->validated());
+        $data = $request->validated();
+        $lokasi = DB::transaction(function () use ($data): Lokasi {
+            $record = Lokasi::query()->create($data);
+            app(RakGudangService::class)->sync($record, $data['konfigurasi_rak'] ?? []);
+
+            return $record;
+        });
 
         return $this->success($lokasi, 'Lokasi berhasil ditambahkan', 201); // Created
     }
@@ -29,7 +37,11 @@ class LokasiController extends BaseApiController
 
     public function update(UpdateLokasiRequest $request, Lokasi $lokasi)
     {
-        $lokasi->update($request->validated());
+        $data = $request->validated();
+        DB::transaction(function () use ($lokasi, $data): void {
+            $lokasi->update($data);
+            app(RakGudangService::class)->sync($lokasi->fresh(), $data['konfigurasi_rak'] ?? $lokasi->konfigurasi_rak ?? []);
+        });
 
         return $this->success($lokasi, 'Lokasi berhasil diperbarui');
     }

@@ -45,9 +45,10 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->brandName('Warehouse Monitoring')
+            ->brandName(config('app.name'))
             ->brandLogo(fn () => view('filament.brand-logo'))
             ->brandLogoHeight('3.45rem')
+            ->favicon(asset('images/logo-handayani.webp'))
             ->login(Login::class)
             ->colors([
                 'primary' => Color::Amber,

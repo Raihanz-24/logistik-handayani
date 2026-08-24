@@ -4,11 +4,24 @@
 
     <div class="wm-login__shell">
         <aside class="wm-login__showcase">
+            <div class="wm-login__liquid-art" aria-hidden="true">
+                <span class="wm-login__liquid-orb wm-login__liquid-orb--gold"></span>
+                <span class="wm-login__liquid-orb wm-login__liquid-orb--mint"></span>
+                <span class="wm-login__liquid-orb wm-login__liquid-orb--blue"></span>
+                <span class="wm-login__glass-ring"></span>
+            </div>
+
             <div class="wm-login__brand">
                 <span class="wm-login__brand-mark" aria-hidden="true">
-                    <img src="{{ asset('images/logo-pt-iss.jpg') }}" alt="">
+                    <picture>
+                        <source srcset="{{ asset('images/logo-handayani.webp') }}" type="image/webp">
+                        <img src="{{ asset('images/logo-handayani.png') }}" alt="" width="768" height="768">
+                    </picture>
                 </span>
-                <span>Warehouse Monitoring PT ISS</span>
+                <span class="wm-login__brand-copy">
+                    <strong>Logistik Taman Air</strong>
+                    <small>Handayani &middot; Paiton</small>
+                </span>
             </div>
 
             <div class="wm-login__hero">
@@ -45,15 +58,18 @@
             <section class="wm-login__card">
                 <div class="wm-login__mobile-brand">
                     <span class="wm-login__brand-mark" aria-hidden="true">
-                        <img src="{{ asset('images/logo-pt-iss.jpg') }}" alt="">
+                        <picture>
+                            <source srcset="{{ asset('images/logo-handayani.webp') }}" type="image/webp">
+                            <img src="{{ asset('images/logo-handayani.png') }}" alt="" width="768" height="768">
+                        </picture>
                     </span>
-                    <span>Warehouse Monitoring PT ISS</span>
+                    <span class="wm-login__brand-copy">
+                        <strong>Logistik Taman Air</strong>
+                        <small>Handayani &middot; Paiton</small>
+                    </span>
                 </div>
 
                 <header class="wm-login__header">
-                    <span class="wm-login__welcome-icon" aria-hidden="true">
-                        <x-filament::icon icon="heroicon-m-sparkles" />
-                    </span>
                     <h1>{{ $this->getHeading() }}</h1>
                     <p>{{ $this->getSubheading() }}</p>
                 </header>
@@ -77,19 +93,19 @@
                         @endif
                     </div>
 
-                    <label class="wm-login__field" for="email">
-                        <span class="wm-login__label">Alamat email</span>
+                    <label class="wm-login__field" for="username">
+                        <span class="wm-login__label">Username</span>
                         <span class="wm-login__input-wrap">
-                            <x-filament::icon class="wm-login__input-icon" icon="heroicon-m-envelope" />
+                            <x-filament::icon class="wm-login__input-icon" icon="heroicon-m-user" />
                             <input
-                                id="email"
-                                type="email"
-                                inputmode="email"
-                                autocomplete="email"
+                                id="username"
+                                type="text"
+                                inputmode="text"
+                                autocomplete="username"
                                 autofocus
                                 tabindex="1"
-                                wire:model="data.email"
-                                placeholder="nama@perusahaan.com"
+                                wire:model="data.username"
+                                placeholder="Masukkan username"
                                 class="wm-login__input"
                             >
                         </span>
@@ -155,7 +171,17 @@
             </section>
 
             <footer class="wm-login__footer">
-                &copy; {{ now()->year }} Warehouse Monitoring PT ISS. Seluruh hak dilindungi.
+                <span class="wm-login__copyright">
+                    &copy; {{ now()->year }} Logistik Taman Air Handayani Paiton. Seluruh hak dilindungi.
+                </span>
+                <a
+                    class="wm-login__credit"
+                    href="https://kafeinxcode.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    by <strong>kafeinxcode.com</strong>
+                </a>
             </footer>
         </main>
     </div>

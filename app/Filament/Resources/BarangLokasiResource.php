@@ -54,7 +54,8 @@ class BarangLokasiResource extends Resource
                 Forms\Components\TextInput::make('stok')
                     ->required()
                     ->numeric()
-                    ->default(0),
+                    ->default(0)
+                    ->disabled(),
             ]);
     }
 
@@ -73,9 +74,30 @@ class BarangLokasiResource extends Resource
                     ->label('Gudang')
                     ->searchable()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('posisiRak.kode')
+                    ->label('Posisi Rak')
+                    ->placeholder('Tanpa rak')
+                    ->badge()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('stok')
+                    ->label('Total')
                     ->searchable()
                     ->numeric()
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('stok_baik')
+                    ->label('Baik')
+                    ->numeric()
+                    ->color('success')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('stok_rusak')
+                    ->label('Rusak')
+                    ->numeric()
+                    ->color('danger')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('stok_hilang')
+                    ->label('Hilang')
+                    ->numeric()
+                    ->color('warning')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()

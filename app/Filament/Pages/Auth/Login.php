@@ -17,10 +17,10 @@ class Login extends BaseLogin
     protected static string $layout = 'filament.layouts.auth';
 
     /**
-     * @var array{email: string, password: string, remember: bool}
+     * @var array{username: string, password: string, remember: bool}
      */
     public ?array $data = [
-        'email' => '',
+        'username' => '',
         'password' => '',
         'remember' => false,
     ];
@@ -34,7 +34,7 @@ class Login extends BaseLogin
         }
 
         $this->data = [
-            'email' => '',
+            'username' => '',
             'password' => '',
             'remember' => false,
         ];
@@ -42,7 +42,7 @@ class Login extends BaseLogin
 
     public function getTitle(): string|Htmlable
     {
-        return 'Masuk - Warehouse Monitoring PT ISS';
+        return 'Masuk - '.config('app.name');
     }
 
     public function getHeading(): string|Htmlable
@@ -79,12 +79,11 @@ class Login extends BaseLogin
         }
 
         $validator = Validator::make($this->data ?? [], [
-            'email' => ['required', 'email'],
+            'username' => ['required', 'string', 'max:50'],
             'password' => ['required', 'string'],
             'remember' => ['boolean'],
         ], [
-            'email.required' => 'Alamat email wajib diisi.',
-            'email.email' => 'Masukkan alamat email yang valid.',
+            'username.required' => 'Username wajib diisi.',
             'password.required' => 'Kata sandi wajib diisi.',
         ]);
 
@@ -100,10 +99,10 @@ class Login extends BaseLogin
         $remember = (bool) ($data['remember'] ?? false);
 
         if (! Filament::auth()->attempt([
-            'email' => $data['email'],
+            'username' => strtolower(trim($data['username'])),
             'password' => $data['password'],
         ], $remember)) {
-            $this->showLoginFailure('Email atau kata sandi tidak sesuai. Periksa kembali data login Anda.');
+            $this->showLoginFailure('Username atau kata sandi tidak sesuai. Periksa kembali data login Anda.');
             $this->data['password'] = '';
 
             return null;

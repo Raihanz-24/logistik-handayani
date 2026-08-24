@@ -22,7 +22,7 @@ class AuthLoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => 'required|email',
+            'username' => 'required|string|max:50',
             'password' => 'required',
         ];
     }
@@ -30,8 +30,13 @@ class AuthLoginRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.required' => 'Email wajib diisi.',
+            'username.required' => 'Username wajib diisi.',
             'password.required' => 'Password wajib diisi.',
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->merge(['username' => strtolower(trim((string) $this->input('username')))]);
     }
 }

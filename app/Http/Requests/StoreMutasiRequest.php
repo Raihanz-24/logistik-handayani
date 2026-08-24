@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\Lokasi;
+use App\Models\Mutasi;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -37,7 +38,14 @@ class StoreMutasiRequest extends FormRequest
                 'exists:lokasis,id',
             ],
             'tanggal' => 'required|date',
-            'jenis_mutasi' => 'required|in:masuk,keluar',
+            'jenis_mutasi' => ['required', Rule::in(array_keys(Mutasi::jenisOptions()))],
+            'kondisi_asal' => [
+                'nullable',
+                'required_unless:jenis_mutasi,masuk',
+                Rule::in(array_keys(Mutasi::kondisiOptions())),
+            ],
+            'kondisi_tujuan' => ['required', Rule::in(array_keys(Mutasi::kondisiOptions()))],
+            'posisi_rak_tujuan_id' => 'nullable|integer|exists:posisi_raks,id',
             'jumlah' => 'required|integer|min:1',
             'keterangan' => 'nullable|string',
             'no_ref' => 'nullable|string',
@@ -58,7 +66,9 @@ class StoreMutasiRequest extends FormRequest
             'tanggal.required' => 'Tanggal wajib diisi.',
             'tanggal.date' => 'Tanggal tidak valid.',
             'jenis_mutasi.required' => 'Jenis mutasi wajib diisi.',
-            'jenis_mutasi.in' => 'Jenis mutasi harus "masuk" atau "keluar".',
+            'jenis_mutasi.in' => 'Jenis mutasi tidak valid.',
+            'kondisi_asal.required_unless' => 'Kondisi asal wajib dipilih.',
+            'kondisi_tujuan.required' => 'Kondisi setelah mutasi wajib dipilih.',
             'jumlah.required' => 'Jumlah wajib diisi.',
             'jumlah.integer' => 'Jumlah harus berupa angka.',
             'jumlah.min' => 'Jumlah minimal 1.',
@@ -69,8 +79,16 @@ class StoreMutasiRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        if ($this->input('jenis_mutasi') === 'masuk') {
+        if ($this->input('jenis_mutasi') !== 'keluar') {
             $this->merge(['lokasi_tujuan_id' => null]);
+        }
+
+        if ($this->input('jenis_mutasi') === 'masuk') {
+            $this->merge(['kondisi_asal' => null]);
+        }
+
+        if (! $this->filled('kondisi_tujuan')) {
+            $this->merge(['kondisi_tujuan' => Mutasi::KONDISI_BAIK]);
         }
     }
 }

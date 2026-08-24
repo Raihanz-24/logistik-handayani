@@ -6,6 +6,7 @@ use App\Filament\Resources\BarangLokasiResource;
 use App\Filament\Resources\BarangResource;
 use App\Filament\Resources\KategoriBarangResource;
 use App\Filament\Resources\LokasiResource;
+use App\Filament\Resources\MutasiRakResource;
 use App\Filament\Resources\MutasiResource;
 use App\Filament\Resources\UserResource;
 use Filament\Facades\Filament;
@@ -27,7 +28,7 @@ class UserGuide extends Page
 
     protected ?string $heading = 'Panduan Penggunaan';
 
-    protected ?string $subheading = 'Langkah cepat mengoperasikan Warehouse Monitoring PT ISS.';
+    protected ?string $subheading = 'Langkah cepat mengoperasikan Logistik Taman Air Handayani Paiton.';
 
     protected ?string $maxContentWidth = 'full';
 
@@ -75,6 +76,13 @@ class UserGuide extends Page
                 'url' => MutasiResource::getUrl('create'),
                 'tone' => 'cyan',
             ],
+            [
+                'label' => 'Pindah Rak Barang',
+                'description' => 'Pindahkan seluruh stok barang ke rak lain dalam gudang yang sama.',
+                'icon' => 'heroicon-o-rectangle-group',
+                'url' => MutasiRakResource::getUrl('create'),
+                'tone' => 'amber',
+            ],
         ];
     }
 
@@ -90,8 +98,8 @@ class UserGuide extends Page
                 'description' => 'Mulai dari data dasar agar transaksi mutasi tidak membingungkan.',
                 'points' => [
                     'Buat kategori barang agar pencarian lebih rapi.',
-                    'Tambahkan data barang lengkap dengan kode dan satuan.',
-                    'Pastikan lokasi gudang tersedia sebelum transaksi pengadaan dicatat.',
+                    'Tambahkan nama dan satuan barang; kode BRG dibuat otomatis oleh sistem.',
+                    'Saat membuat gudang, tentukan penggunaan rak beserta jumlah tingkatnya bila diperlukan.',
                 ],
                 'icon' => 'heroicon-o-squares-2x2',
             ],
@@ -101,7 +109,7 @@ class UserGuide extends Page
                 'description' => 'Stok gudang bertambah dari mutasi masuk barang baru, bukan diisi langsung dari menu stok.',
                 'points' => [
                     'Buka menu Mutasi dan pilih jenis mutasi masuk.',
-                    'Pilih barang, gudang tujuan, tanggal, jumlah, dan nomor referensi pengadaan.',
+                    'Pilih barang, gudang tujuan, kondisi, jumlah, dan rak tujuan bila diminta.',
                     'Simpan transaksi agar masuk ke daftar mutasi pending untuk divalidasi.',
                 ],
                 'icon' => 'heroicon-o-arrow-down-tray',
@@ -122,7 +130,7 @@ class UserGuide extends Page
                 'title' => 'Pantau stok barang',
                 'description' => 'Menu Stok Barang digunakan untuk melihat posisi stok setelah mutasi disetujui.',
                 'points' => [
-                    'Cek stok per barang dan gudang.',
+                    'Cek stok total, kondisi Baik/Rusak/Hilang, dan rak tetap barang.',
                     'Gunakan dashboard untuk memantau barang yang mulai menipis.',
                     'Pastikan stok fisik gudang sesuai dengan stok yang tercatat di sistem.',
                 ],
@@ -134,13 +142,26 @@ class UserGuide extends Page
                 'description' => 'Barang keluar dan transfer gudang dicatat setelah stok tersedia.',
                 'points' => [
                     'Pilih jenis mutasi keluar untuk pemakaian atau transfer stok.',
-                    'Pilih gudang asal, barang, jumlah, dan lokasi tujuan.',
-                    'Sistem menolak mutasi keluar bila stok gudang asal tidak mencukupi.',
+                    'Pilih gudang asal lalu cari barang; rak asal diambil otomatis oleh sistem.',
+                    'Pilih kondisi asal dan kondisi setelah mutasi. Gunakan Perubahan Kondisi jika barang tidak berpindah lokasi.',
+                    'Sistem menolak mutasi bila stok kondisi tidak cukup atau rak tujuan tidak valid.',
                 ],
                 'icon' => 'heroicon-o-arrows-right-left',
             ],
             [
                 'step' => '06',
+                'title' => 'Pindahkan posisi antar-rak',
+                'description' => 'Gunakan mutasi antar-rak bila seluruh stok barang perlu ditempatkan di rak lain pada gudang yang sama.',
+                'points' => [
+                    'Pilih gudang dan barang; rak asal serta seluruh jumlah stok ditampilkan otomatis.',
+                    'Pilih rak tujuan aktif yang berbeda dari rak asal, lalu simpan untuk meminta persetujuan.',
+                    'Mutasi stok lain untuk barang dan gudang yang sama dikunci sampai permintaan disetujui atau dibatalkan.',
+                    'Gunakan menu Mutasi biasa untuk perpindahan barang antar-gudang.',
+                ],
+                'icon' => 'heroicon-o-rectangle-group',
+            ],
+            [
+                'step' => '07',
                 'title' => 'Monitoring dan export laporan',
                 'description' => 'Dashboard dan export Excel membantu rekap, audit, dan pelaporan berkala.',
                 'points' => [
@@ -174,21 +195,27 @@ class UserGuide extends Page
             ],
             [
                 'title' => 'Lokasi',
-                'description' => 'Kelola gudang dan lokasi tujuan pemakaian barang.',
+                'description' => 'Kelola gudang, rak bertingkat, dan lokasi tujuan pemakaian barang.',
                 'icon' => 'heroicon-o-map-pin',
                 'url' => LokasiResource::getUrl(),
             ],
             [
                 'title' => 'Stok Barang',
-                'description' => 'Lihat stok barang per gudang setelah mutasi masuk/keluar disetujui.',
+                'description' => 'Lihat stok per gudang, rak tetap, serta kondisi Baik, Rusak, dan Hilang.',
                 'icon' => 'heroicon-o-building-storefront',
                 'url' => BarangLokasiResource::getUrl(),
             ],
             [
                 'title' => 'Mutasi',
-                'description' => 'Catat pergerakan barang masuk, keluar, transfer, approve, dan export.',
+                'description' => 'Catat barang masuk, transfer, pemakaian, dan perubahan kondisi melalui approval.',
                 'icon' => 'heroicon-o-arrows-right-left',
                 'url' => MutasiResource::getUrl(),
+            ],
+            [
+                'title' => 'Mutasi Antar Rak',
+                'description' => 'Pindahkan seluruh stok barang antar-rak dalam satu gudang melalui approval.',
+                'icon' => 'heroicon-o-rectangle-group',
+                'url' => MutasiRakResource::getUrl(),
             ],
             [
                 'title' => 'User',

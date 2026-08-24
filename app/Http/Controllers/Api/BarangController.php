@@ -21,7 +21,6 @@ class BarangController extends BaseApiController
 
         $barang = Barang::create([
             'nama_barang' => $data['nama_barang'],
-            'kode_barang' => $data['kode_barang'],
             'satuan' => $data['satuan'],
             'deskripsi' => $data['deskripsi'] ?? null,
         ]);

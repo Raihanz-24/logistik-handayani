@@ -23,7 +23,6 @@ class StoreBarangRequest extends FormRequest
     {
         return [
             'nama_barang' => 'required|string',
-            'kode_barang' => 'required|unique:barangs',
             'satuan' => 'required|string',
             'deskripsi' => 'nullable|string',
             'kategori_ids' => 'sometimes|array',
@@ -35,8 +34,6 @@ class StoreBarangRequest extends FormRequest
     {
         return [
             'nama_barang.required' => 'Nama barang wajib diisi.',
-            'kode_barang.required' => 'Kode barang wajib diisi.',
-            'kode_barang.unique' => 'Kode barang sudah digunakan.',
             'satuan.required' => 'Satuan wajib diisi.',
             'kategori_ids.*.exists' => 'Kategori tidak ditemukan.',
             'kategori_ids.array' => 'Kategori harus berupa array.',

@@ -25,6 +25,7 @@ class UpdateUserRequest extends FormRequest
 
         return [
             'name' => 'sometimes|string',
+            'username' => ['sometimes', 'string', 'min:3', 'max:50', 'regex:/^[a-zA-Z0-9._-]+$/', 'unique:users,username,'.$userId],
             'email' => 'sometimes|email|unique:users,email,'.$userId,
             'password' => 'sometimes|min:8',
         ];
@@ -34,9 +35,18 @@ class UpdateUserRequest extends FormRequest
     {
         return [
             'name.string' => 'Harus berupa string.',
+            'username.unique' => 'Username sudah digunakan.',
+            'username.regex' => 'Username hanya boleh berisi huruf, angka, titik, garis bawah, dan tanda minus.',
             'email.email' => 'Harus berupa email.',
             'email.unique' => 'Email sudah digunakan.',
             'password.min' => 'Password minimal 8 karakter.',
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('username')) {
+            $this->merge(['username' => strtolower(trim((string) $this->input('username')))]);
+        }
     }
 }

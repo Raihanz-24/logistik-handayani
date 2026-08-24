@@ -20,9 +20,19 @@ class Lokasi extends Model
         'nama_lokasi',
         'kode_lokasi',
         'jenis_lokasi',
+        'menggunakan_rak',
+        'konfigurasi_rak',
         'alamat',
         'keterangan',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'menggunakan_rak' => 'boolean',
+            'konfigurasi_rak' => 'array',
+        ];
+    }
 
     public static function jenisOptions(): array
     {
@@ -55,7 +65,7 @@ class Lokasi extends Model
     public function barang(): BelongsToMany
     {
         return $this->belongsToMany(Barang::class, 'barang_lokasi')
-            ->withPivot('stok')
+            ->withPivot(['stok', 'stok_baik', 'stok_rusak', 'stok_hilang', 'posisi_rak_id'])
             ->using(BarangLokasi::class);
     }
 
@@ -67,5 +77,20 @@ class Lokasi extends Model
     public function mutasiTujuan(): HasMany
     {
         return $this->hasMany(Mutasi::class, 'lokasi_tujuan_id');
+    }
+
+    public function mutasiRaks(): HasMany
+    {
+        return $this->hasMany(MutasiRak::class);
+    }
+
+    public function raks(): HasMany
+    {
+        return $this->hasMany(RakGudang::class)->orderBy('nomor_rak');
+    }
+
+    public function posisiRaks(): HasMany
+    {
+        return $this->hasMany(PosisiRak::class)->orderBy('kode');
     }
 }
