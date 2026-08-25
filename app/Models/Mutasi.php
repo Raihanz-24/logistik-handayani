@@ -64,6 +64,15 @@ class Mutasi extends Model
         ];
     }
 
+    /** @return array<string, string> */
+    public static function selectableKondisiOptions(): array
+    {
+        return [
+            self::KONDISI_BAIK => 'Baik',
+            self::KONDISI_RUSAK => 'Rusak',
+        ];
+    }
+
     public static function jenisOptions(): array
     {
         return [

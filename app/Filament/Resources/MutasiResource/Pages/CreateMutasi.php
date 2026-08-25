@@ -23,6 +23,8 @@ class CreateMutasi extends CreateRecord
     protected function beforeValidate(): void
     {
         $items = $this->data['items'] ?? [];
+        $jenis = $this->data['jenis_mutasi'] ?? null;
+        $warehouseId = (int) ($this->data['lokasi_id'] ?? 0);
 
         foreach ($items as $key => $item) {
             $barangId = filled($item['barang_id'] ?? null)
@@ -33,6 +35,34 @@ class CreateMutasi extends CreateRecord
                 $items[$key]['barang_id'] = (int) $barangId;
                 $items[$key]['barang_id_terpilih'] = (int) $barangId;
             }
+
+            $targetPositionId = filled($item['posisi_rak_tujuan_id'] ?? null)
+                ? $item['posisi_rak_tujuan_id']
+                : ($item['posisi_rak_tujuan_id_terpilih'] ?? null);
+
+            if (filled($targetPositionId)) {
+                $items[$key]['posisi_rak_tujuan_id'] = (int) $targetPositionId;
+                $items[$key]['posisi_rak_tujuan_id_terpilih'] = (int) $targetPositionId;
+            }
+
+            if ($jenis !== 'masuk' && blank($item['kondisi_asal'] ?? null) && filled($barangId)) {
+                $items[$key]['kondisi_asal'] = MutasiResource::defaultSourceCondition(
+                    (int) $barangId,
+                    $warehouseId,
+                );
+            }
+
+            $sourceCondition = $items[$key]['kondisi_asal'] ?? null;
+            $items[$key]['kondisi_tujuan'] = match ($jenis) {
+                'masuk' => Mutasi::KONDISI_BAIK,
+                'keluar' => $sourceCondition,
+                'perubahan_kondisi' => filled($item['kondisi_tujuan'] ?? null)
+                    ? $item['kondisi_tujuan']
+                    : ($sourceCondition === Mutasi::KONDISI_BAIK
+                        ? Mutasi::KONDISI_RUSAK
+                        : Mutasi::KONDISI_BAIK),
+                default => $item['kondisi_tujuan'] ?? null,
+            };
         }
 
         $this->data['items'] = $items;
@@ -44,7 +74,10 @@ class CreateMutasi extends CreateRecord
             $item['barang_id'] = filled($item['barang_id'] ?? null)
                 ? $item['barang_id']
                 : ($item['barang_id_terpilih'] ?? null);
-            unset($item['barang_id_terpilih']);
+            $item['posisi_rak_tujuan_id'] = filled($item['posisi_rak_tujuan_id'] ?? null)
+                ? $item['posisi_rak_tujuan_id']
+                : ($item['posisi_rak_tujuan_id_terpilih'] ?? null);
+            unset($item['barang_id_terpilih'], $item['posisi_rak_tujuan_id_terpilih']);
 
             return $item;
         });

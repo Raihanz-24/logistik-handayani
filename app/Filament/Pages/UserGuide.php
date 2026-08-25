@@ -132,7 +132,7 @@ class UserGuide extends Page
                 'title' => 'Pantau stok barang',
                 'description' => 'Menu Stok Barang digunakan untuk melihat posisi stok setelah mutasi disetujui.',
                 'points' => [
-                    'Cek stok total, kondisi Baik/Rusak/Hilang, dan rak tetap barang.',
+                    'Cek stok total, kondisi Baik/Rusak, dan rak tetap barang.',
                     'Gunakan dashboard untuk memantau barang yang mulai menipis.',
                     'Pastikan stok fisik gudang sesuai dengan stok yang tercatat di sistem.',
                 ],
@@ -145,7 +145,8 @@ class UserGuide extends Page
                 'points' => [
                     'Pilih jenis mutasi keluar untuk pemakaian atau transfer stok.',
                     'Pilih gudang asal lalu cari barang; rak asal diambil otomatis oleh sistem.',
-                    'Pilih kondisi asal dan kondisi setelah mutasi. Gunakan Perubahan Kondisi jika barang tidak berpindah lokasi.',
+                    'Pilih kondisi asal Baik atau Rusak; kondisi barang tetap sama saat dipindahkan.',
+                    'Gunakan mutasi Perubahan Kondisi khusus untuk mengubah Baik menjadi Rusak atau sebaliknya.',
                     'Sistem menolak mutasi bila stok kondisi tidak cukup atau rak tujuan tidak valid.',
                 ],
                 'icon' => 'heroicon-o-arrows-right-left',

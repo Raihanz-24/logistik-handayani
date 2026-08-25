@@ -175,6 +175,39 @@ class MutasiResource extends Resource
         return (int) ($get('barang_id') ?: $get('barang_id_terpilih'));
     }
 
+    /** @return array<string, string> */
+    public static function sourceConditionOptions(?int $barangId, ?int $warehouseId): array
+    {
+        return collect(Mutasi::selectableKondisiOptions())
+            ->filter(fn (string $label, string $condition): bool => static::getStokTersedia(
+                $barangId,
+                $warehouseId,
+                $condition,
+            ) > 0)
+            ->all();
+    }
+
+    public static function defaultSourceCondition(?int $barangId, ?int $warehouseId): ?string
+    {
+        $options = static::sourceConditionOptions($barangId, $warehouseId);
+
+        if (array_key_exists(Mutasi::KONDISI_BAIK, $options)) {
+            return Mutasi::KONDISI_BAIK;
+        }
+
+        $firstCondition = array_key_first($options);
+
+        return is_string($firstCondition) ? $firstCondition : null;
+    }
+
+    /** @return array<string, string> */
+    protected static function searchableSelectSyncAttributes(Forms\Components\Select $component): array
+    {
+        return [
+            'x-on:change' => "\$nextTick(() => \$wire.set('{$component->getStatePath()}', \$event.target.value || null, true))",
+        ];
+    }
+
     /** @return array<int, string> */
     public static function positionOptions(?int $warehouseId): array
     {
@@ -204,7 +237,8 @@ class MutasiResource extends Resource
                 ->schema([
                     Forms\Components\DatePicker::make('tanggal')->label('Tanggal')->default(now())->required(),
                     Forms\Components\Select::make('jenis_mutasi')
-                        ->label('Jenis Mutasi')->options(Mutasi::jenisOptions())->native(false)->required()->live()
+                        ->label('Jenis Mutasi')->options(Mutasi::jenisOptions())->native(false)->required()
+                        ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
                         ->afterStateUpdated(function (Forms\Set $set): void {
                             $set('lokasi_tujuan_id', null);
                             $set('supplier_id', null);
@@ -214,7 +248,8 @@ class MutasiResource extends Resource
                         ->label(fn (Forms\Get $get): string => $get('jenis_mutasi') === 'masuk' ? 'Gudang Tujuan' : 'Gudang Asal')
                         ->options(fn (): array => Lokasi::query()->gudang()->orderBy('nama_lokasi')
                             ->get()->mapWithKeys(fn (Lokasi $item): array => [$item->id => "{$item->nama_lokasi} ({$item->kode_lokasi})"])->all())
-                        ->searchable()->preload()->native(false)->required()->live()
+                        ->searchable()->preload()->native(false)->required()
+                        ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
                         ->afterStateUpdated(fn (Forms\Set $set) => $set('items', [['kondisi_tujuan' => Mutasi::KONDISI_BAIK]]))
                         ->rules([Rule::exists('lokasis', 'id')->where('jenis_lokasi', Lokasi::JENIS_GUDANG)]),
                     Forms\Components\Select::make('lokasi_tujuan_id')
@@ -225,7 +260,8 @@ class MutasiResource extends Resource
 
                                 return [$item->id => "{$item->nama_lokasi} ({$type})"];
                             })->all())
-                        ->searchable()->preload()->native(false)->live()
+                        ->searchable()->preload()->native(false)
+                        ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
                         ->visible(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'keluar')
                         ->required(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'keluar')
                         ->afterStateUpdated(fn (Forms\Set $set) => $set('items', [['kondisi_tujuan' => Mutasi::KONDISI_BAIK]]))
@@ -245,6 +281,7 @@ class MutasiResource extends Resource
                         ->searchable()
                         ->preload()
                         ->native(false)
+                        ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
                         ->visible(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'masuk')
                         ->required(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'masuk')
                         ->rules([Rule::exists('suppliers', 'id')->where('aktif', true)])
@@ -277,9 +314,7 @@ class MutasiResource extends Resource
                                 ))
                                 ->getOptionLabelUsing(fn (mixed $value): ?string => static::barangOptionLabel($value))
                                 ->searchable()->preload()->native(false)
-                                ->extraInputAttributes(fn (Forms\Components\Select $component): array => [
-                                    'x-on:change' => "\$nextTick(() => \$wire.set('{$component->getStatePath()}', \$event.target.value || null, true))",
-                                ])
+                                ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
                                 ->selectablePlaceholder(false)
                                 ->required()
                                 ->rules(['nullable', 'exists:barangs,id'])
@@ -293,8 +328,21 @@ class MutasiResource extends Resource
                                     }
 
                                     $set('barang_id_terpilih', (int) $state);
-                                    $set('kondisi_asal', null);
-                                    $warehouseId = $get('../../jenis_mutasi') === 'masuk'
+                                    $jenis = $get('../../jenis_mutasi');
+                                    $sourceCondition = $jenis === 'masuk' ? null : static::defaultSourceCondition(
+                                        (int) $state,
+                                        (int) $get('../../lokasi_id'),
+                                    );
+                                    $set('kondisi_asal', $sourceCondition);
+                                    $set('kondisi_tujuan', match ($jenis) {
+                                        'masuk' => Mutasi::KONDISI_BAIK,
+                                        'keluar' => $sourceCondition,
+                                        'perubahan_kondisi' => $sourceCondition === Mutasi::KONDISI_BAIK
+                                            ? Mutasi::KONDISI_RUSAK
+                                            : Mutasi::KONDISI_BAIK,
+                                        default => Mutasi::KONDISI_BAIK,
+                                    });
+                                    $warehouseId = $jenis === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
                                     $set('posisi_rak_tujuan_id', static::fixedTargetPosition(
                                         (int) $state,
@@ -337,24 +385,29 @@ class MutasiResource extends Resource
                                     },
                                 ]),
                             Forms\Components\Select::make('kondisi_asal')->label('Kondisi Asal')
-                                ->options(function (Forms\Get $get): array {
-                                    $options = [];
-                                    foreach (Mutasi::kondisiOptions() as $value => $label) {
-                                        if (static::getStokTersedia(
-                                            static::selectedItemBarangId($get),
-                                            (int) $get('../../lokasi_id'),
-                                            $value,
-                                        ) > 0) {
-                                            $options[$value] = $label;
-                                        }
-                                    }
-
-                                    return $options;
-                                })->native(false)->required(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')
-                                ->visible(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')->live(),
-                            Forms\Components\Select::make('kondisi_tujuan')->label('Kondisi Setelah Mutasi')
-                                ->options(Mutasi::kondisiOptions())->default(Mutasi::KONDISI_BAIK)
-                                ->native(false)->required()
+                                ->options(fn (Forms\Get $get): array => static::sourceConditionOptions(
+                                    static::selectedItemBarangId($get),
+                                    (int) $get('../../lokasi_id'),
+                                ))
+                                ->native(true)
+                                ->required(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')
+                                ->visible(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')
+                                ->live()
+                                ->afterStateUpdated(function (mixed $state, Forms\Get $get, Forms\Set $set): void {
+                                    $set('kondisi_tujuan', match ($get('../../jenis_mutasi')) {
+                                        'keluar' => $state,
+                                        'perubahan_kondisi' => $state === Mutasi::KONDISI_BAIK
+                                            ? Mutasi::KONDISI_RUSAK
+                                            : Mutasi::KONDISI_BAIK,
+                                        default => Mutasi::KONDISI_BAIK,
+                                    });
+                                }),
+                            Forms\Components\Select::make('kondisi_tujuan')->label('Kondisi Baru')
+                                ->options(Mutasi::selectableKondisiOptions())->default(Mutasi::KONDISI_BAIK)
+                                ->native(true)
+                                ->visible(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') === 'perubahan_kondisi')
+                                ->required(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') === 'perubahan_kondisi')
+                                ->dehydrated()
                                 ->rules([
                                     fn (Forms\Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get): void {
                                         if ($get('../../jenis_mutasi') === 'perubahan_kondisi' && $value === $get('kondisi_asal')) {
@@ -372,9 +425,7 @@ class MutasiResource extends Resource
                                         (int) $warehouseId,
                                     );
                                 })->searchable()->preload()->native(false)
-                                ->extraInputAttributes(fn (Forms\Components\Select $component): array => [
-                                    'x-on:change' => "\$nextTick(() => \$wire.set('{$component->getStatePath()}', \$event.target.value || null, true))",
-                                ])
+                                ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
                                 ->disableOptionWhen(function (string $value, Forms\Get $get): bool {
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
@@ -401,6 +452,11 @@ class MutasiResource extends Resource
                                 })
                                 ->dehydrated()
                                 ->placeholder('Pilih posisi rak')
+                                ->afterStateUpdated(function (mixed $state, Forms\Set $set): void {
+                                    if (filled($state)) {
+                                        $set('posisi_rak_tujuan_id_terpilih', (int) $state);
+                                    }
+                                })
                                 ->helperText(function (Forms\Get $get): string {
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
@@ -414,6 +470,8 @@ class MutasiResource extends Resource
                                         ? 'Barang sudah memiliki rak tetap. Rak lain tetap ditampilkan tetapi tidak dapat dipilih; gunakan menu Mutasi Antar Rak untuk memindahkannya.'
                                         : 'Wajib dipilih. Penempatan ini menjadi rak tetap barang pada gudang tujuan.';
                                 }),
+                            Forms\Components\Hidden::make('posisi_rak_tujuan_id_terpilih')
+                                ->dehydrated(),
                         ]),
                 ]),
         ]);

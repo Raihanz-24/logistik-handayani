@@ -41,14 +41,19 @@ class MutasiDataService
 
         $this->assertNoRackMutationPending($barangId, (int) $warehouse->id);
 
-        $conditions = array_keys(Mutasi::kondisiOptions());
+        $conditions = array_keys(Mutasi::selectableKondisiOptions());
         $sourceCondition = $data['kondisi_asal'] ?? null;
-        $targetCondition = $data['kondisi_tujuan'] ?? Mutasi::KONDISI_BAIK;
-        if (! in_array($targetCondition, $conditions, true)) {
-            throw new RuntimeException('Kondisi setelah mutasi tidak valid.');
-        }
         if ($jenis !== 'masuk' && ! in_array($sourceCondition, $conditions, true)) {
             throw new RuntimeException('Kondisi asal wajib dipilih.');
+        }
+
+        $targetCondition = match ($jenis) {
+            'masuk' => Mutasi::KONDISI_BAIK,
+            'keluar' => $sourceCondition,
+            default => $data['kondisi_tujuan'] ?? null,
+        };
+        if (! in_array($targetCondition, $conditions, true)) {
+            throw new RuntimeException('Kondisi baru harus Baik atau Rusak.');
         }
         if ($jenis === 'perubahan_kondisi' && $sourceCondition === $targetCondition) {
             throw new RuntimeException('Kondisi baru harus berbeda dari kondisi asal.');

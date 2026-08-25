@@ -43,9 +43,14 @@ class MutasiStockService
                 throw new RuntimeException('Jumlah mutasi harus lebih dari nol.');
             }
 
+            // Keep legacy pending records with the old "hilang" condition approvable.
             $conditions = array_keys(Mutasi::kondisiOptions());
             $asal = $mutasi->kondisi_asal;
-            $tujuan = $mutasi->kondisi_tujuan ?: Mutasi::KONDISI_BAIK;
+            $tujuan = match ($jenis) {
+                'masuk' => Mutasi::KONDISI_BAIK,
+                'keluar' => $asal,
+                default => $mutasi->kondisi_tujuan,
+            };
             if (! in_array($tujuan, $conditions, true)) {
                 throw new RuntimeException('Kondisi tujuan barang tidak valid.');
             }
