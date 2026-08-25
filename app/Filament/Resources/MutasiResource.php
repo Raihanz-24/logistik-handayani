@@ -170,6 +170,11 @@ class MutasiResource extends Resource
         return Barang::query()->whereKey((int) $value)->value('satuan');
     }
 
+    public static function selectedItemBarangId(Forms\Get $get): int
+    {
+        return (int) ($get('barang_id') ?: $get('barang_id_terpilih'));
+    }
+
     /** @return array<int, string> */
     public static function positionOptions(?int $warehouseId): array
     {
@@ -271,10 +276,11 @@ class MutasiResource extends Resource
                                     (int) ($get('../../lokasi_id') ?: 0), $get('../../jenis_mutasi'),
                                 ))
                                 ->getOptionLabelUsing(fn (mixed $value): ?string => static::barangOptionLabel($value))
-                                ->searchable()->preload()->native(false)->required()->live()
-                                ->rules(['exists:barangs,id'])
+                                ->searchable()->preload()->native(false)->live()
+                                ->rules(['nullable', 'exists:barangs,id'])
                                 ->distinct()->disableOptionsWhenSelectedInSiblingRepeaterItems()
                                 ->afterStateUpdated(function (mixed $state, Forms\Get $get, Forms\Set $set): void {
+                                    $set('barang_id_terpilih', filled($state) ? (int) $state : null);
                                     $set('kondisi_asal', null);
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
@@ -283,8 +289,14 @@ class MutasiResource extends Resource
                                         (int) $warehouseId,
                                     ));
                                 }),
+                            Forms\Components\Hidden::make('barang_id_terpilih')
+                                ->required()
+                                ->rules(['exists:barangs,id'])
+                                ->validationAttribute('Barang'),
                             Forms\Components\TextInput::make('jumlah')->label('Jumlah')->integer()->minValue(1)->required()
-                                ->suffix(fn (Forms\Get $get): ?string => static::barangUnit($get('barang_id')))
+                                ->suffix(fn (Forms\Get $get): ?string => static::barangUnit(
+                                    static::selectedItemBarangId($get),
+                                ))
                                 ->helperText(function (Forms\Get $get): ?string {
                                     if ($get('../../jenis_mutasi') === 'masuk') {
                                         return null;
@@ -294,7 +306,7 @@ class MutasiResource extends Resource
                                         return 'Pilih kondisi asal untuk melihat stok tersedia.';
                                     }
                                     $available = static::getStokTersedia(
-                                        (int) $get('barang_id'), (int) $get('../../lokasi_id'), $condition,
+                                        static::selectedItemBarangId($get), (int) $get('../../lokasi_id'), $condition,
                                     );
 
                                     return "Stok tersedia setelah dikurangi pending: {$available}";
@@ -305,7 +317,9 @@ class MutasiResource extends Resource
                                             return;
                                         }
                                         $available = static::getStokTersedia(
-                                            (int) $get('barang_id'), (int) $get('../../lokasi_id'), $get('kondisi_asal'),
+                                            static::selectedItemBarangId($get),
+                                            (int) $get('../../lokasi_id'),
+                                            $get('kondisi_asal'),
                                         );
                                         if ((int) $value > $available) {
                                             $fail("Stok kondisi yang dipilih tidak mencukupi. Tersedia: {$available}.");
@@ -317,7 +331,9 @@ class MutasiResource extends Resource
                                     $options = [];
                                     foreach (Mutasi::kondisiOptions() as $value => $label) {
                                         if (static::getStokTersedia(
-                                            (int) $get('barang_id'), (int) $get('../../lokasi_id'), $value,
+                                            static::selectedItemBarangId($get),
+                                            (int) $get('../../lokasi_id'),
+                                            $value,
                                         ) > 0) {
                                             $options[$value] = $label;
                                         }
@@ -342,7 +358,7 @@ class MutasiResource extends Resource
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
 
                                     return static::targetPositionOptions(
-                                        (int) $get('barang_id'),
+                                        static::selectedItemBarangId($get),
                                         (int) $warehouseId,
                                     );
                                 })->searchable()->preload()->native(false)
@@ -350,7 +366,7 @@ class MutasiResource extends Resource
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
                                     $fixedPositionId = static::fixedTargetPosition(
-                                        (int) $get('barang_id'),
+                                        static::selectedItemBarangId($get),
                                         (int) $warehouseId,
                                     );
 
@@ -367,7 +383,7 @@ class MutasiResource extends Resource
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
 
-                                    return filled($get('barang_id'))
+                                    return (bool) static::selectedItemBarangId($get)
                                         && static::warehouseUsesRacks((int) $warehouseId);
                                 })
                                 ->dehydrated()
@@ -377,7 +393,7 @@ class MutasiResource extends Resource
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
 
                                     $fixedPositionId = static::fixedTargetPosition(
-                                        (int) $get('barang_id'),
+                                        static::selectedItemBarangId($get),
                                         (int) $warehouseId,
                                     );
 

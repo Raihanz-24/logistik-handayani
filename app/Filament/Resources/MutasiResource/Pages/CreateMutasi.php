@@ -17,7 +17,14 @@ class CreateMutasi extends CreateRecord
 
     protected function handleRecordCreation(array $data): Model
     {
-        $items = collect($data['items'] ?? []);
+        $items = collect($data['items'] ?? [])->map(function (array $item): array {
+            $item['barang_id'] = filled($item['barang_id'] ?? null)
+                ? $item['barang_id']
+                : ($item['barang_id_terpilih'] ?? null);
+            unset($item['barang_id_terpilih']);
+
+            return $item;
+        });
         unset($data['items']);
 
         $barangIds = $items->pluck('barang_id')->filter()->map(fn ($id): int => (int) $id);
