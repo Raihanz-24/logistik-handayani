@@ -168,6 +168,22 @@ class MutasiResource extends Resource
             ->orderBy('kode')->pluck('kode', 'id')->all();
     }
 
+    /** @return array<int, string> */
+    public static function targetPositionOptions(?int $barangId, ?int $warehouseId): array
+    {
+        $fixedPositionId = static::fixedTargetPosition($barangId, $warehouseId);
+        if (! $fixedPositionId) {
+            return static::positionOptions($warehouseId);
+        }
+
+        return PosisiRak::query()
+            ->whereKey($fixedPositionId)
+            ->where('lokasi_id', $warehouseId)
+            ->aktif()
+            ->pluck('kode', 'id')
+            ->all();
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -318,7 +334,10 @@ class MutasiResource extends Resource
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
 
-                                    return static::positionOptions((int) $warehouseId);
+                                    return static::targetPositionOptions(
+                                        (int) $get('barang_id'),
+                                        (int) $warehouseId,
+                                    );
                                 })->searchable()->preload()->native(false)
                                 ->visible(function (Forms\Get $get): bool {
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
@@ -333,15 +352,6 @@ class MutasiResource extends Resource
 
                                     return filled($get('barang_id'))
                                         && static::warehouseUsesRacks((int) $warehouseId);
-                                })
-                                ->disabled(function (Forms\Get $get): bool {
-                                    $warehouseId = $get('../../jenis_mutasi') === 'masuk'
-                                        ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
-
-                                    return blank($get('barang_id')) || (bool) static::fixedTargetPosition(
-                                        (int) $get('barang_id'),
-                                        (int) $warehouseId,
-                                    );
                                 })
                                 ->dehydrated()
                                 ->placeholder('Pilih posisi rak')
