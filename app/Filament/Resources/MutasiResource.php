@@ -477,8 +477,10 @@ class MutasiResource extends Resource
                 TextEntry::make('user.name')->label('Dicatat oleh'),
             ]),
             InfolistSection::make('Lokasi dan Rak')->columns(2)->schema([
-                TextEntry::make('lokasi.nama_lokasi')->label('Gudang'),
-                TextEntry::make('lokasiTujuan.nama_lokasi')->label('Lokasi Tujuan')->placeholder('-'),
+                TextEntry::make('source_label')->label('Dari')
+                    ->state(fn (Mutasi $record): string => $record->sourceLabel()),
+                TextEntry::make('destination_label')->label('Tujuan')
+                    ->state(fn (Mutasi $record): string => $record->destinationLabel()),
                 TextEntry::make('posisiRakAsal.kode')->label('Rak Asal')->placeholder('Tanpa rak'),
                 TextEntry::make('posisiRakTujuan.kode')->label('Rak Tujuan')->placeholder('Tanpa rak'),
                 TextEntry::make('no_ref')->label('No. Referensi')->placeholder('-'),
@@ -489,25 +491,45 @@ class MutasiResource extends Resource
 
     public static function table(Table $table): Table
     {
-        return $table->defaultSort('id', 'desc')->paginationPageOptions([5, 25, 50, 100, 250])
+        return $table
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['lokasi', 'lokasiTujuan']))
+            ->defaultSort('id', 'desc')->paginationPageOptions([5, 25, 50, 100, 250])
             ->defaultPaginationPageOption(25)
             ->columns([
-                Tables\Columns\TextColumn::make('tanggal')->date('d M Y')->sortable(),
-                Tables\Columns\TextColumn::make('barang.nama_barang')->label('Barang')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('supplier.nama_supplier')->label('Supplier')->searchable()->placeholder('-'),
+                Tables\Columns\TextColumn::make('tanggal')->date('d M Y')->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('barang.kode_barang')->label('Kode Barang')
+                    ->searchable()->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('barang.nama_barang')->label('Barang')
+                    ->searchable()->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('supplier.nama_supplier')->label('Supplier')
+                    ->searchable()->placeholder('-')->toggleable(),
                 Tables\Columns\TextColumn::make('jenis_mutasi')->label('Jenis')->badge()
-                    ->formatStateUsing(fn (string $state): string => Mutasi::jenisOptions()[$state] ?? $state),
-                Tables\Columns\TextColumn::make('lokasi.nama_lokasi')->label('Gudang')->searchable(),
-                Tables\Columns\TextColumn::make('posisiRakAsal.kode')->label('Rak Asal')->placeholder('-'),
-                Tables\Columns\TextColumn::make('lokasiTujuan.nama_lokasi')->label('Tujuan')->placeholder('-'),
-                Tables\Columns\TextColumn::make('posisiRakTujuan.kode')->label('Rak Tujuan')->placeholder('-'),
+                    ->formatStateUsing(fn (string $state): string => Mutasi::jenisOptions()[$state] ?? $state)
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('source_label')->label('Dari')
+                    ->state(fn (Mutasi $record): string => $record->sourceLabel())->toggleable(),
+                Tables\Columns\TextColumn::make('posisiRakAsal.kode')->label('Rak Asal')->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('destination_label')->label('Tujuan')
+                    ->state(fn (Mutasi $record): string => $record->destinationLabel())->toggleable(),
+                Tables\Columns\TextColumn::make('posisiRakTujuan.kode')->label('Rak Tujuan')->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('kondisi')->label('Kondisi')->placeholder('-')
                     ->state(fn (Mutasi $record): ?string => $record->effectiveCondition())
-                    ->formatStateUsing(fn (?string $state): string => Mutasi::kondisiOptions()[$state] ?? '-'),
-                Tables\Columns\TextColumn::make('jumlah')->numeric()->sortable(),
+                    ->formatStateUsing(fn (?string $state): string => Mutasi::kondisiOptions()[$state] ?? '-')
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('jumlah')->numeric()->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('barang.satuan')->label('Satuan')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('no_ref')->label('No. Referensi')->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('status')->badge()->color(fn (string $state): string => match ($state) {
                     'approved' => 'success', 'cancelled' => 'danger', default => 'warning',
-                }),
+                })->toggleable(),
+                Tables\Columns\TextColumn::make('stok_awal')->label('Stok Awal')->numeric()->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('stok_akhir')->label('Stok Akhir')->numeric()->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('user.name')->label('Dicatat oleh')->toggleable(),
             ])
             ->filters([
@@ -549,7 +571,12 @@ class MutasiResource extends Resource
                 Action::make('export-excel')->label('Export Excel')->icon('heroicon-o-arrow-down-tray')->color('success')
                     ->action(fn ($livewire) => app(MutasiExcelExportService::class)->download(
                         $livewire->getTableQueryForExport(),
-                        ['active_tab' => $livewire->activeTab ?? null, 'filters' => $livewire->tableFilters ?? []],
+                        [
+                            'active_tab' => $livewire->activeTab ?? null,
+                            'filters' => $livewire->tableFilters ?? [],
+                            'search' => $livewire->tableSearch ?? null,
+                            'columns' => array_keys($livewire->getTable()->getVisibleColumns()),
+                        ],
                     )),
             ])
             ->actions([

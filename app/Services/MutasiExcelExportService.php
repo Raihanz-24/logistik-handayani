@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\Lokasi;
 use App\Models\Mutasi;
 use Illuminate\Database\Eloquent\Builder;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -11,11 +10,25 @@ use ZipArchive;
 
 class MutasiExcelExportService
 {
-    private const HEADERS = [
-        'No.', 'Tanggal', 'Kode Barang', 'Nama Barang', 'Jenis', 'Jumlah', 'Satuan',
-        'Sumber Barang', 'Rak Asal', 'Lokasi Tujuan', 'Rak Tujuan', 'Kondisi',
-        'No. Referensi', 'Status', 'Stok Awal', 'Stok Akhir',
-        'Supplier', 'Dicatat Oleh',
+    private const COLUMNS = [
+        'sequence' => ['label' => 'No.', 'width' => 6],
+        'tanggal' => ['label' => 'Tanggal', 'width' => 14],
+        'barang.kode_barang' => ['label' => 'Kode Barang', 'width' => 16],
+        'barang.nama_barang' => ['label' => 'Barang', 'width' => 30],
+        'supplier.nama_supplier' => ['label' => 'Supplier', 'width' => 28],
+        'jenis_mutasi' => ['label' => 'Jenis', 'width' => 20],
+        'source_label' => ['label' => 'Dari', 'width' => 28],
+        'posisiRakAsal.kode' => ['label' => 'Rak Asal', 'width' => 14],
+        'destination_label' => ['label' => 'Tujuan', 'width' => 32],
+        'posisiRakTujuan.kode' => ['label' => 'Rak Tujuan', 'width' => 14],
+        'kondisi' => ['label' => 'Kondisi', 'width' => 16],
+        'jumlah' => ['label' => 'Jumlah', 'width' => 12],
+        'barang.satuan' => ['label' => 'Satuan', 'width' => 11],
+        'no_ref' => ['label' => 'No. Referensi', 'width' => 18],
+        'status' => ['label' => 'Status', 'width' => 14],
+        'stok_awal' => ['label' => 'Stok Awal', 'width' => 12],
+        'stok_akhir' => ['label' => 'Stok Akhir', 'width' => 12],
+        'user.name' => ['label' => 'Dicatat Oleh', 'width' => 22],
     ];
 
     public function download(Builder $query, array $context = []): StreamedResponse
@@ -76,12 +89,14 @@ class MutasiExcelExportService
         array $context,
         int $totalRows,
     ): void {
+        $columns = $this->resolveColumns($context['columns'] ?? null);
+        $lastColumn = $this->columnLetter(count($columns));
         $writer = $this->openWorksheet($path);
         $this->writeSheetView($writer, frozenRows: 5);
 
         $writer->startElement('cols');
-        foreach ([6, 14, 16, 30, 20, 12, 11, 28, 14, 32, 14, 16, 18, 14, 12, 12, 28, 22] as $index => $width) {
-            $this->writeColumn($writer, $index + 1, $width);
+        foreach ($columns as $index => $column) {
+            $this->writeColumn($writer, $index + 1, self::COLUMNS[$column]['width']);
         }
         $writer->endElement();
 
@@ -100,8 +115,12 @@ class MutasiExcelExportService
         ], 24);
 
         $headerCells = [];
-        foreach (self::HEADERS as $index => $header) {
-            $headerCells[] = $this->textCell($this->cellReference($index + 1, 5), $header, 4);
+        foreach ($columns as $index => $column) {
+            $headerCells[] = $this->textCell(
+                $this->cellReference($index + 1, 5),
+                self::COLUMNS[$column]['label'],
+                4,
+            );
         }
         $this->writeRow($writer, 5, $headerCells, 30);
 
@@ -118,37 +137,21 @@ class MutasiExcelExportService
                 'user:id,name',
             ])
             ->lazy(500)
-            ->each(function (Mutasi $mutasi) use ($writer, &$rowNumber, &$sequence): void {
+            ->each(function (Mutasi $mutasi) use ($writer, $columns, &$rowNumber, &$sequence): void {
                 $style = $rowNumber % 2 === 0 ? 7 : 6;
-                $type = strtolower(trim((string) $mutasi->jenis_mutasi));
-                $source = $type === 'masuk'
-                    ? 'Pengadaan / Barang Baru'
-                    : ($mutasi->lokasi?->nama_lokasi ?? '-');
-                $destination = match ($type) {
-                    'masuk', 'perubahan_kondisi' => $mutasi->lokasi?->nama_lokasi ?? '-',
-                    default => $this->destinationLabel($mutasi),
-                };
+                $cells = [];
 
-                $this->writeRow($writer, $rowNumber, [
-                    $this->numberCell("A{$rowNumber}", $sequence, $style),
-                    $this->textCell("B{$rowNumber}", $mutasi->tanggal?->format('d/m/Y') ?? '-', $style),
-                    $this->textCell("C{$rowNumber}", $mutasi->barang?->kode_barang ?? '-', $style),
-                    $this->textCell("D{$rowNumber}", $mutasi->barang?->nama_barang ?? '-', $style),
-                    $this->textCell("E{$rowNumber}", Mutasi::jenisOptions()[$type] ?? $type, $style),
-                    $this->numberCell("F{$rowNumber}", (int) $mutasi->jumlah, $style),
-                    $this->textCell("G{$rowNumber}", $mutasi->barang?->satuan ?? '-', $style),
-                    $this->textCell("H{$rowNumber}", $source, $style),
-                    $this->textCell("I{$rowNumber}", $mutasi->posisiRakAsal?->kode ?? '-', $style),
-                    $this->textCell("J{$rowNumber}", $destination, $style),
-                    $this->textCell("K{$rowNumber}", $mutasi->posisiRakTujuan?->kode ?? '-', $style),
-                    $this->textCell("L{$rowNumber}", Mutasi::kondisiOptions()[$mutasi->effectiveCondition()] ?? '-', $style),
-                    $this->textCell("M{$rowNumber}", $mutasi->no_ref ?: '-', $style),
-                    $this->textCell("N{$rowNumber}", $this->statusLabel($mutasi->status), $style),
-                    $this->nullableNumberCell("O{$rowNumber}", $mutasi->stok_awal, $style),
-                    $this->nullableNumberCell("P{$rowNumber}", $mutasi->stok_akhir, $style),
-                    $this->textCell("Q{$rowNumber}", $mutasi->supplier?->nama_supplier ?? '-', $style),
-                    $this->textCell("R{$rowNumber}", $mutasi->user?->name ?? '-', $style),
-                ], 24);
+                foreach ($columns as $index => $column) {
+                    $cells[] = $this->mutationCell(
+                        $column,
+                        $mutasi,
+                        $sequence,
+                        $this->cellReference($index + 1, $rowNumber),
+                        $style,
+                    );
+                }
+
+                $this->writeRow($writer, $rowNumber, $cells, 24);
 
                 $rowNumber++;
                 $sequence++;
@@ -162,19 +165,21 @@ class MutasiExcelExportService
         $writer->endElement();
 
         $writer->startElement('autoFilter');
-        $writer->writeAttribute('ref', 'A5:R'.max(5, $rowNumber - 1));
+        $writer->writeAttribute('ref', "A5:{$lastColumn}".max(5, $rowNumber - 1));
         $writer->endElement();
 
-        $writer->startElement('mergeCells');
-        $mergeRanges = $totalRows === 0
-            ? ['A1:R1', 'A2:R2', 'A3:R3', 'A6:R6']
-            : ['A1:R1', 'A2:R2', 'A3:R3'];
-        foreach ($mergeRanges as $range) {
-            $writer->startElement('mergeCell');
-            $writer->writeAttribute('ref', $range);
+        if (count($columns) > 1) {
+            $writer->startElement('mergeCells');
+            $mergeRanges = $totalRows === 0
+                ? ["A1:{$lastColumn}1", "A2:{$lastColumn}2", "A3:{$lastColumn}3", "A6:{$lastColumn}6"]
+                : ["A1:{$lastColumn}1", "A2:{$lastColumn}2", "A3:{$lastColumn}3"];
+            foreach ($mergeRanges as $range) {
+                $writer->startElement('mergeCell');
+                $writer->writeAttribute('ref', $range);
+                $writer->endElement();
+            }
             $writer->endElement();
         }
-        $writer->endElement();
         $this->writePageMargins($writer);
         $writer->startElement('pageSetup');
         $writer->writeAttribute('orientation', 'landscape');
@@ -272,6 +277,71 @@ class MutasiExcelExportService
             : $this->numberCell($reference, (int) $value, $style);
     }
 
+    private function mutationCell(
+        string $column,
+        Mutasi $mutasi,
+        int $sequence,
+        string $reference,
+        int $style,
+    ): string {
+        return match ($column) {
+            'sequence' => $this->numberCell($reference, $sequence, $style),
+            'tanggal' => $this->textCell($reference, $mutasi->tanggal?->format('d/m/Y') ?? '-', $style),
+            'barang.kode_barang' => $this->textCell($reference, $mutasi->barang?->kode_barang ?? '-', $style),
+            'barang.nama_barang' => $this->textCell($reference, $mutasi->barang?->nama_barang ?? '-', $style),
+            'supplier.nama_supplier' => $this->textCell($reference, $mutasi->supplier?->nama_supplier ?? '-', $style),
+            'jenis_mutasi' => $this->textCell(
+                $reference,
+                Mutasi::jenisOptions()[$mutasi->jenis_mutasi] ?? $mutasi->jenis_mutasi,
+                $style,
+            ),
+            'source_label' => $this->textCell($reference, $mutasi->sourceLabel(), $style),
+            'posisiRakAsal.kode' => $this->textCell($reference, $mutasi->posisiRakAsal?->kode ?? '-', $style),
+            'destination_label' => $this->textCell($reference, $mutasi->destinationLabel(), $style),
+            'posisiRakTujuan.kode' => $this->textCell($reference, $mutasi->posisiRakTujuan?->kode ?? '-', $style),
+            'kondisi' => $this->textCell(
+                $reference,
+                Mutasi::kondisiOptions()[$mutasi->effectiveCondition()] ?? '-',
+                $style,
+            ),
+            'jumlah' => $this->numberCell($reference, (int) $mutasi->jumlah, $style),
+            'barang.satuan' => $this->textCell($reference, $mutasi->barang?->satuan ?? '-', $style),
+            'no_ref' => $this->textCell($reference, $mutasi->no_ref ?: '-', $style),
+            'status' => $this->textCell($reference, $this->statusLabel($mutasi->status), $style),
+            'stok_awal' => $this->nullableNumberCell($reference, $mutasi->stok_awal, $style),
+            'stok_akhir' => $this->nullableNumberCell($reference, $mutasi->stok_akhir, $style),
+            'user.name' => $this->textCell($reference, $mutasi->user?->name ?? '-', $style),
+            default => $this->textCell($reference, '-', $style),
+        };
+    }
+
+    /** @return array<int, string> */
+    private function resolveColumns(mixed $requestedColumns): array
+    {
+        $availableColumns = array_keys(self::COLUMNS);
+        $selectableColumns = array_values(array_filter(
+            $availableColumns,
+            fn (string $column): bool => $column !== 'sequence',
+        ));
+
+        if (! is_array($requestedColumns)) {
+            return $availableColumns;
+        }
+
+        $selectedColumns = [];
+        foreach ($requestedColumns as $column) {
+            if (
+                is_string($column)
+                && in_array($column, $selectableColumns, true)
+                && ! in_array($column, $selectedColumns, true)
+            ) {
+                $selectedColumns[] = $column;
+            }
+        }
+
+        return ['sequence', ...$selectedColumns];
+    }
+
     private function writeColumn(XMLWriter $writer, int $column, float $width): void
     {
         $writer->startElement('col');
@@ -289,19 +359,6 @@ class MutasiExcelExportService
             $writer->writeAttribute($name, $value);
         }
         $writer->endElement();
-    }
-
-    private function destinationLabel(Mutasi $mutasi): string
-    {
-        $destination = $mutasi->lokasiTujuan;
-
-        if (! $destination) {
-            return '-';
-        }
-
-        $type = Lokasi::jenisOptions()[$destination->jenis_lokasi] ?? 'Lokasi';
-
-        return "{$destination->nama_lokasi} ({$type})";
     }
 
     private function statusLabel(?string $status): string
@@ -329,7 +386,7 @@ class MutasiExcelExportService
             $labels[] = 'Status: '.$this->statusLabel($status);
         }
         if ($type) {
-            $labels[] = 'Jenis: '.($type === 'keluar' ? 'Keluar' : 'Masuk');
+            $labels[] = 'Jenis: '.(Mutasi::jenisOptions()[$type] ?? $type);
         }
         if (filled($context['search'] ?? null)) {
             $labels[] = 'Pencarian: '.$context['search'];
@@ -340,6 +397,11 @@ class MutasiExcelExportService
 
     private function cellReference(int $column, int $row): string
     {
+        return $this->columnLetter($column).$row;
+    }
+
+    private function columnLetter(int $column): string
+    {
         $letters = '';
         while ($column > 0) {
             $column--;
@@ -347,7 +409,7 @@ class MutasiExcelExportService
             $column = intdiv($column, 26);
         }
 
-        return $letters.$row;
+        return $letters;
     }
 
     private function sanitizeText(string $value): string

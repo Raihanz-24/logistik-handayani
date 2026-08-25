@@ -81,6 +81,24 @@ class Mutasi extends Model
         };
     }
 
+    public function sourceLabel(): string
+    {
+        if ($this->jenis_mutasi === 'masuk') {
+            return 'Pengadaan Barang';
+        }
+
+        return $this->lokasi?->nama_lokasi ?? '-';
+    }
+
+    public function destinationLabel(): string
+    {
+        if (in_array($this->jenis_mutasi, ['masuk', 'perubahan_kondisi'], true)) {
+            return $this->lokasi?->nama_lokasi ?? '-';
+        }
+
+        return $this->lokasiTujuan?->nama_lokasi ?? '-';
+    }
+
     public static function jenisOptions(): array
     {
         return [
