@@ -161,6 +161,15 @@ class MutasiResource extends Resource
         return $barang ? "{$barang->kode_barang} - {$barang->nama_barang}" : null;
     }
 
+    public static function barangUnit(mixed $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        return Barang::query()->whereKey((int) $value)->value('satuan');
+    }
+
     /** @return array<int, string> */
     public static function positionOptions(?int $warehouseId): array
     {
@@ -171,17 +180,14 @@ class MutasiResource extends Resource
     /** @return array<int, string> */
     public static function targetPositionOptions(?int $barangId, ?int $warehouseId): array
     {
+        $options = static::positionOptions($warehouseId);
         $fixedPositionId = static::fixedTargetPosition($barangId, $warehouseId);
-        if (! $fixedPositionId) {
-            return static::positionOptions($warehouseId);
+
+        if ($fixedPositionId && isset($options[$fixedPositionId])) {
+            $options[$fixedPositionId] .= ' (Rak tetap)';
         }
 
-        return PosisiRak::query()
-            ->whereKey($fixedPositionId)
-            ->where('lokasi_id', $warehouseId)
-            ->aktif()
-            ->pluck('kode', 'id')
-            ->all();
+        return $options;
     }
 
     public static function form(Form $form): Form
@@ -278,6 +284,7 @@ class MutasiResource extends Resource
                                     ));
                                 }),
                             Forms\Components\TextInput::make('jumlah')->label('Jumlah')->integer()->minValue(1)->required()
+                                ->suffix(fn (Forms\Get $get): ?string => static::barangUnit($get('barang_id')))
                                 ->helperText(function (Forms\Get $get): ?string {
                                     if ($get('../../jenis_mutasi') === 'masuk') {
                                         return null;
@@ -339,6 +346,16 @@ class MutasiResource extends Resource
                                         (int) $warehouseId,
                                     );
                                 })->searchable()->preload()->native(false)
+                                ->disableOptionWhen(function (string $value, Forms\Get $get): bool {
+                                    $warehouseId = $get('../../jenis_mutasi') === 'masuk'
+                                        ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
+                                    $fixedPositionId = static::fixedTargetPosition(
+                                        (int) $get('barang_id'),
+                                        (int) $warehouseId,
+                                    );
+
+                                    return $fixedPositionId && (int) $value !== $fixedPositionId;
+                                })
                                 ->visible(function (Forms\Get $get): bool {
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
@@ -359,8 +376,13 @@ class MutasiResource extends Resource
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
 
-                                    return static::fixedTargetPosition((int) $get('barang_id'), (int) $warehouseId)
-                                        ? 'Rak terisi otomatis karena barang ini sudah memiliki rak tetap di gudang tujuan.'
+                                    $fixedPositionId = static::fixedTargetPosition(
+                                        (int) $get('barang_id'),
+                                        (int) $warehouseId,
+                                    );
+
+                                    return $fixedPositionId
+                                        ? 'Barang sudah memiliki rak tetap. Rak lain tetap ditampilkan tetapi tidak dapat dipilih; gunakan menu Mutasi Antar Rak untuk memindahkannya.'
                                         : 'Wajib dipilih. Penempatan ini menjadi rak tetap barang pada gudang tujuan.';
                                 }),
                         ]),
