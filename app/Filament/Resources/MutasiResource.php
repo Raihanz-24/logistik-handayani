@@ -276,19 +276,15 @@ class MutasiResource extends Resource
                                     (int) ($get('../../lokasi_id') ?: 0), $get('../../jenis_mutasi'),
                                 ))
                                 ->getOptionLabelUsing(fn (mixed $value): ?string => static::barangOptionLabel($value))
-                                // The JS-powered searchable Select can display a stale choice while
-                                // its Livewire state is null when dynamic options refresh in a Repeater.
-                                // Incoming mutations use a native select so the displayed value and
-                                // submitted value always come from the same DOM element.
-                                ->searchable(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')
-                                ->preload()
-                                ->native(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') === 'masuk')
-                                ->live()
+                                ->searchable()->preload()->native(false)
+                                ->extraInputAttributes(fn (Forms\Components\Select $component): array => [
+                                    'x-on:change' => "\$nextTick(() => \$wire.set('{$component->getStatePath()}', \$event.target.value || null, true))",
+                                ])
                                 ->selectablePlaceholder(false)
                                 ->required()
                                 ->rules(['nullable', 'exists:barangs,id'])
                                 ->validationAttribute('Barang')
-                                ->distinct()->disableOptionsWhenSelectedInSiblingRepeaterItems()
+                                ->distinct()
                                 ->afterStateUpdated(function (mixed $state, Forms\Get $get, Forms\Set $set): void {
                                     // Choices can emit a temporary null while Livewire rebuilds its
                                     // options. Keep the last deliberate selection in that situation.
@@ -376,6 +372,9 @@ class MutasiResource extends Resource
                                         (int) $warehouseId,
                                     );
                                 })->searchable()->preload()->native(false)
+                                ->extraInputAttributes(fn (Forms\Components\Select $component): array => [
+                                    'x-on:change' => "\$nextTick(() => \$wire.set('{$component->getStatePath()}', \$event.target.value || null, true))",
+                                ])
                                 ->disableOptionWhen(function (string $value, Forms\Get $get): bool {
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
