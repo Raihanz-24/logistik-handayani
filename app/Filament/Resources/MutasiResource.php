@@ -277,10 +277,19 @@ class MutasiResource extends Resource
                                 ))
                                 ->getOptionLabelUsing(fn (mixed $value): ?string => static::barangOptionLabel($value))
                                 ->searchable()->preload()->native(false)->live()
+                                ->selectablePlaceholder(false)
+                                ->required(fn (Forms\Get $get): bool => blank($get('barang_id_terpilih')))
                                 ->rules(['nullable', 'exists:barangs,id'])
+                                ->validationAttribute('Barang')
                                 ->distinct()->disableOptionsWhenSelectedInSiblingRepeaterItems()
                                 ->afterStateUpdated(function (mixed $state, Forms\Get $get, Forms\Set $set): void {
-                                    $set('barang_id_terpilih', filled($state) ? (int) $state : null);
+                                    // Choices can emit a temporary null while Livewire rebuilds its
+                                    // options. Keep the last deliberate selection in that situation.
+                                    if (blank($state)) {
+                                        return;
+                                    }
+
+                                    $set('barang_id_terpilih', (int) $state);
                                     $set('kondisi_asal', null);
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
@@ -290,9 +299,7 @@ class MutasiResource extends Resource
                                     ));
                                 }),
                             Forms\Components\Hidden::make('barang_id_terpilih')
-                                ->required()
-                                ->rules(['exists:barangs,id'])
-                                ->validationAttribute('Barang'),
+                                ->dehydrated(),
                             Forms\Components\TextInput::make('jumlah')->label('Jumlah')->integer()->minValue(1)->required()
                                 ->suffix(fn (Forms\Get $get): ?string => static::barangUnit(
                                     static::selectedItemBarangId($get),
