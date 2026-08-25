@@ -49,11 +49,6 @@ class StoreMutasiRequest extends FormRequest
                 'required_unless:jenis_mutasi,masuk',
                 Rule::in(array_keys(Mutasi::selectableKondisiOptions())),
             ],
-            'kondisi_tujuan' => [
-                'nullable',
-                'required_if:jenis_mutasi,perubahan_kondisi',
-                Rule::in(array_keys(Mutasi::selectableKondisiOptions())),
-            ],
             'posisi_rak_tujuan_id' => 'nullable|integer|exists:posisi_raks,id',
             'jumlah' => 'required|integer|min:1',
             'keterangan' => 'nullable|string',
@@ -79,7 +74,6 @@ class StoreMutasiRequest extends FormRequest
             'jenis_mutasi.required' => 'Jenis mutasi wajib diisi.',
             'jenis_mutasi.in' => 'Jenis mutasi tidak valid.',
             'kondisi_asal.required_unless' => 'Kondisi asal wajib dipilih.',
-            'kondisi_tujuan.required_if' => 'Kondisi baru wajib dipilih.',
             'jumlah.required' => 'Jumlah wajib diisi.',
             'jumlah.integer' => 'Jumlah harus berupa angka.',
             'jumlah.min' => 'Jumlah minimal 1.',
@@ -105,7 +99,10 @@ class StoreMutasiRequest extends FormRequest
         $this->merge(['kondisi_tujuan' => match ($this->input('jenis_mutasi')) {
             'masuk' => Mutasi::KONDISI_BAIK,
             'keluar' => $this->input('kondisi_asal'),
-            default => $this->input('kondisi_tujuan'),
+            'perubahan_kondisi' => $this->input('kondisi_asal') === Mutasi::KONDISI_BAIK
+                ? Mutasi::KONDISI_RUSAK
+                : Mutasi::KONDISI_BAIK,
+            default => null,
         }]);
     }
 }

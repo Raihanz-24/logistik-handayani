@@ -73,6 +73,14 @@ class Mutasi extends Model
         ];
     }
 
+    public function effectiveCondition(): ?string
+    {
+        return match ($this->jenis_mutasi) {
+            'masuk', 'perubahan_kondisi' => $this->kondisi_tujuan,
+            default => $this->kondisi_asal,
+        };
+    }
+
     public static function jenisOptions(): array
     {
         return [

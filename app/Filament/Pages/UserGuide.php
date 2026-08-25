@@ -146,7 +146,7 @@ class UserGuide extends Page
                     'Pilih jenis mutasi keluar untuk pemakaian atau transfer stok.',
                     'Pilih gudang asal lalu cari barang; rak asal diambil otomatis oleh sistem.',
                     'Pilih kondisi asal Baik atau Rusak; kondisi barang tetap sama saat dipindahkan.',
-                    'Gunakan mutasi Perubahan Kondisi khusus untuk mengubah Baik menjadi Rusak atau sebaliknya.',
+                    'Gunakan mutasi Perubahan Kondisi; sistem otomatis mengubah Baik menjadi Rusak atau Rusak menjadi Baik.',
                     'Sistem menolak mutasi bila stok kondisi tidak cukup atau rak tujuan tidak valid.',
                 ],
                 'icon' => 'heroicon-o-arrows-right-left',

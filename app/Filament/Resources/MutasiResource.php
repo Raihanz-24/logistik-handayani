@@ -242,7 +242,7 @@ class MutasiResource extends Resource
                         ->afterStateUpdated(function (Forms\Set $set): void {
                             $set('lokasi_tujuan_id', null);
                             $set('supplier_id', null);
-                            $set('items', [['kondisi_tujuan' => Mutasi::KONDISI_BAIK]]);
+                            $set('items', [['kondisi_asal' => Mutasi::KONDISI_BAIK]]);
                         }),
                     Forms\Components\Select::make('lokasi_id')
                         ->label(fn (Forms\Get $get): string => $get('jenis_mutasi') === 'masuk' ? 'Gudang Tujuan' : 'Gudang Asal')
@@ -250,7 +250,7 @@ class MutasiResource extends Resource
                             ->get()->mapWithKeys(fn (Lokasi $item): array => [$item->id => "{$item->nama_lokasi} ({$item->kode_lokasi})"])->all())
                         ->searchable()->preload()->native(false)->required()
                         ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
-                        ->afterStateUpdated(fn (Forms\Set $set) => $set('items', [['kondisi_tujuan' => Mutasi::KONDISI_BAIK]]))
+                        ->afterStateUpdated(fn (Forms\Set $set) => $set('items', [['kondisi_asal' => Mutasi::KONDISI_BAIK]]))
                         ->rules([Rule::exists('lokasis', 'id')->where('jenis_lokasi', Lokasi::JENIS_GUDANG)]),
                     Forms\Components\Select::make('lokasi_tujuan_id')
                         ->label('Lokasi Tujuan')
@@ -264,7 +264,7 @@ class MutasiResource extends Resource
                         ->extraInputAttributes(fn (Forms\Components\Select $component): array => static::searchableSelectSyncAttributes($component))
                         ->visible(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'keluar')
                         ->required(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'keluar')
-                        ->afterStateUpdated(fn (Forms\Set $set) => $set('items', [['kondisi_tujuan' => Mutasi::KONDISI_BAIK]]))
+                        ->afterStateUpdated(fn (Forms\Set $set) => $set('items', [['kondisi_asal' => Mutasi::KONDISI_BAIK]]))
                         ->rules([
                             fn (Forms\Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get): void {
                                 if ($value && (int) $value === (int) $get('lokasi_id')) {
@@ -329,19 +329,13 @@ class MutasiResource extends Resource
 
                                     $set('barang_id_terpilih', (int) $state);
                                     $jenis = $get('../../jenis_mutasi');
-                                    $sourceCondition = $jenis === 'masuk' ? null : static::defaultSourceCondition(
-                                        (int) $state,
-                                        (int) $get('../../lokasi_id'),
-                                    );
+                                    $sourceCondition = $jenis === 'masuk'
+                                        ? Mutasi::KONDISI_BAIK
+                                        : static::defaultSourceCondition(
+                                            (int) $state,
+                                            (int) $get('../../lokasi_id'),
+                                        );
                                     $set('kondisi_asal', $sourceCondition);
-                                    $set('kondisi_tujuan', match ($jenis) {
-                                        'masuk' => Mutasi::KONDISI_BAIK,
-                                        'keluar' => $sourceCondition,
-                                        'perubahan_kondisi' => $sourceCondition === Mutasi::KONDISI_BAIK
-                                            ? Mutasi::KONDISI_RUSAK
-                                            : Mutasi::KONDISI_BAIK,
-                                        default => Mutasi::KONDISI_BAIK,
-                                    });
                                     $warehouseId = $jenis === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
                                     $set('posisi_rak_tujuan_id', static::fixedTargetPosition(
@@ -384,37 +378,23 @@ class MutasiResource extends Resource
                                         }
                                     },
                                 ]),
-                            Forms\Components\Select::make('kondisi_asal')->label('Kondisi Asal')
-                                ->options(fn (Forms\Get $get): array => static::sourceConditionOptions(
-                                    static::selectedItemBarangId($get),
-                                    (int) $get('../../lokasi_id'),
-                                ))
+                            Forms\Components\Select::make('kondisi_asal')->label('Kondisi')
+                                ->options(fn (Forms\Get $get): array => $get('../../jenis_mutasi') === 'masuk'
+                                    ? [Mutasi::KONDISI_BAIK => 'Baik']
+                                    : static::sourceConditionOptions(
+                                        static::selectedItemBarangId($get),
+                                        (int) $get('../../lokasi_id'),
+                                    ))
                                 ->native(true)
-                                ->required(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')
-                                ->visible(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')
+                                ->default(Mutasi::KONDISI_BAIK)
+                                ->required()
                                 ->live()
-                                ->afterStateUpdated(function (mixed $state, Forms\Get $get, Forms\Set $set): void {
-                                    $set('kondisi_tujuan', match ($get('../../jenis_mutasi')) {
-                                        'keluar' => $state,
-                                        'perubahan_kondisi' => $state === Mutasi::KONDISI_BAIK
-                                            ? Mutasi::KONDISI_RUSAK
-                                            : Mutasi::KONDISI_BAIK,
-                                        default => Mutasi::KONDISI_BAIK,
-                                    });
+                                ->helperText(fn (Forms\Get $get): string => match ($get('../../jenis_mutasi')) {
+                                    'masuk' => 'Barang masuk dicatat dalam kondisi Baik.',
+                                    'keluar' => 'Kondisi barang tetap sama setelah dipindahkan.',
+                                    'perubahan_kondisi' => 'Baik otomatis menjadi Rusak, dan Rusak otomatis menjadi Baik.',
+                                    default => 'Pilih kondisi barang.',
                                 }),
-                            Forms\Components\Select::make('kondisi_tujuan')->label('Kondisi Baru')
-                                ->options(Mutasi::selectableKondisiOptions())->default(Mutasi::KONDISI_BAIK)
-                                ->native(true)
-                                ->visible(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') === 'perubahan_kondisi')
-                                ->required(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') === 'perubahan_kondisi')
-                                ->dehydrated()
-                                ->rules([
-                                    fn (Forms\Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get): void {
-                                        if ($get('../../jenis_mutasi') === 'perubahan_kondisi' && $value === $get('kondisi_asal')) {
-                                            $fail('Kondisi baru harus berbeda dari kondisi asal.');
-                                        }
-                                    },
-                                ]),
                             Forms\Components\Select::make('posisi_rak_tujuan_id')->label('Posisi Rak Tujuan')
                                 ->options(function (Forms\Get $get): array {
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
@@ -491,9 +471,8 @@ class MutasiResource extends Resource
                 TextEntry::make('jenis_mutasi')->label('Jenis')->badge()
                     ->formatStateUsing(fn (string $state): string => Mutasi::jenisOptions()[$state] ?? $state),
                 TextEntry::make('jumlah')->numeric(),
-                TextEntry::make('kondisi_asal')->label('Kondisi Asal')->placeholder('-')
-                    ->formatStateUsing(fn (?string $state): string => Mutasi::kondisiOptions()[$state] ?? '-'),
-                TextEntry::make('kondisi_tujuan')->label('Kondisi Setelah Mutasi')
+                TextEntry::make('kondisi')->label('Kondisi')->placeholder('-')
+                    ->state(fn (Mutasi $record): ?string => $record->effectiveCondition())
                     ->formatStateUsing(fn (?string $state): string => Mutasi::kondisiOptions()[$state] ?? '-'),
                 TextEntry::make('user.name')->label('Dicatat oleh'),
             ]),
@@ -522,9 +501,8 @@ class MutasiResource extends Resource
                 Tables\Columns\TextColumn::make('posisiRakAsal.kode')->label('Rak Asal')->placeholder('-'),
                 Tables\Columns\TextColumn::make('lokasiTujuan.nama_lokasi')->label('Tujuan')->placeholder('-'),
                 Tables\Columns\TextColumn::make('posisiRakTujuan.kode')->label('Rak Tujuan')->placeholder('-'),
-                Tables\Columns\TextColumn::make('kondisi_asal')->label('Dari')->placeholder('-')
-                    ->formatStateUsing(fn (?string $state): string => Mutasi::kondisiOptions()[$state] ?? '-'),
-                Tables\Columns\TextColumn::make('kondisi_tujuan')->label('Menjadi')
+                Tables\Columns\TextColumn::make('kondisi')->label('Kondisi')->placeholder('-')
+                    ->state(fn (Mutasi $record): ?string => $record->effectiveCondition())
                     ->formatStateUsing(fn (?string $state): string => Mutasi::kondisiOptions()[$state] ?? '-'),
                 Tables\Columns\TextColumn::make('jumlah')->numeric()->sortable(),
                 Tables\Columns\TextColumn::make('status')->badge()->color(fn (string $state): string => match ($state) {

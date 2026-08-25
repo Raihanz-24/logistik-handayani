@@ -50,7 +50,9 @@ class MutasiDataService
         $targetCondition = match ($jenis) {
             'masuk' => Mutasi::KONDISI_BAIK,
             'keluar' => $sourceCondition,
-            default => $data['kondisi_tujuan'] ?? null,
+            default => $sourceCondition === Mutasi::KONDISI_BAIK
+                ? Mutasi::KONDISI_RUSAK
+                : Mutasi::KONDISI_BAIK,
         };
         if (! in_array($targetCondition, $conditions, true)) {
             throw new RuntimeException('Kondisi baru harus Baik atau Rusak.');

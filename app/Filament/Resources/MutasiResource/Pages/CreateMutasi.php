@@ -45,22 +45,19 @@ class CreateMutasi extends CreateRecord
                 $items[$key]['posisi_rak_tujuan_id_terpilih'] = (int) $targetPositionId;
             }
 
-            if ($jenis !== 'masuk' && blank($item['kondisi_asal'] ?? null) && filled($barangId)) {
-                $items[$key]['kondisi_asal'] = MutasiResource::defaultSourceCondition(
-                    (int) $barangId,
-                    $warehouseId,
-                );
+            if (blank($item['kondisi_asal'] ?? null) && filled($barangId)) {
+                $items[$key]['kondisi_asal'] = $jenis === 'masuk'
+                    ? Mutasi::KONDISI_BAIK
+                    : MutasiResource::defaultSourceCondition((int) $barangId, $warehouseId);
             }
 
             $sourceCondition = $items[$key]['kondisi_asal'] ?? null;
             $items[$key]['kondisi_tujuan'] = match ($jenis) {
                 'masuk' => Mutasi::KONDISI_BAIK,
                 'keluar' => $sourceCondition,
-                'perubahan_kondisi' => filled($item['kondisi_tujuan'] ?? null)
-                    ? $item['kondisi_tujuan']
-                    : ($sourceCondition === Mutasi::KONDISI_BAIK
-                        ? Mutasi::KONDISI_RUSAK
-                        : Mutasi::KONDISI_BAIK),
+                'perubahan_kondisi' => $sourceCondition === Mutasi::KONDISI_BAIK
+                    ? Mutasi::KONDISI_RUSAK
+                    : Mutasi::KONDISI_BAIK,
                 default => $item['kondisi_tujuan'] ?? null,
             };
         }
