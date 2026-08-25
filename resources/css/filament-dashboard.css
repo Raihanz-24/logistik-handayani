@@ -280,6 +280,29 @@
     --tw-ring-color: transparent;
 }
 
+/* Searchable selects render their menu outside the field's normal box. Form
+   sections must not clip that floating menu at the card boundary. */
+.fi-body .fi-section:has(.fi-fo-component-ctn) {
+    overflow: visible;
+}
+
+.fi-body .fi-section:has(.fi-fo-component-ctn) > .fi-section-header:first-child {
+    border-radius: 1rem 1rem 0 0;
+}
+
+.fi-body .fi-section:has(.choices.is-open),
+.fi-body .fi-fo-repeater-item:has(.choices.is-open),
+.fi-body [data-field-wrapper]:has(.choices.is-open) {
+    position: relative;
+    z-index: 40;
+}
+
+.fi-body .choices.is-open,
+.fi-body .choices__list--dropdown,
+.fi-body .choices__list[aria-expanded] {
+    z-index: 50;
+}
+
 .fi-body .fi-section-header {
     border-bottom: 1px solid var(--wd-row-border);
     background: linear-gradient(135deg, var(--wd-surface-soft), var(--wd-surface));
