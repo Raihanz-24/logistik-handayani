@@ -278,7 +278,7 @@ class MutasiResource extends Resource
                                 ->getOptionLabelUsing(fn (mixed $value): ?string => static::barangOptionLabel($value))
                                 ->searchable()->preload()->native(false)->live()
                                 ->selectablePlaceholder(false)
-                                ->required(fn (Forms\Get $get): bool => blank($get('barang_id_terpilih')))
+                                ->required()
                                 ->rules(['nullable', 'exists:barangs,id'])
                                 ->validationAttribute('Barang')
                                 ->distinct()->disableOptionsWhenSelectedInSiblingRepeaterItems()

@@ -15,6 +15,29 @@ class CreateMutasi extends CreateRecord
 
     protected int $createdCount = 0;
 
+    /**
+     * Restore the canonical product ID before Filament builds its validation
+     * payload. A searchable Select can briefly lose its visible state while
+     * Livewire rebuilds dependent rack options, while the mirrored ID remains.
+     */
+    protected function beforeValidate(): void
+    {
+        $items = $this->data['items'] ?? [];
+
+        foreach ($items as $key => $item) {
+            $barangId = filled($item['barang_id'] ?? null)
+                ? $item['barang_id']
+                : ($item['barang_id_terpilih'] ?? null);
+
+            if (filled($barangId)) {
+                $items[$key]['barang_id'] = (int) $barangId;
+                $items[$key]['barang_id_terpilih'] = (int) $barangId;
+            }
+        }
+
+        $this->data['items'] = $items;
+    }
+
     protected function handleRecordCreation(array $data): Model
     {
         $items = collect($data['items'] ?? [])->map(function (array $item): array {
