@@ -7,6 +7,7 @@ use App\Models\Lokasi;
 use App\Models\Mutasi;
 use App\Models\MutasiRak;
 use App\Models\PosisiRak;
+use App\Models\Supplier;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -31,6 +32,11 @@ class MutasiDataService
         $quantity = (int) ($data['jumlah'] ?? 0);
         if (! $barangId || $quantity <= 0) {
             throw new RuntimeException('Barang dan jumlah mutasi wajib diisi dengan benar.');
+        }
+
+        $supplierId = (int) ($data['supplier_id'] ?? 0);
+        if ($jenis === 'masuk' && ! Supplier::query()->aktif()->whereKey($supplierId)->exists()) {
+            throw new RuntimeException('Supplier aktif wajib dipilih untuk mutasi masuk.');
         }
 
         $this->assertNoRackMutationPending($barangId, (int) $warehouse->id);
@@ -109,6 +115,7 @@ class MutasiDataService
         return [
             ...$data,
             'jenis_mutasi' => $jenis,
+            'supplier_id' => $jenis === 'masuk' ? $supplierId : null,
             'kondisi_asal' => $jenis === 'masuk' ? null : $sourceCondition,
             'kondisi_tujuan' => $targetCondition,
             'lokasi_tujuan_id' => $jenis === 'keluar' ? $destination?->id : null,

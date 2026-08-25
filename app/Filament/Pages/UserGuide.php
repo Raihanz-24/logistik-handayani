@@ -8,6 +8,7 @@ use App\Filament\Resources\KategoriBarangResource;
 use App\Filament\Resources\LokasiResource;
 use App\Filament\Resources\MutasiRakResource;
 use App\Filament\Resources\MutasiResource;
+use App\Filament\Resources\SupplierResource;
 use App\Filament\Resources\UserResource;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
@@ -99,6 +100,7 @@ class UserGuide extends Page
                 'points' => [
                     'Buat kategori barang agar pencarian lebih rapi.',
                     'Tambahkan nama dan satuan barang; kode BRG dibuat otomatis oleh sistem.',
+                    'Tambahkan supplier dari menu Supplier, atau buat langsung saat mengisi mutasi masuk.',
                     'Saat membuat gudang, tentukan penggunaan rak beserta jumlah tingkatnya bila diperlukan.',
                 ],
                 'icon' => 'heroicon-o-squares-2x2',
@@ -109,7 +111,7 @@ class UserGuide extends Page
                 'description' => 'Stok gudang bertambah dari mutasi masuk barang baru, bukan diisi langsung dari menu stok.',
                 'points' => [
                     'Buka menu Mutasi dan pilih jenis mutasi masuk.',
-                    'Pilih barang, gudang tujuan, kondisi, jumlah, dan rak tujuan bila diminta.',
+                    'Pilih supplier, barang, gudang tujuan, kondisi, jumlah, dan rak tujuan bila gudang menggunakan rak.',
                     'Simpan transaksi agar masuk ke daftar mutasi pending untuk divalidasi.',
                 ],
                 'icon' => 'heroicon-o-arrow-down-tray',
@@ -198,6 +200,12 @@ class UserGuide extends Page
                 'description' => 'Kelola gudang, rak bertingkat, dan lokasi tujuan pemakaian barang.',
                 'icon' => 'heroicon-o-map-pin',
                 'url' => LokasiResource::getUrl(),
+            ],
+            [
+                'title' => 'Supplier',
+                'description' => 'Kelola pemasok yang dapat dipilih pada setiap mutasi barang masuk.',
+                'icon' => 'heroicon-o-truck',
+                'url' => SupplierResource::getUrl(),
             ],
             [
                 'title' => 'Stok Barang',

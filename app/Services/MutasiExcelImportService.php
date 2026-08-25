@@ -6,6 +6,7 @@ use App\Models\Barang;
 use App\Models\KategoriBarang;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
+use App\Models\Supplier;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -25,6 +26,8 @@ class MutasiExcelImportService
     private array $lokasiCache = [];
 
     private array $kategoriCache = [];
+
+    private array $supplierCache = [];
 
     public function import(string $path, int $actorId, string $statusMode = self::STATUS_PENDING): array
     {
@@ -77,6 +80,10 @@ class MutasiExcelImportService
                         );
                     }
 
+                    $supplier = $row['jenis_mutasi'] === 'masuk'
+                        ? $this->firstOrCreateSupplier($row['supplier'] ?? null)
+                        : null;
+
                     $targetWarehouse = match ($row['jenis_mutasi']) {
                         'masuk', 'perubahan_kondisi' => $warehouse,
                         'keluar' => $destination?->isGudang() ? $destination : null,
@@ -100,6 +107,7 @@ class MutasiExcelImportService
                         'keterangan' => $row['keterangan'],
                         'no_ref' => $row['no_ref'],
                         'barang_id' => $barang->id,
+                        'supplier_id' => $supplier?->id,
                         'lokasi_id' => $warehouse->id,
                         'lokasi_tujuan_id' => $destination?->id,
                         'posisi_rak_tujuan_id' => $targetPositionId,
@@ -205,6 +213,7 @@ class MutasiExcelImportService
                     'jumlah' => $quantity,
                     'satuan' => $this->cleanNullable($this->cellByHeader($cells, $headerMap, 'satuan')) ?: 'Pcs',
                     'kategori' => null,
+                    'supplier' => $this->cleanNullable($this->cellByHeader($cells, $headerMap, 'supplier')),
                     'gudang' => $warehouse ?: 'Warehouse POH 1',
                     'lokasi_tujuan' => $type === 'keluar' ? ($destination ?: 'Lokasi Pemakaian') : null,
                     'tujuan_is_gudang' => $type === 'keluar' && $this->isWarehouseLabel($destination),
@@ -271,6 +280,7 @@ class MutasiExcelImportService
                             'jumlah' => $entry['jumlah'],
                             'satuan' => $this->cleanNullable($cells['C'] ?? null) ?: 'Pcs',
                             'kategori' => $this->cleanNullable($cells['V'] ?? null),
+                            'supplier' => null,
                             'gudang' => $warehouse,
                             'lokasi_tujuan' => $entry['lokasi'],
                             'tujuan_is_gudang' => false,
@@ -475,6 +485,24 @@ class MutasiExcelImportService
         );
     }
 
+    private function firstOrCreateSupplier(?string $name): Supplier
+    {
+        $name = $this->cleanNullable($name);
+        if (! $name || $name === '-') {
+            $name = 'Supplier Tidak Diketahui (Import)';
+        }
+
+        $key = $this->normalizeKey($name);
+        if (isset($this->supplierCache[$key])) {
+            return $this->supplierCache[$key];
+        }
+
+        return $this->supplierCache[$key] = Supplier::query()->firstOrCreate(
+            ['nama_supplier' => $name],
+            ['aktif' => true],
+        );
+    }
+
     private function firstOrCreateLokasi(string $name, string $type): Lokasi
     {
         $name = $this->cleanLocationLabel($name) ?: 'Lokasi Pemakaian';
@@ -609,6 +637,7 @@ class MutasiExcelImportService
             'kondisi_asal', 'dari' => 'kondisi_asal',
             'kondisi_setelah_mutasi', 'kondisi_tujuan', 'menjadi' => 'kondisi_tujuan',
             'no_referensi', 'no_ref', 'nomor_referensi' => 'no_referensi',
+            'supplier', 'nama_supplier' => 'supplier',
             'status' => 'status',
             default => null,
         };

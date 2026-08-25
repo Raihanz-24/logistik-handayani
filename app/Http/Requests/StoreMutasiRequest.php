@@ -26,6 +26,11 @@ class StoreMutasiRequest extends FormRequest
     {
         return [
             'barang_id' => 'required|exists:barangs,id',
+            'supplier_id' => [
+                'nullable',
+                'required_if:jenis_mutasi,masuk',
+                Rule::exists('suppliers', 'id')->where('aktif', true),
+            ],
             'lokasi_id' => [
                 'required',
                 Rule::exists('lokasis', 'id')
@@ -58,6 +63,8 @@ class StoreMutasiRequest extends FormRequest
         return [
             'barang_id.required' => 'Barang wajib diisi.',
             'barang_id.exists' => 'Barang tidak ditemukan.',
+            'supplier_id.required_if' => 'Supplier wajib dipilih untuk barang masuk.',
+            'supplier_id.exists' => 'Supplier tidak ditemukan atau sudah tidak aktif.',
             'lokasi_id.required' => 'Gudang wajib diisi.',
             'lokasi_id.exists' => 'Gudang tidak ditemukan atau lokasi tersebut bukan gudang.',
             'lokasi_tujuan_id.required_if' => 'Lokasi tujuan wajib diisi untuk barang keluar.',
@@ -81,6 +88,10 @@ class StoreMutasiRequest extends FormRequest
     {
         if ($this->input('jenis_mutasi') !== 'keluar') {
             $this->merge(['lokasi_tujuan_id' => null]);
+        }
+
+        if ($this->input('jenis_mutasi') !== 'masuk') {
+            $this->merge(['supplier_id' => null]);
         }
 
         if ($this->input('jenis_mutasi') === 'masuk') {

@@ -12,7 +12,7 @@ class MutasiController extends BaseApiController
 {
     public function index()
     {
-        $mutasi = Mutasi::with('user', 'barang', 'lokasi', 'lokasiTujuan')->get();
+        $mutasi = Mutasi::with('user', 'barang', 'supplier', 'lokasi', 'lokasiTujuan')->get();
 
         return $this->success($mutasi, 'Daftar seluruh mutasi');
     }
@@ -31,7 +31,7 @@ class MutasiController extends BaseApiController
             'status' => 'pending',
             'user_id' => $user->id,
             'created_by' => $user->id,
-        ])->load('barang', 'lokasi', 'lokasiTujuan', 'user');
+        ])->load('barang', 'supplier', 'lokasi', 'lokasiTujuan', 'user');
 
         return $this->success($mutasi, 'Mutasi berhasil dicatat dan menunggu approval', 201);
     }
@@ -69,7 +69,7 @@ class MutasiController extends BaseApiController
     public function show(Mutasi $mutasi)
     {
         return $this->success(
-            $mutasi->load('barang', 'lokasi', 'lokasiTujuan', 'user'),
+            $mutasi->load('barang', 'supplier', 'lokasi', 'lokasiTujuan', 'user'),
             'Detail mutasi',
         );
     }

@@ -15,7 +15,7 @@ class MutasiExcelExportService
         'No.', 'Tanggal', 'Kode Barang', 'Nama Barang', 'Jenis', 'Jumlah', 'Satuan',
         'Sumber Barang', 'Rak Asal', 'Lokasi Tujuan', 'Rak Tujuan', 'Kondisi Asal',
         'Kondisi Setelah Mutasi', 'No. Referensi', 'Status', 'Stok Awal', 'Stok Akhir',
-        'Dicatat Oleh',
+        'Supplier', 'Dicatat Oleh',
     ];
 
     public function download(Builder $query, array $context = []): StreamedResponse
@@ -80,7 +80,7 @@ class MutasiExcelExportService
         $this->writeSheetView($writer, frozenRows: 5);
 
         $writer->startElement('cols');
-        foreach ([6, 14, 16, 30, 20, 12, 11, 28, 14, 32, 14, 16, 20, 18, 14, 12, 12, 22] as $index => $width) {
+        foreach ([6, 14, 16, 30, 20, 12, 11, 28, 14, 32, 14, 16, 20, 18, 14, 12, 12, 28, 22] as $index => $width) {
             $this->writeColumn($writer, $index + 1, $width);
         }
         $writer->endElement();
@@ -114,6 +114,7 @@ class MutasiExcelExportService
                 'lokasiTujuan:id,nama_lokasi,jenis_lokasi',
                 'posisiRakAsal:id,kode',
                 'posisiRakTujuan:id,kode',
+                'supplier:id,nama_supplier',
                 'user:id,name',
             ])
             ->lazy(500)
@@ -146,7 +147,8 @@ class MutasiExcelExportService
                     $this->textCell("O{$rowNumber}", $this->statusLabel($mutasi->status), $style),
                     $this->nullableNumberCell("P{$rowNumber}", $mutasi->stok_awal, $style),
                     $this->nullableNumberCell("Q{$rowNumber}", $mutasi->stok_akhir, $style),
-                    $this->textCell("R{$rowNumber}", $mutasi->user?->name ?? '-', $style),
+                    $this->textCell("R{$rowNumber}", $mutasi->supplier?->nama_supplier ?? '-', $style),
+                    $this->textCell("S{$rowNumber}", $mutasi->user?->name ?? '-', $style),
                 ], 24);
 
                 $rowNumber++;
@@ -161,13 +163,13 @@ class MutasiExcelExportService
         $writer->endElement();
 
         $writer->startElement('autoFilter');
-        $writer->writeAttribute('ref', 'A5:R'.max(5, $rowNumber - 1));
+        $writer->writeAttribute('ref', 'A5:S'.max(5, $rowNumber - 1));
         $writer->endElement();
 
         $writer->startElement('mergeCells');
         $mergeRanges = $totalRows === 0
-            ? ['A1:R1', 'A2:R2', 'A3:R3', 'A6:R6']
-            : ['A1:R1', 'A2:R2', 'A3:R3'];
+            ? ['A1:S1', 'A2:S2', 'A3:S3', 'A6:S6']
+            : ['A1:S1', 'A2:S2', 'A3:S3'];
         foreach ($mergeRanges as $range) {
             $writer->startElement('mergeCell');
             $writer->writeAttribute('ref', $range);

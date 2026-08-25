@@ -3,10 +3,12 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\MutasiResource\Pages;
+use App\Models\Barang;
 use App\Models\BarangLokasi;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
 use App\Models\PosisiRak;
+use App\Models\Supplier;
 use App\Services\MutasiExcelExportService;
 use App\Services\MutasiExcelImportService;
 use App\Services\MutasiStockService;
@@ -129,6 +131,36 @@ class MutasiResource extends Resource
             ->where('lokasi_id', $warehouseId)->whereNotNull('posisi_rak_id')->exists();
     }
 
+    public static function warehouseUsesRacks(?int $warehouseId): bool
+    {
+        if (! $warehouseId) {
+            return false;
+        }
+
+        return Lokasi::query()->gudang()->whereKey($warehouseId)->where('menggunakan_rak', true)->exists();
+    }
+
+    public static function fixedTargetPosition(?int $barangId, ?int $warehouseId): ?int
+    {
+        if (! $barangId || ! $warehouseId) {
+            return null;
+        }
+
+        $positionId = DB::table('barang_lokasi')
+            ->where('barang_id', $barangId)
+            ->where('lokasi_id', $warehouseId)
+            ->value('posisi_rak_id');
+
+        return $positionId ? (int) $positionId : null;
+    }
+
+    public static function barangOptionLabel(mixed $value): ?string
+    {
+        $barang = Barang::query()->find((int) $value);
+
+        return $barang ? "{$barang->kode_barang} - {$barang->nama_barang}" : null;
+    }
+
     /** @return array<int, string> */
     public static function positionOptions(?int $warehouseId): array
     {
@@ -148,6 +180,7 @@ class MutasiResource extends Resource
                         ->label('Jenis Mutasi')->options(Mutasi::jenisOptions())->native(false)->required()->live()
                         ->afterStateUpdated(function (Forms\Set $set): void {
                             $set('lokasi_tujuan_id', null);
+                            $set('supplier_id', null);
                             $set('items', [['kondisi_tujuan' => Mutasi::KONDISI_BAIK]]);
                         }),
                     Forms\Components\Select::make('lokasi_id')
@@ -176,6 +209,35 @@ class MutasiResource extends Resource
                                 }
                             },
                         ]),
+                    Forms\Components\Select::make('supplier_id')
+                        ->label('Supplier')
+                        ->options(fn (): array => Supplier::query()->aktif()->orderBy('nama_supplier')
+                            ->pluck('nama_supplier', 'id')->all())
+                        ->getOptionLabelUsing(fn (mixed $value): ?string => Supplier::query()
+                            ->whereKey((int) $value)->value('nama_supplier'))
+                        ->searchable()
+                        ->preload()
+                        ->native(false)
+                        ->visible(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'masuk')
+                        ->required(fn (Forms\Get $get): bool => $get('jenis_mutasi') === 'masuk')
+                        ->rules([Rule::exists('suppliers', 'id')->where('aktif', true)])
+                        ->createOptionForm([
+                            Forms\Components\TextInput::make('nama_supplier')
+                                ->label('Nama Supplier')
+                                ->required()
+                                ->unique(Supplier::class, 'nama_supplier')
+                                ->maxLength(255),
+                            Forms\Components\TextInput::make('kontak_person')
+                                ->label('Kontak Person')
+                                ->maxLength(255),
+                            Forms\Components\TextInput::make('telepon')
+                                ->label('No. Telepon')
+                                ->tel()
+                                ->maxLength(50),
+                        ])
+                        ->createOptionUsing(fn (array $data): int => (int) Supplier::query()
+                            ->create([...$data, 'aktif' => true])->getKey())
+                        ->helperText('Pilih supplier yang tersedia atau klik tambah untuk membuat supplier baru.'),
                     Forms\Components\TextInput::make('no_ref')->label('No. Referensi')->maxLength(255),
                     Forms\Components\TextInput::make('keterangan')->label('Keterangan')->maxLength(255),
                     Forms\Components\Repeater::make('items')
@@ -186,11 +248,18 @@ class MutasiResource extends Resource
                                 ->options(fn (Forms\Get $get): array => static::availableBarangOptions(
                                     (int) ($get('../../lokasi_id') ?: 0), $get('../../jenis_mutasi'),
                                 ))
+                                ->getOptionLabelUsing(fn (mixed $value): ?string => static::barangOptionLabel($value))
                                 ->searchable()->preload()->native(false)->required()->live()
+                                ->rules(['exists:barangs,id'])
                                 ->distinct()->disableOptionsWhenSelectedInSiblingRepeaterItems()
-                                ->afterStateUpdated(function (Forms\Set $set): void {
+                                ->afterStateUpdated(function (mixed $state, Forms\Get $get, Forms\Set $set): void {
                                     $set('kondisi_asal', null);
-                                    $set('posisi_rak_tujuan_id', null);
+                                    $warehouseId = $get('../../jenis_mutasi') === 'masuk'
+                                        ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
+                                    $set('posisi_rak_tujuan_id', static::fixedTargetPosition(
+                                        (int) $state,
+                                        (int) $warehouseId,
+                                    ));
                                 }),
                             Forms\Components\TextInput::make('jumlah')->label('Jumlah')->integer()->minValue(1)->required()
                                 ->helperText(function (Forms\Get $get): ?string {
@@ -256,15 +325,34 @@ class MutasiResource extends Resource
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
 
                                     return $get('../../jenis_mutasi') !== 'perubahan_kondisi'
-                                        && static::needsTargetPosition((int) $get('barang_id'), (int) $warehouseId);
+                                        && static::warehouseUsesRacks((int) $warehouseId);
                                 })
                                 ->required(function (Forms\Get $get): bool {
                                     $warehouseId = $get('../../jenis_mutasi') === 'masuk'
                                         ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
 
-                                    return static::needsTargetPosition((int) $get('barang_id'), (int) $warehouseId);
+                                    return filled($get('barang_id'))
+                                        && static::warehouseUsesRacks((int) $warehouseId);
                                 })
-                                ->helperText('Penempatan ini menjadi rak tetap barang pada gudang tujuan.'),
+                                ->disabled(function (Forms\Get $get): bool {
+                                    $warehouseId = $get('../../jenis_mutasi') === 'masuk'
+                                        ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
+
+                                    return blank($get('barang_id')) || (bool) static::fixedTargetPosition(
+                                        (int) $get('barang_id'),
+                                        (int) $warehouseId,
+                                    );
+                                })
+                                ->dehydrated()
+                                ->placeholder('Pilih posisi rak')
+                                ->helperText(function (Forms\Get $get): string {
+                                    $warehouseId = $get('../../jenis_mutasi') === 'masuk'
+                                        ? $get('../../lokasi_id') : $get('../../lokasi_tujuan_id');
+
+                                    return static::fixedTargetPosition((int) $get('barang_id'), (int) $warehouseId)
+                                        ? 'Rak terisi otomatis karena barang ini sudah memiliki rak tetap di gudang tujuan.'
+                                        : 'Wajib dipilih. Penempatan ini menjadi rak tetap barang pada gudang tujuan.';
+                                }),
                         ]),
                 ]),
         ]);
@@ -280,6 +368,7 @@ class MutasiResource extends Resource
                     'approved' => 'success', 'cancelled' => 'danger', default => 'warning',
                 }),
                 TextEntry::make('barang.nama_barang')->label('Barang'),
+                TextEntry::make('supplier.nama_supplier')->label('Supplier')->placeholder('-'),
                 TextEntry::make('jenis_mutasi')->label('Jenis')->badge()
                     ->formatStateUsing(fn (string $state): string => Mutasi::jenisOptions()[$state] ?? $state),
                 TextEntry::make('jumlah')->numeric(),
@@ -307,6 +396,7 @@ class MutasiResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('tanggal')->date('d M Y')->sortable(),
                 Tables\Columns\TextColumn::make('barang.nama_barang')->label('Barang')->searchable()->sortable(),
+                Tables\Columns\TextColumn::make('supplier.nama_supplier')->label('Supplier')->searchable()->placeholder('-'),
                 Tables\Columns\TextColumn::make('jenis_mutasi')->label('Jenis')->badge()
                     ->formatStateUsing(fn (string $state): string => Mutasi::jenisOptions()[$state] ?? $state),
                 Tables\Columns\TextColumn::make('lokasi.nama_lokasi')->label('Gudang')->searchable(),

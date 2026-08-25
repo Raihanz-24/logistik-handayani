@@ -69,7 +69,7 @@ class MutasiStockService
             ]);
 
             return $mutasi->fresh([
-                'barang', 'lokasi', 'lokasiTujuan', 'posisiRakAsal', 'posisiRakTujuan', 'user',
+                'barang', 'supplier', 'lokasi', 'lokasiTujuan', 'posisiRakAsal', 'posisiRakTujuan', 'user',
             ]);
         });
     }
