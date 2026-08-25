@@ -276,7 +276,14 @@ class MutasiResource extends Resource
                                     (int) ($get('../../lokasi_id') ?: 0), $get('../../jenis_mutasi'),
                                 ))
                                 ->getOptionLabelUsing(fn (mixed $value): ?string => static::barangOptionLabel($value))
-                                ->searchable()->preload()->native(false)->live()
+                                // The JS-powered searchable Select can display a stale choice while
+                                // its Livewire state is null when dynamic options refresh in a Repeater.
+                                // Incoming mutations use a native select so the displayed value and
+                                // submitted value always come from the same DOM element.
+                                ->searchable(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') !== 'masuk')
+                                ->preload()
+                                ->native(fn (Forms\Get $get): bool => $get('../../jenis_mutasi') === 'masuk')
+                                ->live()
                                 ->selectablePlaceholder(false)
                                 ->required()
                                 ->rules(['nullable', 'exists:barangs,id'])
