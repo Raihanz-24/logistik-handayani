@@ -196,7 +196,9 @@
 
 .wm-global-footer {
     width: 100%;
-    padding: 0.75rem 1rem 1.2rem;
+    margin-top: 0;
+    padding: 0.35rem 1rem 1rem;
+    flex: 0 0 auto;
     color: var(--wd-muted-soft);
     font-size: 0.76rem;
     line-height: 1.4;
@@ -260,7 +262,12 @@
 }
 
 .fi-body .fi-main {
-    min-height: 100vh;
+    height: auto;
+    min-height: 0;
+}
+
+.fi-body .fi-main > .fi-page > section {
+    padding-bottom: clamp(1rem, 2vw, 1.5rem);
 }
 
 .fi-body .fi-topbar-item-button,
