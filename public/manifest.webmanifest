@@ -1,0 +1,38 @@
+{
+    "id": "/admin",
+    "name": "Logistik Taman Air Handayani Paiton",
+    "short_name": "Logistik Handayani",
+    "description": "Sistem pengelolaan stok dan mutasi Logistik Taman Air Handayani Paiton.",
+    "lang": "id-ID",
+    "dir": "ltr",
+    "start_url": "/admin",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "any",
+    "background_color": "#102031",
+    "theme_color": "#102031",
+    "categories": [
+        "business",
+        "productivity"
+    ],
+    "icons": [
+        {
+            "src": "/images/pwa/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/images/pwa/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/images/pwa/icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

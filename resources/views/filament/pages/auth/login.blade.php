@@ -157,6 +157,23 @@
                         <span wire:loading.remove wire:target="authenticate">Masuk ke dashboard</span>
                         <span wire:loading wire:target="authenticate">Memproses...</span>
                     </button>
+
+                    <button
+                        type="button"
+                        class="wm-login__install"
+                        data-pwa-install
+                    >
+                        <x-filament::icon class="wm-login__install-icon" icon="heroicon-m-arrow-down-tray" />
+                        <span>Unduh Aplikasi</span>
+                    </button>
+
+                    <span
+                        class="wm-login__install-help"
+                        data-pwa-install-help
+                        role="status"
+                        aria-live="polite"
+                        hidden
+                    ></span>
                 </form>
 
                 {{ \Filament\Support\Facades\FilamentView::renderHook(
