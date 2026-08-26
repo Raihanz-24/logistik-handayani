@@ -7,7 +7,6 @@ use App\Filament\Widgets\AccountWidget;
 use Awcodes\LightSwitch\Enums\Alignment;
 use Awcodes\LightSwitch\LightSwitchPlugin;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
-use Devonab\FilamentEasyFooter\EasyFooterPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -31,6 +30,14 @@ class AdminPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         return $panel
+            ->renderHook(
+                PanelsRenderHook::HEAD_START,
+                fn (): string => view('filament.notranslate')->render()
+            )
+            ->renderHook(
+                PanelsRenderHook::FOOTER,
+                fn (): string => view('filament.footer-credit')->render()
+            )
             ->renderHook(
                 PanelsRenderHook::HEAD_END,
                 fn (): string => view('filament.ga4')->render()
@@ -111,10 +118,6 @@ class AdminPanelProvider extends PanelProvider
                         'auth.password',
                         'auth.register',
                     ]),
-                EasyFooterPlugin::make()
-                    ->footerEnabled()
-                    ->withFooterPosition('footer')
-                    ->withLoadTime('Halaman ini dimuat'),
             ]);
     }
 }

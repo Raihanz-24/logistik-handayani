@@ -194,6 +194,28 @@
     opacity: 0;
 }
 
+.wm-global-footer {
+    width: 100%;
+    padding: 0.75rem 1rem 1.2rem;
+    color: var(--wd-muted-soft);
+    font-size: 0.67rem;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.wm-global-footer__credit {
+    color: inherit;
+    font-weight: 650;
+    letter-spacing: 0.025em;
+    text-decoration: none;
+    transition: color 160ms ease;
+}
+
+.wm-global-footer__credit:hover,
+.wm-global-footer__credit:focus-visible {
+    color: var(--wd-amber-light);
+}
+
 .fi-body .fi-sidebar-nav {
     background: var(--wd-shell);
 }

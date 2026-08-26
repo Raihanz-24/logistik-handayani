@@ -646,12 +646,6 @@
     text-align: center;
 }
 
-.wm-login__copyright {
-    display: block;
-    max-width: 100%;
-    text-wrap: balance;
-}
-
 .wm-login__credit {
     display: inline-flex;
     width: fit-content;

@@ -28,7 +28,7 @@ class SawRestockRecommendationService
     ): array {
         [$start, $end] = $this->resolvePeriod($start, $end);
         $weights = $this->normalizedWeights();
-        $limit ??= (int) config('saw-restock.limit', 5);
+        $limit ??= (int) config('saw-restock.limit', 10);
 
         $usageByBarang = Mutasi::query()
             ->select('barang_id')
@@ -86,7 +86,7 @@ class SawRestockRecommendationService
         }
 
         $weights ??= $this->normalizedWeights();
-        $limit ??= (int) config('saw-restock.limit', 5);
+        $limit ??= (int) config('saw-restock.limit', 10);
         $maxFrequency = max(1, (int) $alternatives->max('frekuensi_pemakaian'));
         $maxQuantity = max(1, (int) $alternatives->max('jumlah_pemakaian'));
 

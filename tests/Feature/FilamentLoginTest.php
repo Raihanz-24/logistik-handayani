@@ -28,7 +28,10 @@ class FilamentLoginTest extends TestCase
             ->assertOk()
             ->assertSee('Selamat datang kembali')
             ->assertSee('Ingat saya di perangkat ini')
-            ->assertSee('Operasional gudang dalam satu kendali.');
+            ->assertSee('Operasional gudang dalam satu kendali.')
+            ->assertSee('by kafeinxcode.com')
+            ->assertSee('<meta name="google" content="notranslate">', false)
+            ->assertDontSee('Seluruh hak dilindungi.');
     }
 
     public function test_user_can_log_in_and_be_remembered(): void

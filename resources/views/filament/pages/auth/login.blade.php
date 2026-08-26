@@ -171,17 +171,12 @@
             </section>
 
             <footer class="wm-login__footer">
-                <span class="wm-login__copyright">
-                    &copy; {{ now()->year }} Logistik Taman Air Handayani Paiton. Seluruh hak dilindungi.
-                </span>
                 <a
                     class="wm-login__credit"
                     href="https://kafeinxcode.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                >
-                    by <strong>kafeinxcode.com</strong>
-                </a>
+                >by <strong>kafeinxcode.com</strong></a>
             </footer>
         </main>
     </div>
