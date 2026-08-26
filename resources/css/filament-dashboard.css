@@ -198,14 +198,14 @@
     width: 100%;
     padding: 0.75rem 1rem 1.2rem;
     color: var(--wd-muted-soft);
-    font-size: 0.67rem;
+    font-size: 0.76rem;
     line-height: 1.4;
     text-align: center;
 }
 
 .wm-global-footer__credit {
     color: inherit;
-    font-weight: 650;
+    font-weight: 700;
     letter-spacing: 0.025em;
     text-decoration: none;
     transition: color 160ms ease;
