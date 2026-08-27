@@ -125,4 +125,9 @@ class MutasiPolicy
     {
         return $this->isApprovalUser($user) && $mutasi->status === 'pending';
     }
+
+    public function cancel(User $user, Mutasi $mutasi): bool
+    {
+        return $this->isApprovalUser($user) && $mutasi->status === 'pending';
+    }
 }

@@ -7,11 +7,14 @@ use App\Http\Requests\UpdateLokasiRequest;
 use App\Models\Lokasi;
 use App\Services\RakGudangService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class LokasiController extends BaseApiController
 {
     public function index()
     {
+        Gate::authorize('viewAny', Lokasi::class);
+
         $lokasi = Lokasi::withCount('barang')->get();
 
         return $this->success($lokasi, 'Daftar lokasi');
@@ -19,6 +22,8 @@ class LokasiController extends BaseApiController
 
     public function store(StoreLokasiRequest $request)
     {
+        Gate::authorize('create', Lokasi::class);
+
         $data = $request->validated();
         $lokasi = DB::transaction(function () use ($data): Lokasi {
             $record = Lokasi::query()->create($data);
@@ -32,11 +37,15 @@ class LokasiController extends BaseApiController
 
     public function show(Lokasi $lokasi)
     {
+        Gate::authorize('view', $lokasi);
+
         return $this->success($lokasi->load('barang'), 'Detail lokasi');
     }
 
     public function update(UpdateLokasiRequest $request, Lokasi $lokasi)
     {
+        Gate::authorize('update', $lokasi);
+
         $data = $request->validated();
         DB::transaction(function () use ($lokasi, $data): void {
             $lokasi->update($data);
@@ -48,6 +57,8 @@ class LokasiController extends BaseApiController
 
     public function destroy(Lokasi $lokasi)
     {
+        Gate::authorize('delete', $lokasi);
+
         if ($lokasi->barang()->exists() || $lokasi->mutasi()->exists() || $lokasi->mutasiTujuan()->exists()) {
             return $this->error('Lokasi tidak dapat dihapus karena sudah memiliki stok atau riwayat mutasi.', 422);
         }

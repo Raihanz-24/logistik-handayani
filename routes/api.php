@@ -9,10 +9,10 @@ use App\Http\Controllers\Api\UserController;
 use App\Http\Middleware\AuditUserActivity;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login'])
+    ->middleware('throttle:5,1');
 
-Route::middleware(['auth:sanctum', AuditUserActivity::class])->group(function () {
+Route::middleware(['auth:sanctum', 'abilities:api:access', AuditUserActivity::class])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::apiResource('barang', BarangController::class);

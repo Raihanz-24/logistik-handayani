@@ -107,11 +107,19 @@ class AuditLogResource extends Resource
                         'login' => 'Login',
                         'login_api' => 'Login API',
                         'logout' => 'Logout',
+                        'user_create' => 'User Dibuat',
+                        'user_read', 'user_read_list', 'user_read_history' => 'User Dilihat',
+                        'user_update' => 'User Diubah',
+                        'user_roles_update' => 'Role Diubah',
+                        'user_delete' => 'User Dihapus',
                         default => 'Aktivitas',
                     })
                     ->color(fn (string $state): string => match ($state) {
                         'login', 'login_api' => 'success',
                         'logout' => 'warning',
+                        'user_create' => 'success',
+                        'user_update', 'user_roles_update' => 'warning',
+                        'user_delete' => 'danger',
                         default => 'info',
                     }),
                 Tables\Columns\TextColumn::make('description')
@@ -140,6 +148,13 @@ class AuditLogResource extends Resource
                         'login' => 'Login',
                         'login_api' => 'Login API',
                         'logout' => 'Logout',
+                        'user_create' => 'User Dibuat',
+                        'user_read' => 'User Dilihat',
+                        'user_read_list' => 'Daftar User Dilihat',
+                        'user_read_history' => 'Riwayat User Dilihat',
+                        'user_update' => 'User Diubah',
+                        'user_roles_update' => 'Role Diubah',
+                        'user_delete' => 'User Dihapus',
                     ]),
             ])
             ->actions([

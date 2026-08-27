@@ -52,7 +52,6 @@ class AdminPanelProvider extends PanelProvider
             )
              // ->renderHook('head.end', fn () => view('filament.ga4'))
             ->sidebarCollapsibleOnDesktop()
-            ->registration()
             ->default()
             ->id('admin')
             ->path('admin')

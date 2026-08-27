@@ -67,6 +67,65 @@ class AuditLogger
     }
 
     /**
+     * Record user-management activity without storing passwords or request payloads.
+     *
+     * @param  array<string, mixed>  $metadata
+     */
+    public function userCrud(
+        string $action,
+        ?User $target = null,
+        ?User $actor = null,
+        array $metadata = [],
+    ): void {
+        $actor ??= auth()->user();
+        $request = request();
+
+        $targetLabel = $target
+            ? trim("{$target->name} ({$target->username})")
+            : 'daftar pengguna';
+
+        $description = match ($action) {
+            'create' => "Membuat pengguna: {$targetLabel}",
+            'read' => "Melihat pengguna: {$targetLabel}",
+            'read_list' => 'Melihat daftar pengguna',
+            'read_history' => "Melihat riwayat pengguna: {$targetLabel}",
+            'update' => "Memperbarui pengguna: {$targetLabel}",
+            'roles_update' => "Memperbarui role pengguna: {$targetLabel}",
+            'delete' => "Menghapus pengguna: {$targetLabel}",
+            default => "Aktivitas pengguna: {$targetLabel}",
+        };
+
+        if ($target) {
+            $metadata = [
+                'target_user' => [
+                    'id' => $target->getKey(),
+                    'name' => $target->name,
+                    'username' => $target->username,
+                    'email' => $target->email,
+                ],
+                ...$metadata,
+            ];
+        }
+
+        $this->write([
+            'user_id' => $actor?->getKey(),
+            'user_name' => $actor?->name,
+            'user_email' => $actor?->email,
+            'event' => 'user_'.$action,
+            'description' => Str::limit($description, 255, ''),
+            'method' => app()->runningInConsole() ? null : strtoupper($request->method()),
+            'route_name' => app()->runningInConsole() ? null : $request->route()?->getName(),
+            'path' => app()->runningInConsole() ? null : '/'.$request->path(),
+            'ip_address' => app()->runningInConsole() ? null : $request->ip(),
+            'user_agent' => app()->runningInConsole()
+                ? null
+                : Str::limit((string) $request->userAgent(), 1000, ''),
+            'status_code' => null,
+            'metadata' => $metadata === [] ? null : $metadata,
+        ]);
+    }
+
+    /**
      * Never allow audit logging to interrupt the user's actual request.
      *
      * @param  array<string, mixed>  $attributes

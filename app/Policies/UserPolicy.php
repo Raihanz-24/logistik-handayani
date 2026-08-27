@@ -20,7 +20,7 @@ class UserPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user): bool
+    public function view(User $user, User $target): bool
     {
         return $user->can('view_user');
     }
@@ -36,7 +36,7 @@ class UserPolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user): bool
+    public function update(User $user, User $target): bool
     {
         return $user->can('update_user');
     }
@@ -44,9 +44,24 @@ class UserPolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user): bool
+    public function delete(User $user, User $target): bool
     {
-        return $user->can('delete_user');
+        if (! $user->can('delete_user') || $user->is($target)) {
+            return false;
+        }
+
+        if (
+            $target->mutasi()->exists() ||
+            $target->mutasiDibuat()->exists() ||
+            $target->mutasiRakDibuat()->exists()
+        ) {
+            return false;
+        }
+
+        return ! (
+            $target->hasRole('super_admin') &&
+            User::role('super_admin')->count() <= 1
+        );
     }
 
     /**

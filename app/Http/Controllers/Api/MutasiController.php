@@ -7,11 +7,15 @@ use App\Http\Requests\UpdateMutasiRequest;
 use App\Models\Mutasi;
 use App\Services\MutasiDataService;
 use App\Services\MutasiStockService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class MutasiController extends BaseApiController
 {
     public function index()
     {
+        Gate::authorize('viewAny', Mutasi::class);
+
         $mutasi = Mutasi::with('user', 'barang', 'supplier', 'lokasi', 'lokasiTujuan')->get();
 
         return $this->success($mutasi, 'Daftar seluruh mutasi');
@@ -19,6 +23,8 @@ class MutasiController extends BaseApiController
 
     public function store(StoreMutasiRequest $request, MutasiDataService $dataService)
     {
+        Gate::authorize('create', Mutasi::class);
+
         try {
             $data = $dataService->prepare($request->validated());
         } catch (\RuntimeException $exception) {
@@ -42,9 +48,7 @@ class MutasiController extends BaseApiController
             return $this->error('Mutasi sudah diproses.', 400);
         }
 
-        if (! auth()->user()?->can('approve', $mutasi)) {
-            return $this->error('Akun Anda tidak memiliki akses untuk approve mutasi.', 403);
-        }
+        Gate::authorize('approve', $mutasi);
 
         try {
             $approved = $stockService->approve($mutasi, (int) auth()->id());
@@ -55,19 +59,34 @@ class MutasiController extends BaseApiController
         }
     }
 
-    public function cancel(Mutasi $mutasi)
+    public function cancel(Request $request, Mutasi $mutasi)
     {
+        Gate::authorize('cancel', $mutasi);
+
         if ($mutasi->status !== 'pending') {
             return $this->error('Mutasi tidak bisa dibatalkan', 400);
         }
 
-        $mutasi->update(['status' => 'cancelled']);
+        $data = $request->validate([
+            'cancel_reason' => ['required', 'string', 'max:255'],
+        ], [
+            'cancel_reason.required' => 'Alasan pembatalan wajib diisi.',
+        ]);
+
+        $mutasi->update([
+            'status' => 'cancelled',
+            'cancelled_by' => auth()->id(),
+            'cancelled_at' => now(),
+            'cancel_reason' => trim($data['cancel_reason']),
+        ]);
 
         return $this->success($mutasi, 'Mutasi berhasil dibatalkan');
     }
 
     public function show(Mutasi $mutasi)
     {
+        Gate::authorize('view', $mutasi);
+
         return $this->success(
             $mutasi->load('barang', 'supplier', 'lokasi', 'lokasiTujuan', 'user'),
             'Detail mutasi',

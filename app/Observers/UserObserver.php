@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
@@ -29,6 +30,10 @@ class UserObserver
         if (! $user->hasAnyRole()) {
             $user->assignRole(self::DEFAULT_ROLE);
         }
+
+        app(AuditLogger::class)->userCrud('create', $user, auth()->user(), [
+            'roles' => $user->getRoleNames()->values()->all(),
+        ]);
     }
 
     /**
@@ -36,7 +41,18 @@ class UserObserver
      */
     public function updated(User $user): void
     {
-        //
+        $changedFields = array_values(array_intersect(
+            array_keys($user->getChanges()),
+            ['name', 'username', 'email', 'password'],
+        ));
+
+        if ($changedFields === []) {
+            return;
+        }
+
+        app(AuditLogger::class)->userCrud('update', $user, auth()->user(), [
+            'changed_fields' => $changedFields,
+        ]);
     }
 
     /**
@@ -44,7 +60,9 @@ class UserObserver
      */
     public function deleted(User $user): void
     {
-        //
+        app(AuditLogger::class)->userCrud('delete', $user, auth()->user(), [
+            'roles' => $user->getRoleNames()->values()->all(),
+        ]);
     }
 
     /**

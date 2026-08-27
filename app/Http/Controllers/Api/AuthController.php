@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Requests\AuthLoginRequest;
-use App\Http\Requests\StoreUserRequest;
 use App\Models\User;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
@@ -21,7 +20,11 @@ class AuthController extends BaseApiController
             return response()->json(['message' => 'Login gagal'], 401);
         }
 
-        $token = $user->createToken('api-token')->plainTextToken;
+        $token = $user->createToken(
+            'api-token',
+            ['api:access'],
+            now()->addHours(8),
+        )->plainTextToken;
 
         app(AuditLogger::class)->authentication($user, 'login_api', $request);
 
@@ -31,15 +34,6 @@ class AuthController extends BaseApiController
             'user' => $user,
         ], 'Login berhasil');
 
-    }
-
-    public function register(StoreUserRequest $request)
-    {
-        $data = $request->validated();
-        $data['password'] = Hash::make($data['password']);
-        $user = User::create($data);
-
-        return $this->success($user, 'Registrasi berhasil', 201);
     }
 
     public function logout(Request $request)

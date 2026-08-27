@@ -52,10 +52,15 @@ class UserResource extends Resource
             return 'Akun yang sedang dipakai login tidak dapat dihapus.';
         }
 
+        if ($user->hasRole('super_admin') && User::role('super_admin')->count() <= 1) {
+            return 'Superadmin terakhir tidak dapat dihapus.';
+        }
+
         // Cek riwayat mutasi
         $hasMutasi =
             $user->mutasi()->exists() ||
-            $user->mutasiDibuat()->exists();
+            $user->mutasiDibuat()->exists() ||
+            $user->mutasiRakDibuat()->exists();
 
         if ($hasMutasi) {
             return 'User tidak dapat di hapus karena memiliki riwayat mutasi, silahkan hubungi developer jika diperlukan.';
