@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -14,7 +15,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
+    /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     /**
@@ -71,11 +72,16 @@ class User extends Authenticatable implements FilamentUser
 
     public function mutasiDibuat()
     {
-        return $this->hasMany(\App\Models\Mutasi::class, 'created_by'); // untuk delete user
+        return $this->hasMany(Mutasi::class, 'created_by'); // untuk delete user
     }
 
     public function mutasiRakDibuat()
     {
         return $this->hasMany(MutasiRak::class, 'created_by');
+    }
+
+    public function catatans()
+    {
+        return $this->hasMany(Catatan::class);
     }
 }

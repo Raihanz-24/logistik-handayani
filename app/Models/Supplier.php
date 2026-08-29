@@ -41,4 +41,9 @@ class Supplier extends Model
     {
         return $this->hasMany(Mutasi::class);
     }
+
+    public function catatans(): HasMany
+    {
+        return $this->hasMany(Catatan::class);
+    }
 }

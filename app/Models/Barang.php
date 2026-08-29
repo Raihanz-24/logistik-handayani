@@ -64,6 +64,11 @@ class Barang extends Model
         return $this->hasMany(MutasiRak::class);
     }
 
+    public function catatanItems(): HasMany
+    {
+        return $this->hasMany(CatatanItem::class);
+    }
+
     public function kategoriBarangs(): BelongsToMany
     {
         return $this->belongsToMany(

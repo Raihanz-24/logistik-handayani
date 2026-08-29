@@ -97,6 +97,7 @@ class AdminPanelProvider extends PanelProvider
                     ->url(fn () => route('filament.admin.auth.profile', absolute: true)),
             ])
             ->navigationGroups([
+                'Catatan',
                 'Master Data',
                 'Pengaturan',
                 'Bantuan',
