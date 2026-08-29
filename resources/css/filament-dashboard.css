@@ -873,8 +873,9 @@
     padding: clamp(1.5rem, 3.5vw, 2.75rem);
     border-radius: 1.35rem;
     background:
-        radial-gradient(circle at 86% 30%, rgba(44, 196, 141, 0.16), transparent 34%),
-        linear-gradient(118deg, #1a293c 0%, #12313b 56%, #114d3f 100%);
+        radial-gradient(circle at 88% 16%, rgba(245, 179, 1, 0.18), transparent 30%),
+        radial-gradient(circle at 46% 100%, rgba(56, 169, 255, 0.15), transparent 34%),
+        linear-gradient(122deg, #111827 0%, #172554 54%, #312e81 100%);
 }
 
 .wd-hero::before,
@@ -919,7 +920,7 @@
     bottom: -4rem;
     width: 12rem;
     height: 12rem;
-    background: rgba(50, 196, 141, 0.1);
+    background: rgba(168, 85, 247, 0.12);
 }
 
 .wd-hero__content,
@@ -1027,8 +1028,9 @@
     background: rgba(255, 255, 255, 0.09);
 }
 
-.wd-hero-metric__icon--green {
-    color: #76e6bd;
+.wd-hero-metric__icon--weather {
+    color: #7dd3fc;
+    background: rgba(56, 189, 248, 0.12);
 }
 
 .wd-hero-metric__icon svg {
@@ -1656,6 +1658,63 @@
     color: var(--wd-amber-light);
     font-size: 0.78rem;
     text-align: right;
+}
+
+.wd-rank-row__metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+    min-width: 0;
+}
+
+.wd-rank-row__metrics div {
+    display: grid;
+    gap: 0.08rem;
+    min-width: 0;
+}
+
+.wd-rank-row__metrics span,
+.wd-rank-row__score > span {
+    color: var(--wd-muted-soft);
+    font-size: 0.56rem;
+}
+
+.wd-rank-row__metrics strong {
+    overflow: hidden;
+    color: var(--wd-text);
+    font-size: 0.66rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wd-rank-row__score {
+    display: grid;
+    justify-items: end;
+    gap: 0.08rem;
+    min-width: 0;
+}
+
+.wd-rank-row__score strong {
+    color: var(--wd-amber-light);
+    font-size: 0.78rem;
+}
+
+.wd-rank-row__score i {
+    display: block;
+    width: 100%;
+    height: 0.25rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--wd-track);
+}
+
+.wd-rank-row__score i b {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #cc8e00, var(--wd-amber-light));
+    animation: wd-score-grow 900ms cubic-bezier(0.2, 0.75, 0.25, 1) forwards;
 }
 
 .wd-saw-footer {
@@ -2293,34 +2352,8 @@
         flex-direction: column;
     }
 
-    .wd-chart {
-        overflow-x: auto;
-    }
-
-    .wd-chart__scale,
-    .wd-chart-row {
-        min-width: 43rem;
-    }
-
-    .wd-chart__scale {
-        margin-left: 13rem;
-    }
-
-    .wd-chart-row {
-        grid-template-columns: 12rem minmax(12rem, 1fr) 3.8rem;
-    }
-
     .wd-saw-layout {
         padding: 0.85rem;
-    }
-
-    .wd-ranking {
-        overflow-x: auto;
-    }
-
-    .wd-ranking__heading,
-    .wd-rank-row {
-        min-width: 42rem;
     }
 
     .wd-saw-footer {
@@ -2344,6 +2377,165 @@
 
     .wg-step ul {
         margin-left: 0;
+    }
+}
+
+@media (max-width: 760px) {
+    .wd-hero {
+        gap: 1.15rem;
+        background:
+            radial-gradient(circle at 94% 8%, rgba(245, 179, 1, 0.16), transparent 28%),
+            linear-gradient(145deg, #111827 0%, #172554 62%, #312e81 100%);
+    }
+
+    .wd-hero h1 {
+        font-size: clamp(1.65rem, 9vw, 2.35rem);
+    }
+
+    .wd-hero__content > p {
+        font-size: 0.84rem;
+        line-height: 1.6;
+    }
+
+    .wd-hero__metrics {
+        gap: 0.65rem;
+    }
+
+    .wd-hero-metric {
+        grid-template-columns: 2.45rem minmax(0, 1fr);
+        gap: 0.7rem;
+        padding: 0.85rem;
+    }
+
+    .wd-hero-metric__icon {
+        width: 2.45rem;
+        height: 2.45rem;
+    }
+
+    .wd-hero-metric strong {
+        font-size: 1rem;
+    }
+
+    .wd-chart {
+        display: grid;
+        gap: 0.65rem;
+        overflow: visible;
+        padding: 0.9rem;
+    }
+
+    .wd-chart__scale {
+        display: none;
+    }
+
+    .wd-chart-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "label value"
+            "plot plot";
+        gap: 0.65rem 0.8rem;
+        min-width: 0;
+        min-height: 0;
+        padding: 0.8rem;
+        border: 1px solid var(--wd-border);
+        border-radius: 0.8rem;
+        background: var(--wd-surface-soft);
+    }
+
+    .wd-chart-row:last-child {
+        border-bottom: 1px solid var(--wd-border);
+    }
+
+    .wd-chart-row__label {
+        grid-area: label;
+    }
+
+    .wd-chart-row__label strong,
+    .wd-chart-row__label span {
+        overflow: visible;
+        text-overflow: unset;
+        white-space: normal;
+    }
+
+    .wd-chart-row__plot {
+        grid-area: plot;
+        height: 0.7rem;
+    }
+
+    .wd-chart-row__value {
+        grid-area: value;
+        align-self: center;
+    }
+
+    .wd-ranking {
+        overflow: hidden;
+    }
+
+    .wd-ranking__heading {
+        min-width: 0;
+        padding: 0.85rem;
+    }
+
+    .wd-ranking__heading > span {
+        display: none;
+    }
+
+    .wd-rank-row {
+        grid-template-columns: 2rem minmax(0, 1fr) 4.7rem;
+        grid-template-areas:
+            "rank barang score"
+            "metrics metrics metrics";
+        gap: 0.65rem 0.7rem;
+        min-width: 0;
+        min-height: 0;
+        padding: 0.85rem;
+    }
+
+    .wd-rank-row__number {
+        grid-area: rank;
+    }
+
+    .wd-rank-row__barang {
+        grid-area: barang;
+    }
+
+    .wd-rank-row__barang strong,
+    .wd-rank-row__barang span {
+        overflow: visible;
+        text-overflow: unset;
+        white-space: normal;
+    }
+
+    .wd-rank-row__metrics {
+        grid-area: metrics;
+        gap: 0.4rem;
+    }
+
+    .wd-rank-row__metrics div {
+        padding: 0.55rem;
+        border-radius: 0.6rem;
+        background: var(--wd-surface-soft);
+    }
+
+    .wd-rank-row__metrics strong {
+        font-size: 0.65rem;
+        white-space: normal;
+    }
+
+    .wd-rank-row__score {
+        grid-area: score;
+        align-self: center;
+    }
+
+    .wd-winner__metrics {
+        gap: 0.4rem;
+    }
+
+    .wd-winner__metrics div {
+        padding: 0.55rem;
+    }
+
+    .wd-winner__metrics strong {
+        font-size: 0.75rem;
     }
 }
 

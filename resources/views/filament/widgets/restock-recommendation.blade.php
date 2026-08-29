@@ -5,7 +5,7 @@
                 <span class="wd-kicker">Sistem pendukung keputusan</span>
                 <h2>Prioritas restock metode SAW</h2>
                 <p>
-                    Top 5 rekomendasi periode {{ $start->translatedFormat('d M Y') }}
+                    Top {{ $recommendations->count() }} rekomendasi periode {{ $start->translatedFormat('d M Y') }}
                     - {{ $end->translatedFormat('d M Y') }}.
                 </p>
             </div>
@@ -44,11 +44,11 @@
                         </div>
                         <div>
                             <span>Pemakaian</span>
-                            <strong>{{ number_format($winner['jumlah_pemakaian']) }}</strong>
+                            <strong>{{ number_format($winner['jumlah_pemakaian']) }} {{ $winner['satuan'] }}</strong>
                         </div>
                         <div>
                             <span>Sisa stok</span>
-                            <strong>{{ number_format($winner['sisa_stok']) }}</strong>
+                            <strong>{{ number_format($winner['sisa_stok']) }} {{ $winner['satuan'] }}</strong>
                         </div>
                     </div>
 
@@ -72,22 +72,32 @@
                             <span class="wd-rank-row__number wd-rank-row__number--{{ $item['peringkat'] }}">
                                 {{ $item['peringkat'] }}
                             </span>
+
                             <div class="wd-rank-row__barang">
                                 <strong>{{ $item['nama_barang'] }}</strong>
-                                <span>{{ $item['kode_barang'] }} · Sisa {{ number_format($item['sisa_stok']) }} {{ $item['satuan'] }}</span>
+                                <span>{{ $item['kode_barang'] }}</span>
                             </div>
-                            <div class="wd-rank-row__progress">
+
+                            <div class="wd-rank-row__metrics">
                                 <div>
-                                    <span style="--score-width: {{ $item['score_percentage'] }}%"></span>
+                                    <span>Frekuensi</span>
+                                    <strong>{{ number_format($item['frekuensi_pemakaian']) }}x</strong>
                                 </div>
-                                <small>
-                                    {{ number_format($item['frekuensi_pemakaian']) }}x frekuensi ·
-                                    {{ number_format($item['jumlah_pemakaian']) }} pemakaian
-                                </small>
+                                <div>
+                                    <span>Pemakaian</span>
+                                    <strong>{{ number_format($item['jumlah_pemakaian']) }} {{ $item['satuan'] }}</strong>
+                                </div>
+                                <div>
+                                    <span>Sisa stok</span>
+                                    <strong>{{ number_format($item['sisa_stok']) }} {{ $item['satuan'] }}</strong>
+                                </div>
                             </div>
-                            <strong class="wd-rank-row__score">
-                                {{ number_format($item['nilai_preferensi'], 4) }}
-                            </strong>
+
+                            <div class="wd-rank-row__score">
+                                <span>Skor</span>
+                                <strong>{{ number_format($item['nilai_preferensi'], 4) }}</strong>
+                                <i><b style="--score-width: {{ $item['score_percentage'] }}%"></b></i>
+                            </div>
                         </a>
                     @endforeach
                 </div>

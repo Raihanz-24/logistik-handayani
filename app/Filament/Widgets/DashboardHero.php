@@ -2,9 +2,7 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\BarangLokasi;
-use App\Models\Lokasi;
-use App\Models\Mutasi;
+use App\Services\PaitonWeatherService;
 use Filament\Widgets\Widget;
 
 class DashboardHero extends Widget
@@ -21,7 +19,8 @@ class DashboardHero extends Widget
     {
         $userName = trim((string) auth()->user()?->name);
         $firstName = str($userName)->before(' ')->toString() ?: 'Admin';
-        $hour = (int) now()->format('H');
+        $now = now('Asia/Jakarta');
+        $hour = (int) $now->format('H');
 
         $greeting = match (true) {
             $hour < 11 => 'Selamat pagi',
@@ -33,15 +32,9 @@ class DashboardHero extends Widget
         return [
             'firstName' => $firstName,
             'greeting' => $greeting,
-            'currentDate' => now()->translatedFormat('l, d F Y'),
-            'currentTime' => now()->format('H:i'),
-            'totalStock' => (int) BarangLokasi::query()
-                ->whereHas('lokasi', fn ($query) => $query->where('jenis_lokasi', Lokasi::JENIS_GUDANG))
-                ->sum('stok'),
-            'activeLocations' => Lokasi::query()
-                ->where('jenis_lokasi', Lokasi::JENIS_GUDANG)
-                ->count(),
-            'pendingMutations' => Mutasi::query()->where('status', 'pending')->count(),
+            'currentDate' => $now->translatedFormat('l, d F Y'),
+            'currentTime' => $now->format('H:i'),
+            'weather' => app(PaitonWeatherService::class)->current(),
         ];
     }
 }
