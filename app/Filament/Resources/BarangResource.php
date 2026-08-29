@@ -11,6 +11,7 @@ use Filament\Forms;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -20,6 +21,8 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class BarangResource extends Resource
 {
+    private const MAX_ORIGINAL_IMAGE_SIZE_KB = 10 * 1024;
+
     protected static ?string $model = Barang::class;
 
     protected static ?string $navigationGroup = 'Master Data';
@@ -93,10 +96,10 @@ class BarangResource extends Resource
                             ->columnSpanFull(),
                         FileUpload::make('gambar')
                             ->label('Gambar Barang')
-                            ->helperText('Opsional. Maksimal 3 MB. Gambar otomatis dikompres dan disimpan sebagai WebP.')
+                            ->helperText('Opsional. Foto asli maksimal 10 MB. Saat disimpan, gambar otomatis diperkecil dan dikompres menjadi WebP ringan.')
                             ->image()
                             ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
-                            ->maxSize(3072)
+                            ->maxSize(self::MAX_ORIGINAL_IMAGE_SIZE_KB)
                             ->disk('public')
                             ->directory('barang')
                             ->visibility('public')
@@ -107,8 +110,35 @@ class BarangResource extends Resource
                             ->imageResizeUpscale(false)
                             ->openable()
                             ->downloadable()
+                            ->afterStateUpdated(function (mixed $state): void {
+                                if (! $state instanceof TemporaryUploadedFile) {
+                                    return;
+                                }
+
+                                Notification::make()
+                                    ->title('Kompresi gambar otomatis aktif')
+                                    ->body('Gambar sudah diterima dan akan dikompres otomatis ketika data barang disimpan.')
+                                    ->info()
+                                    ->send();
+                            })
                             ->saveUploadedFileUsing(
-                                fn (TemporaryUploadedFile $file): string => app(BarangImageService::class)->store($file),
+                                function (TemporaryUploadedFile $file): string {
+                                    $originalSize = max(0, (int) $file->getSize());
+                                    $path = app(BarangImageService::class)->store($file);
+                                    $compressedSize = max(0, (int) Storage::disk('public')->size($path));
+
+                                    Notification::make()
+                                        ->title('Gambar berhasil dikompres')
+                                        ->body(sprintf(
+                                            '%s menjadi %s dan disimpan sebagai WebP.',
+                                            self::formatFileSize($originalSize),
+                                            self::formatFileSize($compressedSize),
+                                        ))
+                                        ->success()
+                                        ->send();
+
+                                    return $path;
+                                },
                             )
                             ->deleteUploadedFileUsing(
                                 fn (string $file): bool => Storage::disk('public')->delete($file),
@@ -116,6 +146,15 @@ class BarangResource extends Resource
                             ->columnSpanFull(),
                     ]),
             ]);
+    }
+
+    private static function formatFileSize(int $bytes): string
+    {
+        if ($bytes >= 1024 * 1024) {
+            return number_format($bytes / (1024 * 1024), 1, ',', '.').' MB';
+        }
+
+        return number_format(max(1, $bytes / 1024), 0, ',', '.').' KB';
     }
 
     public static function table(Table $table): Table
