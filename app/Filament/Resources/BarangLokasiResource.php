@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BarangLokasiResource\Pages;
+use App\Models\Barang;
 use App\Models\BarangLokasi;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -63,9 +64,16 @@ class BarangLokasiResource extends Resource
     {
         return $table
 
-            ->paginationPageOptions([5, 25, 50, 100, 250])
-            ->defaultPaginationPageOption(5)
-            ->defaultSort('barang_id', direction: 'desc')
+            ->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->extremePaginationLinks()
+            ->defaultSort(
+                fn (Builder $query): Builder => $query->orderBy(
+                    Barang::query()
+                        ->select('nama_barang')
+                        ->whereColumn('barangs.id', 'barang_lokasi.barang_id'),
+                ),
+            )
             ->columns([
                 Tables\Columns\TextColumn::make('barang.nama_barang')
                     ->searchable()

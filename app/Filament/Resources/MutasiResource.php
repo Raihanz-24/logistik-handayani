@@ -92,7 +92,7 @@ class MutasiResource extends Resource
     public static function availableBarangOptions(?int $lokasiId, ?string $jenis): array
     {
         if ($jenis === 'masuk') {
-            return \App\Models\Barang::query()->orderBy('nama_barang')
+            return Barang::query()->orderBy('nama_barang')
                 ->get()->mapWithKeys(fn ($item): array => [$item->id => "{$item->kode_barang} - {$item->nama_barang}"])->all();
         }
         if (! $lokasiId) {
@@ -493,8 +493,9 @@ class MutasiResource extends Resource
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['lokasi', 'lokasiTujuan']))
-            ->defaultSort('id', 'desc')->paginationPageOptions([5, 25, 50, 100, 250])
-            ->defaultPaginationPageOption(25)
+            ->defaultSort('id', 'desc')->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->extremePaginationLinks()
             ->columns([
                 Tables\Columns\TextColumn::make('tanggal')->date('d M Y')->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('barang.kode_barang')->label('Kode Barang')
@@ -581,7 +582,7 @@ class MutasiResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
-                Tables\Actions\Action::make('approve')->label('Approve')->icon('heroicon-o-check-circle')->color('success')
+                Action::make('approve')->label('Approve')->icon('heroicon-o-check-circle')->color('success')
                     ->visible(fn (Mutasi $record): bool => static::canApproveRecord($record))->requiresConfirmation()
                     ->action(function (Mutasi $record): void {
                         try {
@@ -591,7 +592,7 @@ class MutasiResource extends Resource
                             Notification::make()->title('Gagal approve')->body($exception->getMessage())->danger()->send();
                         }
                     }),
-                Tables\Actions\Action::make('cancel')->label('Batalkan')->icon('heroicon-o-x-circle')->color('danger')
+                Action::make('cancel')->label('Batalkan')->icon('heroicon-o-x-circle')->color('danger')
                     ->visible(fn (Mutasi $record): bool => static::isSuperAdmin() && $record->status === 'pending')
                     ->form([Forms\Components\Textarea::make('cancel_reason')->label('Alasan')->required()->maxLength(255)])
                     ->action(function (Mutasi $record, array $data): void {

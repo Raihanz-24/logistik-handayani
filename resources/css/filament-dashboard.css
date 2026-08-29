@@ -585,6 +585,179 @@
     background: var(--wd-nav-hover);
 }
 
+/* Keep record counts and page numbers visible on every Filament table. */
+.fi-body .fi-ta-pagination .fi-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+}
+
+.fi-body .fi-ta-pagination .fi-pagination-overview {
+    display: inline;
+    flex: 1 1 14rem;
+    order: 1;
+}
+
+.fi-body .fi-ta-pagination .fi-pagination-records-per-page-select {
+    order: 2;
+}
+
+.fi-body .fi-ta-pagination .fi-pagination-previous-btn,
+.fi-body .fi-ta-pagination .fi-pagination-next-btn {
+    display: none;
+}
+
+.fi-body .fi-ta-pagination .fi-pagination-items {
+    display: flex;
+    max-width: 100%;
+    margin-left: auto;
+    overflow-x: auto;
+    order: 3;
+}
+
+.stock-page-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.stock-overview {
+    padding: clamp(1rem, 2vw, 1.4rem);
+    border: 1px solid var(--wd-border);
+    border-radius: 1rem;
+    background: var(--wd-surface);
+    box-shadow: var(--wd-shadow);
+}
+
+.stock-overview-heading,
+.stock-summary-card-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.stock-overview-heading h2 {
+    color: var(--wd-text);
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.stock-overview-heading p,
+.stock-filter-hint,
+.stock-summary-card small {
+    color: var(--wd-muted);
+    font-size: 0.82rem;
+}
+
+.stock-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-top: 1rem;
+}
+
+.stock-summary-card {
+    padding: 1rem;
+    border: 1px solid var(--wd-border);
+    border-radius: 0.9rem;
+    background: var(--wd-surface-soft);
+    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.stock-summary-card.is-active {
+    border-color: var(--wd-amber);
+    box-shadow: 0 0 0 3px rgba(245, 179, 1, 0.12);
+}
+
+.stock-summary-label,
+.stock-summary-card strong,
+.stock-summary-card small {
+    display: block;
+}
+
+.stock-summary-label {
+    color: var(--wd-card-label);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.stock-summary-card strong {
+    margin-top: 0.2rem;
+    color: var(--wd-card-value);
+    font-size: clamp(1.35rem, 3vw, 1.9rem);
+    line-height: 1.15;
+}
+
+.stock-filter-button {
+    min-width: 4.5rem;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--wd-border-strong);
+    border-radius: 999px;
+    color: var(--wd-card-label);
+    background: var(--wd-surface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.stock-filter-button:hover,
+.stock-filter-button.is-active {
+    border-color: var(--wd-amber);
+    color: #111827;
+    background: var(--wd-amber);
+}
+
+.stock-condition-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.9rem;
+}
+
+.stock-condition-list > div {
+    padding: 0.55rem;
+    border-radius: 0.65rem;
+    background: var(--wd-panel-inset);
+}
+
+.stock-condition-list dt {
+    color: var(--wd-muted);
+    font-size: 0.7rem;
+}
+
+.stock-condition-list dd {
+    margin-top: 0.1rem;
+    color: var(--wd-text);
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.stock-filter-hint {
+    margin-top: 0.8rem;
+}
+
+@media (max-width: 640px) {
+    .stock-summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stock-overview-heading {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .fi-body .fi-ta-pagination .fi-pagination-overview {
+        flex-basis: 100%;
+    }
+
+    .fi-body .fi-ta-pagination .fi-pagination-items {
+        width: 100%;
+        margin-left: 0;
+    }
+}
+
 .fi-body .fi-notification,
 .fi-body .fi-no-notification {
     border: 1px solid var(--wd-border);

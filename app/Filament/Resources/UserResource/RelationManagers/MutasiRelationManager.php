@@ -28,8 +28,9 @@ class MutasiRelationManager extends RelationManager
     {
         return $table
             ->defaultSort('created_at', direction: 'desc')
-            ->paginationPageOptions([5, 25, 50, 100, 250])
-            ->defaultPaginationPageOption(5)
+            ->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->extremePaginationLinks()
             ->recordTitleAttribute('tanggal')
             ->columns([
                 Tables\Columns\TextColumn::make('tanggal')

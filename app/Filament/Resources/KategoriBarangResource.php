@@ -69,8 +69,9 @@ class KategoriBarangResource extends Resource
     {
         return $table
             ->defaultSort('id', direction: 'desc')
-            ->paginationPageOptions([5, 25, 50, 100, 250])
-            ->defaultPaginationPageOption(5)
+            ->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->extremePaginationLinks()
             ->columns([
                 Tables\Columns\TextColumn::make('nama')
                     ->limit(30)

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\MutasiRakResource\Pages;
+use App\Models\Lokasi;
 use App\Models\MutasiRak;
 use App\Models\PosisiRak;
 use App\Services\MutasiRakService;
@@ -40,7 +41,7 @@ class MutasiRakResource extends Resource
     /** @return array<int, string> */
     public static function warehouseOptions(): array
     {
-        return \App\Models\Lokasi::query()->gudang()->where('menggunakan_rak', true)
+        return Lokasi::query()->gudang()->where('menggunakan_rak', true)
             ->orderBy('nama_lokasi')->pluck('nama_lokasi', 'id')->all();
     }
 
@@ -170,8 +171,9 @@ class MutasiRakResource extends Resource
 
     public static function table(Table $table): Table
     {
-        return $table->defaultSort('id', 'desc')->defaultPaginationPageOption(25)
-            ->paginationPageOptions([5, 25, 50, 100])
+        return $table->defaultSort('id', 'desc')->defaultPaginationPageOption(10)
+            ->paginationPageOptions([10, 25, 50, 100])
+            ->extremePaginationLinks()
             ->columns([
                 Tables\Columns\TextColumn::make('tanggal')->date('d M Y')->sortable(),
                 Tables\Columns\TextColumn::make('barang.kode_barang')->label('Kode')->searchable()->toggleable(),
