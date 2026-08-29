@@ -27,4 +27,18 @@ class CatatanFeatureTest extends TestCase
         $this->assertStringNotContainsString("DB::table('mutasis'", $migration);
         $this->assertStringNotContainsString("DB::table('barang_lokasi'", $migration);
     }
+
+    public function test_daftar_catatan_membuka_detail_dengan_checklist_belanja(): void
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $resource = (string) file_get_contents($projectRoot.'/app/Filament/Resources/CatatanResource.php');
+        $relationManager = (string) file_get_contents(
+            $projectRoot.'/app/Filament/Resources/CatatanResource/RelationManagers/ItemsRelationManager.php',
+        );
+
+        $this->assertStringContainsString('Tables\\Actions\\ViewAction::make()', $resource);
+        $this->assertStringContainsString("'view' => Pages\\ViewCatatan::route('/{record}')", $resource);
+        $this->assertStringContainsString("CheckboxColumn::make('sudah_dibeli')", $relationManager);
+        $this->assertStringContainsString("'selesai' => ! \$catatan->items()", $relationManager);
+    }
 }

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CatatanResource\Pages;
+use App\Filament\Resources\CatatanResource\RelationManagers\ItemsRelationManager;
 use App\Models\Barang;
 use App\Models\Catatan;
 use Filament\Forms;
@@ -11,6 +12,10 @@ use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
+use Filament\Infolists\Components\IconEntry;
+use Filament\Infolists\Components\Section as InfolistSection;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -177,15 +182,12 @@ class CatatanResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['supplier', 'items.barang']))
             ->defaultSort('tanggal', 'desc')
             ->columns([
-                Tables\Columns\TextColumn::make('tanggal')
-                    ->label('Tanggal')
-                    ->date('d M Y')
-                    ->sortable(),
                 Tables\Columns\TextColumn::make('judul')
                     ->label('Judul')
-                    ->description(fn (Catatan $record): string => Catatan::jenisOptions()[$record->jenis] ?? $record->jenis)
+                    ->description(fn (Catatan $record): string => $record->tanggal->format('d M Y'))
                     ->searchable()
                     ->sortable()
                     ->wrap(),
@@ -195,20 +197,32 @@ class CatatanResource extends Resource
                         ?? $record->nama_supplier_snapshot)
                     ->placeholder('-')
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('items_count')
-                    ->label('Barang')
-                    ->counts('items')
-                    ->formatStateUsing(fn (int $state): string => "{$state} barang")
-                    ->badge()
-                    ->color('info'),
+                Tables\Columns\TextColumn::make('daftar_barang')
+                    ->label('Nama Barang')
+                    ->state(fn (Catatan $record): array => $record->items
+                        ->map(fn ($item): string => $item->namaBarang())
+                        ->values()
+                        ->all())
+                    ->listWithLineBreaks()
+                    ->bulleted()
+                    ->limitList(3)
+                    ->expandableLimitedList()
+                    ->placeholder('Tidak ada daftar barang')
+                    ->wrap(),
+                Tables\Columns\TextColumn::make('tanggal')
+                    ->label('Tanggal')
+                    ->date('d M Y')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('user.name')
                     ->label('Dibuat oleh')
                     ->placeholder('Pengguna terhapus')
                     ->visible(fn (): bool => auth()->user()?->hasRole('super_admin') ?? false)
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\ToggleColumn::make('selesai')
                     ->label('Selesai')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label('Diperbarui')
                     ->since()
@@ -219,13 +233,19 @@ class CatatanResource extends Resource
                 Tables\Filters\SelectFilter::make('jenis')
                     ->label('Jenis Catatan')
                     ->options(Catatan::jenisOptions()),
+                Tables\Filters\SelectFilter::make('supplier_id')
+                    ->label('Toko / Supplier')
+                    ->relationship('supplier', 'nama_supplier', fn (Builder $query): Builder => $query->orderBy('nama_supplier'))
+                    ->searchable()
+                    ->preload(),
                 Tables\Filters\TernaryFilter::make('selesai')
                     ->label('Status')
                     ->trueLabel('Sudah selesai')
                     ->falseLabel('Belum selesai'),
             ])
             ->actions([
-                Tables\Actions\EditAction::make()->label('Buka / Edit'),
+                Tables\Actions\ViewAction::make()->label('Lihat Detail'),
+                Tables\Actions\EditAction::make()->label('Edit'),
                 Tables\Actions\DeleteAction::make()
                     ->label('Hapus')
                     ->requiresConfirmation()
@@ -239,11 +259,47 @@ class CatatanResource extends Resource
             ]);
     }
 
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist->schema([
+            InfolistSection::make('Informasi Catatan')
+                ->columns(3)
+                ->schema([
+                    TextEntry::make('jenis')
+                        ->label('Jenis')
+                        ->formatStateUsing(fn (string $state): string => Catatan::jenisOptions()[$state] ?? $state)
+                        ->badge(),
+                    TextEntry::make('tanggal')->label('Tanggal')->date('d F Y'),
+                    IconEntry::make('selesai')->label('Selesai')->boolean(),
+                    TextEntry::make('supplier_display')
+                        ->label('Toko / Supplier')
+                        ->state(fn (Catatan $record): ?string => $record->supplier?->nama_supplier
+                            ?? $record->nama_supplier_snapshot)
+                        ->placeholder('-')
+                        ->visible(fn (Catatan $record): bool => $record->jenis === Catatan::JENIS_BELANJA),
+                    TextEntry::make('isi')
+                        ->label(fn (Catatan $record): string => $record->jenis === Catatan::JENIS_BIASA
+                            ? 'Isi Catatan'
+                            : 'Catatan Tambahan')
+                        ->placeholder('-')
+                        ->columnSpanFull(),
+                ]),
+        ]);
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            ItemsRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListCatatans::route('/'),
             'create' => Pages\CreateCatatan::route('/buat'),
+            'view' => Pages\ViewCatatan::route('/{record}'),
             'edit' => Pages\EditCatatan::route('/{record}/ubah'),
         ];
     }
