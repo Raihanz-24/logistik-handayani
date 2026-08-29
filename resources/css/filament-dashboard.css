@@ -1421,8 +1421,7 @@
 .wd-winner h3,
 .wd-winner p,
 .wd-winner__score,
-.wd-winner__metrics,
-.wd-winner__action {
+.wd-winner__metrics {
     position: relative;
     z-index: 1;
 }
@@ -1507,28 +1506,6 @@
     font-size: 0.9rem;
 }
 
-.wd-winner__action {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: auto;
-    padding-top: 1rem;
-    color: var(--wd-amber-light);
-    font-size: 0.73rem;
-    font-weight: 720;
-    text-decoration: none;
-}
-
-.wd-winner__action svg {
-    width: 1rem;
-    height: 1rem;
-    transition: transform 160ms ease;
-}
-
-.wd-winner__action:hover svg {
-    transform: translateX(0.25rem);
-}
-
 .wd-ranking {
     overflow: hidden;
     border: 1px solid var(--wd-border);
@@ -1569,16 +1546,10 @@
     min-height: 4.2rem;
     padding: 0.65rem 1rem;
     border-bottom: 1px solid var(--wd-row-border);
-    text-decoration: none;
-    transition: background 160ms ease;
 }
 
 .wd-rank-row:last-child {
     border-bottom: 0;
-}
-
-.wd-rank-row:hover {
-    background: var(--wd-nav-hover);
 }
 
 .wd-rank-row__number {

@@ -32,4 +32,15 @@ class DashboardMobileLayoutTest extends TestCase
         $this->assertStringContainsString('Cuaca hari ini', $hero);
         $this->assertStringNotContainsString('Kondisi stok', $hero);
     }
+
+    public function test_restock_recommendations_are_read_only(): void
+    {
+        $restock = (string) file_get_contents(
+            dirname(__DIR__, 2).'/resources/views/filament/widgets/restock-recommendation.blade.php',
+        );
+
+        $this->assertStringNotContainsString("href=\"{{ \$item['url'] }}\"", $restock);
+        $this->assertStringNotContainsString("href=\"{{ \$winner['url'] }}\"", $restock);
+        $this->assertStringNotContainsString('Lihat detail barang', $restock);
+    }
 }

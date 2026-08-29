@@ -52,10 +52,6 @@
                         </div>
                     </div>
 
-                    <a href="{{ $winner['url'] }}" class="wd-winner__action">
-                        Lihat detail barang
-                        <x-filament::icon icon="heroicon-m-arrow-right" />
-                    </a>
                 </article>
 
                 <div class="wd-ranking">
@@ -68,7 +64,7 @@
                     </div>
 
                     @foreach ($recommendations as $item)
-                        <a href="{{ $item['url'] }}" class="wd-rank-row">
+                        <article class="wd-rank-row">
                             <span class="wd-rank-row__number wd-rank-row__number--{{ $item['peringkat'] }}">
                                 {{ $item['peringkat'] }}
                             </span>
@@ -98,7 +94,7 @@
                                 <strong>{{ number_format($item['nilai_preferensi'], 4) }}</strong>
                                 <i><b style="--score-width: {{ $item['score_percentage'] }}%"></b></i>
                             </div>
-                        </a>
+                        </article>
                     @endforeach
                 </div>
             </div>

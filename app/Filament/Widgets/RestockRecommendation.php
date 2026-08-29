@@ -2,7 +2,6 @@
 
 namespace App\Filament\Widgets;
 
-use App\Filament\Resources\BarangResource;
 use App\Services\SawRestockRecommendationService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Carbon\Carbon;
@@ -39,7 +38,6 @@ class RestockRecommendation extends Widget
 
         $result['recommendations'] = $result['recommendations']
             ->map(fn (array $item): array => $item + [
-                'url' => BarangResource::getUrl('edit', ['record' => $item['barang_id']]),
                 'score_percentage' => min(100, max(0, $item['nilai_preferensi'] * 100)),
             ]);
 
