@@ -63,6 +63,26 @@ class ListBarangLokasis extends ListRecords
         return self::GUDANG_CEPAT;
     }
 
+    /**
+     * @return array{
+     *     warehouses: array<int, array{label: string, keyword: string}>,
+     *     search: string
+     * }
+     */
+    public function stockPdfExportContext(): array
+    {
+        $warehouses = collect($this->gudangAktif)
+            ->filter(fn (string $key): bool => array_key_exists($key, self::GUDANG_CEPAT))
+            ->map(fn (string $key): array => self::GUDANG_CEPAT[$key])
+            ->values()
+            ->all();
+
+        return [
+            'warehouses' => $warehouses,
+            'search' => trim((string) ($this->tableSearch ?? '')),
+        ];
+    }
+
     /** @return array<string, array{label: string, jumlah_barang: int, stok: int, baik: int, rusak: int, hilang: int}> */
     public function ringkasanGudang(): array
     {

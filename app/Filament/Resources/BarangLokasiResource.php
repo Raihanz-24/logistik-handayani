@@ -5,10 +5,12 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\BarangLokasiResource\Pages;
 use App\Models\Barang;
 use App\Models\BarangLokasi;
+use App\Services\StockPdfExportService;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Tables\Actions\Action;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -118,6 +120,15 @@ class BarangLokasiResource extends Resource
             ])
             ->filters([
                 //
+            ])
+            ->headerActions([
+                Action::make('export-pdf')
+                    ->label('Export PDF')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('danger')
+                    ->tooltip('Unduh seluruh stok sesuai filter aktif')
+                    ->action(fn ($livewire) => app(StockPdfExportService::class)
+                        ->download($livewire->stockPdfExportContext())),
             ])
             ->actions([
                 //
