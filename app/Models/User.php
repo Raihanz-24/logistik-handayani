@@ -84,4 +84,9 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->hasMany(Catatan::class);
     }
+
+    public function fotoBarangSessions()
+    {
+        return $this->hasMany(FotoBarangSession::class);
+    }
 }

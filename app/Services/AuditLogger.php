@@ -125,6 +125,34 @@ class AuditLogger
         ]);
     }
 
+    /** @param array<string, mixed> $metadata */
+    public function activity(
+        string $event,
+        string $description,
+        ?User $actor = null,
+        array $metadata = [],
+    ): void {
+        $actor ??= auth()->user();
+        $request = request();
+
+        $this->write([
+            'user_id' => $actor?->getKey(),
+            'user_name' => $actor?->name,
+            'user_email' => $actor?->email,
+            'event' => Str::limit($event, 50, ''),
+            'description' => Str::limit($description, 255, ''),
+            'method' => app()->runningInConsole() ? null : strtoupper($request->method()),
+            'route_name' => app()->runningInConsole() ? null : $request->route()?->getName(),
+            'path' => app()->runningInConsole() ? null : '/'.$request->path(),
+            'ip_address' => app()->runningInConsole() ? null : $request->ip(),
+            'user_agent' => app()->runningInConsole()
+                ? null
+                : Str::limit((string) $request->userAgent(), 1000, ''),
+            'status_code' => null,
+            'metadata' => $metadata === [] ? null : $metadata,
+        ]);
+    }
+
     /**
      * Never allow audit logging to interrupt the user's actual request.
      *
