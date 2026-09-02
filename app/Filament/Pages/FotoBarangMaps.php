@@ -2,6 +2,8 @@
 
 namespace App\Filament\Pages;
 
+use App\Jobs\ProcessFotoBarangImage;
+use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
 use App\Models\User;
 use App\Services\AuditLogger;
@@ -206,7 +208,7 @@ class FotoBarangMaps extends Page
         }
 
         try {
-            $item = app(FotoBarangImageService::class)->store(
+            $item = app(FotoBarangImageService::class)->stage(
                 $session,
                 $this->photo,
                 (float) $this->latitude,
@@ -226,13 +228,15 @@ class FotoBarangMaps extends Page
                 ],
             );
 
+            $this->dispatchPhotoProcessing($item);
+
             $this->reset('photo', 'capturedAt');
             $this->uploadKey++;
             $this->dispatch('foto-barang-saved');
 
             Notification::make()
                 ->title("Foto {$item->urutan} tersimpan")
-                ->body($this->formatBytes($item->ukuran_asli).' dikompres menjadi '.$this->formatBytes($item->ukuran_hasil).'.')
+                ->body('File sumber sudah aman. Watermark dan kompresi diproses di latar belakang.')
                 ->success()
                 ->send();
 
@@ -245,7 +249,7 @@ class FotoBarangMaps extends Page
             $this->dispatch('foto-barang-failed');
 
             Notification::make()
-                ->title('Foto gagal diproses')
+                ->title('Foto gagal disimpan')
                 ->body($exception->getMessage())
                 ->danger()
                 ->persistent()
@@ -368,6 +372,31 @@ class FotoBarangMaps extends Page
         Notification::make()->title('Foto dihapus')->success()->send();
     }
 
+    public function retryPhotoProcessing(int $photoId): void
+    {
+        $session = $this->findVisibleSession((int) $this->activeSessionId);
+        $photo = $session->items()->whereKey($photoId)->firstOrFail();
+
+        if ($photo->processingCompleted()) {
+            Notification::make()->title('Foto sudah selesai diproses')->success()->send();
+
+            return;
+        }
+
+        $photo->update([
+            'processing_status' => FotoBarangItem::PROCESSING_PENDING,
+            'processing_error' => null,
+        ]);
+
+        $this->dispatchPhotoProcessing($photo);
+
+        Notification::make()
+            ->title('Foto dijadwalkan ulang')
+            ->body('File sumber tetap aman selama proses berjalan.')
+            ->success()
+            ->send();
+    }
+
     public function openSession(int $sessionId): void
     {
         $session = $this->findVisibleSession($sessionId);
@@ -468,5 +497,18 @@ class FotoBarangMaps extends Page
         } catch (Throwable) {
             return CarbonImmutable::now('Asia/Jakarta');
         }
+    }
+
+    private function dispatchPhotoProcessing(FotoBarangItem $item): void
+    {
+        $queue = (string) config('foto_barang.processing_queue', 'default');
+
+        if (config('foto_barang.processing_mode') === 'queue') {
+            ProcessFotoBarangImage::dispatch((int) $item->getKey())->onQueue($queue);
+
+            return;
+        }
+
+        ProcessFotoBarangImage::dispatchAfterResponse((int) $item->getKey())->onQueue($queue);
     }
 }

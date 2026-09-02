@@ -9,6 +9,7 @@ use GdImage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -23,18 +24,57 @@ class FotoBarangImageService
         ?int $accuracy = null,
         ?CarbonInterface $capturedAt = null,
     ): FotoBarangItem {
+        return $this->process($this->stage(
+            $session,
+            $file,
+            $latitude,
+            $longitude,
+            $accuracy,
+            $capturedAt,
+        ));
+    }
+
+    public function stage(
+        FotoBarangSession $session,
+        UploadedFile $file,
+        float $latitude,
+        float $longitude,
+        ?int $accuracy = null,
+        ?CarbonInterface $capturedAt = null,
+    ): FotoBarangItem {
         $capturedAt ??= now('Asia/Jakarta');
-        $rendered = $this->render($file, $session, $latitude, $longitude, $accuracy, $capturedAt);
+        $sourcePath = $file->getRealPath();
+        $imageInfo = @getimagesize($sourcePath);
+
+        if ($imageInfo === false) {
+            throw new InvalidArgumentException('File yang dipilih bukan gambar yang valid.');
+        }
+
+        [$width, $height] = $imageInfo;
+
+        if (($width * $height) > 45_000_000) {
+            throw new InvalidArgumentException('Resolusi foto terlalu besar. Gunakan kamera dengan resolusi maksimal 45 megapiksel.');
+        }
+
+        $extension = match ((string) ($imageInfo['mime'] ?? '')) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            default => throw new InvalidArgumentException('Gunakan foto berformat JPG, PNG, atau WebP.'),
+        };
         $storedPath = null;
 
         try {
             return DB::transaction(function () use (
                 $session,
+                $file,
                 $latitude,
                 $longitude,
                 $accuracy,
                 $capturedAt,
-                $rendered,
+                $extension,
+                $width,
+                $height,
                 &$storedPath,
             ): FotoBarangItem {
                 $lockedSession = FotoBarangSession::query()
@@ -47,19 +87,21 @@ class FotoBarangImageService
 
                 $sequence = ((int) $lockedSession->items()->max('urutan')) + 1;
                 $storedPath = $lockedSession->storageDirectory().'/'.sprintf(
-                    '%03d-%s.jpg',
+                    '%03d-%s-source-%s.%s',
                     $sequence,
                     $capturedAt->format('Ymd-His'),
+                    Str::lower(Str::random(8)),
+                    $extension,
                 );
-                $stream = fopen($rendered['path'], 'rb');
+                $stream = fopen($file->getRealPath(), 'rb');
 
                 if ($stream === false) {
-                    throw new RuntimeException('File hasil foto tidak dapat dibaca.');
+                    throw new RuntimeException('File sumber foto tidak dapat dibaca.');
                 }
 
                 try {
                     if (! Storage::disk('local')->put($storedPath, $stream)) {
-                        throw new RuntimeException('Foto gagal disimpan. Silakan ulangi pengambilan foto.');
+                        throw new RuntimeException('Foto sumber gagal disimpan. Silakan ulangi pengambilan foto.');
                     }
                 } finally {
                     fclose($stream);
@@ -68,14 +110,18 @@ class FotoBarangImageService
                 return $lockedSession->items()->create([
                     'urutan' => $sequence,
                     'path' => $storedPath,
+                    'processing_status' => FotoBarangItem::PROCESSING_PENDING,
+                    'processing_attempts' => 0,
+                    'processing_error' => null,
+                    'processed_at' => null,
                     'latitude' => $latitude,
                     'longitude' => $longitude,
                     'akurasi_meter' => $accuracy,
                     'diambil_at' => $capturedAt,
-                    'ukuran_asli' => $rendered['original_size'],
-                    'ukuran_hasil' => $rendered['file_size'],
-                    'lebar' => $rendered['width'],
-                    'tinggi' => $rendered['height'],
+                    'ukuran_asli' => max(0, (int) $file->getSize()),
+                    'ukuran_hasil' => max(0, (int) $file->getSize()),
+                    'lebar' => $width,
+                    'tinggi' => $height,
                 ]);
             });
         } catch (Throwable $exception) {
@@ -84,10 +130,121 @@ class FotoBarangImageService
             }
 
             throw $exception;
+        }
+    }
+
+    public function process(FotoBarangItem $item): FotoBarangItem
+    {
+        $item->loadMissing('session');
+
+        if ($item->processingCompleted()) {
+            return $item;
+        }
+
+        $disk = Storage::disk('local');
+
+        if (! $disk->exists($item->path)) {
+            throw new RuntimeException('File sumber foto tidak ditemukan.');
+        }
+
+        $sourcePath = $disk->path($item->path);
+        $mimeType = (string) (@mime_content_type($sourcePath) ?: 'application/octet-stream');
+        $file = new UploadedFile($sourcePath, basename($item->path), $mimeType, null, true);
+        $capturedAt = $item->diambil_at ?? now('Asia/Jakarta');
+        $rendered = $this->render(
+            $file,
+            $item->session,
+            (float) $item->latitude,
+            (float) $item->longitude,
+            $item->akurasi_meter,
+            $capturedAt,
+        );
+        $processedPath = $item->session->storageDirectory().'/'.sprintf(
+            '%03d-%s-processed-%s.jpg',
+            $item->urutan,
+            $capturedAt->format('Ymd-His'),
+            Str::lower(Str::random(8)),
+        );
+
+        try {
+            $stream = fopen($rendered['path'], 'rb');
+
+            if ($stream === false) {
+                throw new RuntimeException('File hasil kompresi tidak dapat dibaca.');
+            }
+
+            try {
+                if (! $disk->put($processedPath, $stream)) {
+                    throw new RuntimeException('Hasil kompresi gagal disimpan.');
+                }
+            } finally {
+                fclose($stream);
+            }
+
+            $this->validateProcessedFile($disk->path($processedPath), $rendered);
+            $sourceStoragePath = $item->path;
+
+            try {
+                $updated = DB::transaction(function () use ($item, $processedPath, $rendered): FotoBarangItem {
+                    $lockedItem = FotoBarangItem::query()->lockForUpdate()->findOrFail($item->getKey());
+
+                    if ($lockedItem->processingCompleted()) {
+                        return $lockedItem;
+                    }
+
+                    $lockedItem->update([
+                        'path' => $processedPath,
+                        'processing_status' => FotoBarangItem::PROCESSING_COMPLETED,
+                        'processing_error' => null,
+                        'processed_at' => now('Asia/Jakarta'),
+                        'ukuran_hasil' => $rendered['file_size'],
+                        'lebar' => $rendered['width'],
+                        'tinggi' => $rendered['height'],
+                    ]);
+
+                    return $lockedItem->fresh();
+                });
+            } catch (Throwable $exception) {
+                $disk->delete($processedPath);
+
+                throw $exception;
+            }
+
+            if ($updated->path !== $processedPath) {
+                $disk->delete($processedPath);
+            } elseif ($sourceStoragePath !== $processedPath) {
+                $disk->delete($sourceStoragePath);
+            }
+
+            return $updated;
+        } catch (Throwable $exception) {
+            if ($disk->exists($processedPath)) {
+                $disk->delete($processedPath);
+            }
+
+            throw $exception;
         } finally {
             if (is_file($rendered['path'])) {
                 unlink($rendered['path']);
             }
+        }
+    }
+
+    /** @param array{file_size: int, width: int, height: int} $rendered */
+    private function validateProcessedFile(string $path, array $rendered): void
+    {
+        clearstatcache(true, $path);
+        $info = @getimagesize($path);
+
+        if (
+            $info === false
+            || ($info['mime'] ?? null) !== 'image/jpeg'
+            || (int) ($info[0] ?? 0) !== $rendered['width']
+            || (int) ($info[1] ?? 0) !== $rendered['height']
+            || ! is_file($path)
+            || filesize($path) < 1024
+        ) {
+            throw new RuntimeException('Hasil kompresi tidak valid; foto sumber tetap dipertahankan.');
         }
     }
 

@@ -271,7 +271,7 @@
                 try {
                     const response = await fetch(previewUrl, { credentials: 'same-origin' });
                     const blob = await response.blob();
-                    const file = new File([blob], fileName, { type: 'image/jpeg' });
+                    const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
 
                     if (navigator.share && navigator.canShare?.({ files: [file] })) {
                         await navigator.share({
@@ -543,8 +543,8 @@
 
                         <div class="fm-live-camera__busy" x-show="captureBusy" x-cloak>
                             <span class="fm-spinner"></span>
-                            <strong>Foto sedang dikompres...</strong>
-                            <small><span x-text="uploadProgress"></span>% - kamera tetap aktif</small>
+                            <strong>Mengamankan foto sumber...</strong>
+                            <small><span x-text="uploadProgress"></span>% - kompresi dilanjutkan di latar belakang</small>
                         </div>
                     </main>
 
@@ -612,6 +612,13 @@
 
                                 <div class="fm-photo-card__body">
                                     <strong>{{ $item->diambil_at->locale('id')->translatedFormat('d M Y, H:i') }} WIB</strong>
+                                    @if ($item->processingCompleted())
+                                        <span class="fm-processing-status is-completed">Siap dibagikan</span>
+                                    @elseif ($item->processingFailed())
+                                        <span class="fm-processing-status is-failed">Kompresi gagal, foto sumber tetap aman</span>
+                                    @else
+                                        <span class="fm-processing-status is-pending">Kompresi latar belakang</span>
+                                    @endif
                                     <span>{{ $this->formatBytes($item->ukuran_hasil) }} · {{ $item->lebar }}×{{ $item->tinggi }} px</span>
                                     <small>{{ number_format((float) $item->latitude, 6) }}, {{ number_format((float) $item->longitude, 6) }}</small>
                                 </div>
@@ -626,6 +633,11 @@
                                     <a href="{{ $downloadUrl }}">
                                         <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
                                     </a>
+                                    @if (! $item->processingCompleted())
+                                        <button type="button" wire:click="retryPhotoProcessing({{ $item->id }})">
+                                            <x-filament::icon icon="heroicon-m-arrow-path" /> Ulangi
+                                        </button>
+                                    @endif
                                     @if ($activeSession->isActive())
                                         <button
                                             type="button"
@@ -796,6 +808,13 @@
         .fm-photo-card__body { display:grid; gap:.15rem; padding:.75rem; }
         .fm-photo-card__body strong { font-size:.7rem; }
         .fm-photo-card__body span,.fm-photo-card__body small { color:var(--fm-muted); font-size:.6rem; }
+        .fm-photo-card__body .fm-processing-status { width:max-content; max-width:100%; margin:.12rem 0; padding:.22rem .42rem; border-radius:999px; font-size:.56rem; font-weight:800; }
+        .fm-processing-status.is-completed { color:#166534; background:#dcfce7; }
+        .fm-processing-status.is-pending { color:#92400e; background:#fef3c7; }
+        .fm-processing-status.is-failed { color:#991b1b; background:#fee2e2; }
+        .dark .fm-processing-status.is-completed { color:#86efac; background:#153625; }
+        .dark .fm-processing-status.is-pending { color:#fcd34d; background:#3b2c13; }
+        .dark .fm-processing-status.is-failed { color:#fca5a5; background:#3a1b22; }
         .fm-photo-card__actions { display:flex; gap:.35rem; padding:0 .65rem .7rem; }
         .fm-photo-card__actions button,.fm-photo-card__actions a { display:flex; flex:1; align-items:center; justify-content:center; gap:.25rem; min-height:2rem; border:1px solid var(--fm-line); border-radius:.55rem; color:var(--fm-ink); background:var(--fi-body-bg,#fff); font-size:.62rem; font-weight:750; text-decoration:none; cursor:pointer; }
         .dark .fm-photo-card__actions button,.dark .fm-photo-card__actions a { background:#172436; }

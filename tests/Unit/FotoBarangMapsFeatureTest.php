@@ -65,14 +65,22 @@ class FotoBarangMapsFeatureTest extends TestCase
         $migration = (string) file_get_contents(
             $root.'/database/migrations/2026_09_02_000000_create_foto_barang_tables.php',
         );
+        $processingMigration = (string) file_get_contents(
+            $root.'/database/migrations/2026_09_02_010000_add_processing_status_to_foto_barang_items.php',
+        );
         $page = (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangMaps.php');
         $view = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-maps.blade.php');
+        $job = (string) file_get_contents($root.'/app/Jobs/ProcessFotoBarangImage.php');
+        $imageService = (string) file_get_contents($root.'/app/Services/FotoBarangImageService.php');
 
         $this->assertStringContainsString("Schema::create('foto_barang_sessions'", $migration);
         $this->assertStringContainsString("Schema::create('foto_barang_items'", $migration);
         $this->assertStringNotContainsString("Schema::table('barangs'", $migration);
         $this->assertStringNotContainsString("Schema::table('barang_lokasi'", $migration);
         $this->assertStringNotContainsString("Schema::table('mutasis'", $migration);
+        $this->assertStringContainsString("Schema::table('foto_barang_items'", $processingMigration);
+        $this->assertStringContainsString("->default('completed')", $processingMigration);
+        $this->assertStringNotContainsString("Schema::dropIfExists('foto_barang_items')", $processingMigration);
         $this->assertStringContainsString('public function startSession', $page);
         $this->assertStringContainsString('public function finishSession', $page);
         $this->assertStringContainsString('public function savePhoto', $page);
@@ -83,13 +91,19 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('waitForCameraReady', $view);
         $this->assertStringContainsString('cameraReady', $view);
         $this->assertStringContainsString('closeCameraAndRefresh', $view);
+        $this->assertStringContainsString('Mengamankan foto sumber', $view);
+        $this->assertStringContainsString('kompresi dilanjutkan di latar belakang', $view);
         $this->assertStringContainsString('x-ref="cameraVideo"', $view);
         $this->assertStringContainsString('wire:ignore', $view);
         $this->assertStringContainsString('$wire.upload(', $view);
         $this->assertStringContainsString('refreshGps()', $view);
-        $this->assertStringContainsString('Foto sedang dikompres', $view);
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
+        $this->assertStringContainsString('ShouldBeUnique', $job);
+        $this->assertStringContainsString('PROCESSING_FAILED', $job);
+        $this->assertStringContainsString('public function stage(', $imageService);
+        $this->assertStringContainsString('validateProcessedFile', $imageService);
+        $this->assertStringContainsString('foto sumber tetap dipertahankan', $imageService);
 
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Regular.ttf');
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Bold.ttf');

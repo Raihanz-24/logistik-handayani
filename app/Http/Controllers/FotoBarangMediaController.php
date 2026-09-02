@@ -24,7 +24,7 @@ class FotoBarangMediaController extends Controller
         $this->authorizeAccess($request, $session, $photo);
 
         return $this->disk()->response($photo->path, $photo->fileName(), [
-            'Cache-Control' => 'private, max-age=86400',
+            'Cache-Control' => 'private, no-cache, must-revalidate',
             'X-Content-Type-Options' => 'nosniff',
         ], 'inline');
     }
