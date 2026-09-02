@@ -603,7 +603,11 @@
                 const deleteType = dialog?.dataset.deleteType || this.confirmType;
                 const targetId = dialog?.dataset.deleteTargetId || this.confirmTargetId;
                 const targetUuid = dialog?.dataset.deleteTargetUuid || this.confirmTargetUuid;
-                if (deleteType === 'folder' && this.confirmInput.trim().toLowerCase() !== 'hapus') return;
+                const confirmation = String(this.$refs.confirmTextInput?.value ?? this.confirmInput).trim();
+                if (deleteType === 'folder' && confirmation.toLowerCase() !== 'hapus') {
+                    this.confirmMessage = 'Ketik hapus dengan lengkap untuk menghapus seluruh folder.';
+                    return;
+                }
                 this.confirmBusy = true;
                 let deleted = false;
                 let refreshAfterDelete = false;
@@ -624,9 +628,13 @@
                     } else if (deleteType === 'folder') {
                         const folderId = Number(targetId);
                         if (! Number.isInteger(folderId) || folderId < 1) throw new Error('ID folder tidak valid.');
-                        const result = await $wire.deleteSessionFolder(folderId, this.confirmInput);
+                        const result = await $wire.deleteSessionFolder(folderId, confirmation);
                         if (! result?.deleted) throw new Error('Server belum menghapus folder.');
-                        await this.deleteLocalSessionCaptures(result.uuid || targetUuid);
+                        try {
+                            await this.deleteLocalSessionCaptures(result.uuid || targetUuid);
+                        } catch (error) {
+                            // Folder server sudah terhapus; kegagalan membersihkan cache perangkat tidak membatalkan hasilnya.
+                        }
                         this.closeServerGallery();
                         refreshAfterDelete = true;
                     } else {
@@ -1705,7 +1713,6 @@
             class="fm-confirm"
             wire:ignore
             x-on:cancel.prevent="closeConfirm()"
-            x-on:click.self="closeConfirm()"
             aria-label="Konfirmasi penghapusan"
         >
                 <section class="fm-confirm__card" x-on:click.stop>
@@ -1714,7 +1721,14 @@
                     <p x-text="confirmMessage"></p>
                     <label x-show="confirmRequiresText" x-cloak>
                         <span>Ketik <b>hapus</b> untuk mengonfirmasi</span>
-                        <input type="text" x-model="confirmInput" autocomplete="off" placeholder="Ketik hapus">
+                        <input
+                            type="text"
+                            x-ref="confirmTextInput"
+                            x-model="confirmInput"
+                            x-on:keydown.enter.prevent="executeConfirmedDelete()"
+                            autocomplete="off"
+                            placeholder="Ketik hapus"
+                        >
                     </label>
                     <div class="fm-confirm__actions">
                         <button type="button" class="is-cancel" x-on:click="closeConfirm()" x-bind:disabled="confirmBusy">Batal</button>
@@ -1722,7 +1736,7 @@
                             type="button"
                             class="is-delete"
                             x-on:click="executeConfirmedDelete()"
-                            x-bind:disabled="confirmBusy || (confirmRequiresText && confirmInput.trim().toLowerCase() !== 'hapus')"
+                            x-bind:disabled="confirmBusy"
                         >
                             <span x-show="! confirmBusy">Hapus Permanen</span>
                             <span x-show="confirmBusy">Menghapus...</span>

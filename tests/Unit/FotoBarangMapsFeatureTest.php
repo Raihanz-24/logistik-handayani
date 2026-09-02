@@ -134,13 +134,15 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('x-ref="serverGalleryDialog"', $view);
         $this->assertStringContainsString('serverRefreshPending', $view);
         $this->assertStringContainsString('dialog.dataset.deleteType', $view);
+        $this->assertStringContainsString('x-ref="confirmTextInput"', $view);
+        $this->assertStringNotContainsString("confirmBusy || (confirmRequiresText", $view);
         $this->assertStringContainsString('showNextServerPhoto', $view);
         $this->assertStringContainsString('endGallerySwipe', $view);
         $this->assertStringContainsString('requestDeleteFolder', $view);
         $this->assertStringContainsString('dialog.showModal()', $view);
         $this->assertStringContainsString('x-ref="confirmDialog"', $view);
         $this->assertStringNotContainsString("this.confirmOpen = true;\n                document.body.style.overflow = 'hidden';", $view);
-        $this->assertStringContainsString('confirmInput.trim().toLowerCase()', $view);
+        $this->assertStringContainsString("confirmation.toLowerCase() !== 'hapus'", $view);
         $this->assertStringContainsString('wire:model.live="historyDate"', $view);
         $this->assertStringContainsString("paginate(10, ['*'], 'fotoSessionsPage')", $page);
         $this->assertStringContainsString('public function deleteSessionFolder', $page);
