@@ -128,7 +128,11 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('Foto tetap aman di perangkat', $view);
         $this->assertStringContainsString('x-ref="cameraVideo"', $view);
         $this->assertStringContainsString('wire:ignore', $view);
-        $this->assertStringContainsString('$wire.upload(', $view);
+        $this->assertStringContainsString("method: 'POST'", $view);
+        $this->assertStringContainsString("'X-CSRF-TOKEN'", $view);
+        $this->assertStringContainsString("route('foto-barang.upload'", $view);
+        $this->assertStringNotContainsString('$wire.upload(', $view);
+        $this->assertStringNotContainsString('$wire.updateCaptureMetadata(', $view);
         $this->assertStringContainsString('refreshGps()', $view);
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
@@ -174,6 +178,7 @@ class FotoBarangMapsFeatureTest extends TestCase
         $routes = (string) file_get_contents(dirname(__DIR__, 2).'/routes/web.php');
 
         $this->assertStringContainsString("Route::middleware('auth')->prefix('foto-barang-media')", $routes);
+        $this->assertStringContainsString("->name('foto-barang.upload')", $routes);
         $this->assertStringContainsString("->name('foto-barang.preview')", $routes);
         $this->assertStringContainsString("->name('foto-barang.archive')", $routes);
     }

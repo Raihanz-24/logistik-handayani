@@ -29,6 +29,7 @@
             capturedCount: @js((int) ($activeSession?->items_count ?? 0)),
             serverCapturedCount: @js((int) ($activeSession?->items_count ?? 0)),
             sessionUuid: @js($activeSession?->uuid),
+            uploadUrlTemplate: @js(route('foto-barang.upload', ['session' => '__SESSION_UUID__'], absolute: false)),
             captureQueue: [],
             localCaptures: [],
             localCapturedCount: 0,
@@ -725,25 +726,42 @@
                         return;
                     }
 
-                    await $wire.updateCaptureMetadata(
-                        capture.latitude,
-                        capture.longitude,
-                        capture.accuracy,
-                        capture.capturedAt,
-                        capture.id,
-                    );
                     const file = new File([capture.blob], `${capture.id}.jpg`, {
                         type: capture.blob.type || 'image/jpeg',
                         lastModified: capture.createdAt,
                     });
+                    const formData = new FormData();
+                    formData.append('photo', file);
+                    formData.append('latitude', String(capture.latitude));
+                    formData.append('longitude', String(capture.longitude));
+                    if (capture.accuracy !== null && capture.accuracy !== undefined) {
+                        formData.append('accuracy', String(capture.accuracy));
+                    }
+                    formData.append('captured_at', capture.capturedAt);
+                    formData.append('client_capture_id', capture.id);
 
-                    $wire.upload(
-                        'photo',
-                        file,
-                        () => {},
-                        () => this.handleBackgroundUploadError('Upload gagal. Foto tetap aman di perangkat.'),
-                        (event) => this.uploadProgress = event.detail?.progress ?? 0,
+                    const uploadUrl = this.uploadUrlTemplate.replace(
+                        '__SESSION_UUID__',
+                        encodeURIComponent(capture.sessionUuid),
                     );
+                    const response = await fetch(uploadUrl, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: formData,
+                    });
+
+                    if (! response.ok) {
+                        const payload = await response.json().catch(() => ({}));
+                        const validationMessage = Object.values(payload.errors || {}).flat()[0];
+                        throw new Error(validationMessage || payload.message || 'Upload gagal. Foto tetap aman di perangkat.');
+                    }
+
+                    await this.handlePhotoSaved();
                 } catch (error) {
                     this.handleBackgroundUploadError(error?.message || 'Upload latar belakang gagal.');
                 }

@@ -15,6 +15,9 @@ Route::get('/', function () {
 });
 
 Route::middleware('auth')->prefix('foto-barang-media')->group(function (): void {
+    Route::post('/{session}/upload', [FotoBarangMediaController::class, 'store'])
+        ->withoutMiddleware(AuditUserActivity::class)
+        ->name('foto-barang.upload');
     Route::get('/{session}/foto/{photo}/preview', [FotoBarangMediaController::class, 'preview'])
         ->withoutMiddleware(AuditUserActivity::class)
         ->name('foto-barang.preview');

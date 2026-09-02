@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProcessFotoBarangImage;
 use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
 use App\Models\User;
+use App\Services\AuditLogger;
+use App\Services\FotoBarangImageService;
+use Carbon\CarbonImmutable;
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -16,6 +21,69 @@ use ZipArchive;
 
 class FotoBarangMediaController extends Controller
 {
+    public function store(
+        Request $request,
+        FotoBarangSession $session,
+        FotoBarangImageService $imageService,
+        AuditLogger $auditLogger,
+    ): JsonResponse {
+        $this->authorizeAccess($request, $session);
+        abort_unless($session->isActive(), 422, 'Sesi foto sudah selesai.');
+
+        $validated = $request->validate([
+            'photo' => [
+                'required',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:'.(int) config('foto_barang.max_upload_kb', 10240),
+            ],
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'accuracy' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'captured_at' => ['nullable', 'date'],
+            'client_capture_id' => ['required', 'string', 'max:100', 'regex:/^[A-Za-z0-9._:-]+$/'],
+        ], [
+            'photo.max' => 'Foto asli maksimal 10 MB.',
+            'photo.image' => 'File yang dikirim bukan gambar yang valid.',
+        ]);
+
+        $capturedAt = filled($validated['captured_at'] ?? null)
+            ? CarbonImmutable::parse($validated['captured_at'])->setTimezone('Asia/Jakarta')
+            : CarbonImmutable::now('Asia/Jakarta');
+
+        $item = $imageService->stage(
+            $session,
+            $request->file('photo'),
+            (float) $validated['latitude'],
+            (float) $validated['longitude'],
+            isset($validated['accuracy']) ? (int) $validated['accuracy'] : null,
+            $capturedAt,
+            (string) $validated['client_capture_id'],
+        );
+
+        if ($item->wasRecentlyCreated) {
+            $auditLogger->activity(
+                'foto_barang_create',
+                "Menambahkan foto ke sesi: {$session->judul}",
+                $request->user(),
+                [
+                    'session_id' => $session->getKey(),
+                    'photo_id' => $item->getKey(),
+                    'sequence' => $item->urutan,
+                ],
+            );
+
+            $this->dispatchPhotoProcessing($item);
+        }
+
+        return response()->json([
+            'saved' => true,
+            'photo_id' => $item->getKey(),
+            'sequence' => $item->urutan,
+            'duplicate' => ! $item->wasRecentlyCreated,
+        ], $item->wasRecentlyCreated ? 201 : 200);
+    }
+
     public function preview(
         Request $request,
         FotoBarangSession $session,
@@ -107,5 +175,18 @@ class FotoBarangMediaController extends Controller
     private function disk(): FilesystemAdapter
     {
         return Storage::disk('local');
+    }
+
+    private function dispatchPhotoProcessing(FotoBarangItem $item): void
+    {
+        $queue = (string) config('foto_barang.processing_queue', 'default');
+
+        if (config('foto_barang.processing_mode') === 'queue') {
+            ProcessFotoBarangImage::dispatch((int) $item->getKey())->onQueue($queue);
+
+            return;
+        }
+
+        ProcessFotoBarangImage::dispatchAfterResponse((int) $item->getKey())->onQueue($queue);
     }
 }
