@@ -132,6 +132,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('openServerGallery', $view);
         $this->assertStringContainsString('syncServerPhotosFromDom', $view);
         $this->assertStringContainsString('x-ref="serverGalleryDialog"', $view);
+        $this->assertStringContainsString('serverRefreshPending', $view);
+        $this->assertStringContainsString('dialog.dataset.deleteType', $view);
         $this->assertStringContainsString('showNextServerPhoto', $view);
         $this->assertStringContainsString('endGallerySwipe', $view);
         $this->assertStringContainsString('requestDeleteFolder', $view);

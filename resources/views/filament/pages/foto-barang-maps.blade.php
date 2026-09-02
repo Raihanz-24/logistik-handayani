@@ -38,6 +38,8 @@
             serverPhotos: [],
             serverGalleryOpen: false,
             serverPhotoIndex: 0,
+            serverImageLoading: false,
+            serverImageError: false,
             galleryTouchStartX: null,
             confirmOpen: false,
             confirmType: null,
@@ -49,6 +51,7 @@
             confirmRequiresText: false,
             confirmBusy: false,
             refreshTimer: null,
+            serverRefreshPending: false,
             historyFiltersOpen: false,
             currentUploadId: null,
             captureDbPromise: null,
@@ -72,6 +75,7 @@
             destroy() {
                 window.clearTimeout(this.refreshTimer);
                 window.clearTimeout(this.queueRetryTimer);
+                this.serverRefreshPending = false;
                 this.serverGalleryOpen = false;
                 this.confirmOpen = false;
                 this.closeCamera();
@@ -424,6 +428,7 @@
                 if (this.localPreviewUrl) URL.revokeObjectURL(this.localPreviewUrl);
                 this.localPreviewUrl = null;
                 this.localPreviewCapture = null;
+                if (this.serverRefreshPending) this.scheduleServerRefresh(100);
             },
             async deleteLocalOnlyCapture(captureId) {
                 await this.deleteLocalCapture(captureId);
@@ -453,9 +458,12 @@
                 }
             },
             openServerGallery(index = 0) {
+                window.clearTimeout(this.refreshTimer);
                 this.syncServerPhotosFromDom();
                 if (this.serverPhotos.length === 0) return;
                 this.serverPhotoIndex = Math.max(0, Math.min(Number(index), this.serverPhotos.length - 1));
+                this.serverImageLoading = true;
+                this.serverImageError = false;
                 this.serverGalleryOpen = true;
                 this.$nextTick(() => {
                     const dialog = this.$refs.serverGalleryDialog;
@@ -481,6 +489,7 @@
                 } else {
                     dialog?.removeAttribute('open');
                 }
+                if (! this.confirmOpen && this.serverRefreshPending) this.scheduleServerRefresh(100);
             },
             currentServerPhoto() {
                 return this.serverPhotos[this.serverPhotoIndex] || null;
@@ -488,10 +497,14 @@
             showPreviousServerPhoto() {
                 if (this.serverPhotos.length < 2) return;
                 this.serverPhotoIndex = (this.serverPhotoIndex - 1 + this.serverPhotos.length) % this.serverPhotos.length;
+                this.serverImageLoading = true;
+                this.serverImageError = false;
             },
             showNextServerPhoto() {
                 if (this.serverPhotos.length < 2) return;
                 this.serverPhotoIndex = (this.serverPhotoIndex + 1) % this.serverPhotos.length;
+                this.serverImageLoading = true;
+                this.serverImageError = false;
             },
             beginGallerySwipe(event) {
                 this.galleryTouchStartX = event.changedTouches?.[0]?.clientX ?? null;
@@ -533,6 +546,7 @@
             },
             openConfirm({ type, targetId, targetUuid = null, title, message, requiresText = false }) {
                 if (targetId === null || targetId === undefined) return;
+                window.clearTimeout(this.refreshTimer);
                 this.confirmType = type;
                 this.confirmTargetId = targetId;
                 this.confirmTargetUuid = targetUuid;
@@ -543,7 +557,11 @@
                 this.confirmOpen = true;
                 this.$nextTick(() => {
                     const dialog = this.$refs.confirmDialog;
-                    if (! dialog || dialog.open) return;
+                    if (! dialog) return;
+                    dialog.dataset.deleteType = String(type);
+                    dialog.dataset.deleteTargetId = String(targetId);
+                    dialog.dataset.deleteTargetUuid = targetUuid === null ? '' : String(targetUuid);
+                    if (dialog.open) return;
 
                     if (typeof dialog.showModal === 'function') {
                         try {
@@ -569,32 +587,46 @@
                 this.confirmTargetId = null;
                 this.confirmTargetUuid = null;
                 this.confirmInput = '';
+                if (dialog) {
+                    delete dialog.dataset.deleteType;
+                    delete dialog.dataset.deleteTargetId;
+                    delete dialog.dataset.deleteTargetUuid;
+                }
                 if (! this.cameraOpen && ! this.serverGalleryOpen) {
                     document.body.style.overflow = '';
                 }
+                if (this.serverRefreshPending) this.scheduleServerRefresh(100);
             },
             async executeConfirmedDelete() {
                 if (this.confirmBusy) return;
-                if (this.confirmRequiresText && this.confirmInput.trim().toLowerCase() !== 'hapus') return;
+                const dialog = this.$refs.confirmDialog;
+                const deleteType = dialog?.dataset.deleteType || this.confirmType;
+                const targetId = dialog?.dataset.deleteTargetId || this.confirmTargetId;
+                const targetUuid = dialog?.dataset.deleteTargetUuid || this.confirmTargetUuid;
+                if (deleteType === 'folder' && this.confirmInput.trim().toLowerCase() !== 'hapus') return;
                 this.confirmBusy = true;
                 let deleted = false;
                 let refreshAfterDelete = false;
 
                 try {
-                    if (this.confirmType === 'server-photo') {
-                        const photoId = this.confirmTargetId;
+                    if (deleteType === 'server-photo') {
+                        const photoId = Number(targetId);
+                        if (! Number.isInteger(photoId) || photoId < 1) throw new Error('ID foto tidak valid.');
                         const result = await $wire.deletePhoto(photoId);
                         if (! result?.deleted) throw new Error('Server belum menghapus foto.');
                         this.serverPhotos = this.serverPhotos.filter((photo) => photo.id !== photoId);
                         if (this.serverPhotos.length === 0) this.closeServerGallery();
                         this.serverPhotoIndex = Math.min(this.serverPhotoIndex, Math.max(0, this.serverPhotos.length - 1));
                         refreshAfterDelete = true;
-                    } else if (this.confirmType === 'local-photo') {
-                        await this.deleteLocalOnlyCapture(this.confirmTargetId);
-                    } else if (this.confirmType === 'folder') {
-                        const result = await $wire.deleteSessionFolder(this.confirmTargetId, this.confirmInput);
+                    } else if (deleteType === 'local-photo') {
+                        if (! targetId) throw new Error('File foto lokal tidak ditemukan.');
+                        await this.deleteLocalOnlyCapture(String(targetId));
+                    } else if (deleteType === 'folder') {
+                        const folderId = Number(targetId);
+                        if (! Number.isInteger(folderId) || folderId < 1) throw new Error('ID folder tidak valid.');
+                        const result = await $wire.deleteSessionFolder(folderId, this.confirmInput);
                         if (! result?.deleted) throw new Error('Server belum menghapus folder.');
-                        await this.deleteLocalSessionCaptures(result.uuid || this.confirmTargetUuid);
+                        await this.deleteLocalSessionCaptures(result.uuid || targetUuid);
                         this.closeServerGallery();
                         refreshAfterDelete = true;
                     } else {
@@ -635,8 +667,15 @@
             },
             scheduleServerRefresh(delay = 350) {
                 window.clearTimeout(this.refreshTimer);
+                if (this.serverGalleryOpen || this.confirmOpen || this.localPreviewUrl) {
+                    this.serverRefreshPending = true;
+                    return;
+                }
                 this.refreshTimer = window.setTimeout(() => {
-                    if (! this.cameraOpen && ! this.uploadInProgress && this.captureQueue.length === 0) {
+                    if (this.serverGalleryOpen || this.confirmOpen || this.localPreviewUrl) {
+                        this.serverRefreshPending = true;
+                    } else if (! this.cameraOpen && ! this.uploadInProgress && this.captureQueue.length === 0) {
+                        this.serverRefreshPending = false;
                         $wire.$refresh();
                     }
                 }, delay);
@@ -1447,6 +1486,7 @@
             <dialog
                 x-ref="serverGalleryDialog"
                 class="fm-server-viewer"
+                wire:ignore
                 x-on:cancel.prevent="if (! confirmOpen) closeServerGallery()"
                 x-on:close="serverGalleryOpen = false"
                 x-on:keydown.left.window="if (serverGalleryOpen && ! confirmOpen) showPreviousServerPhoto()"
@@ -1475,8 +1515,21 @@
                         <x-filament::icon icon="heroicon-m-chevron-left" />
                     </button>
                     <template x-if="currentServerPhoto()">
-                        <img x-bind:src="currentServerPhoto().preview" x-bind:alt="'Foto urutan ' + currentServerPhoto().sequence">
+                        <img
+                            x-bind:src="currentServerPhoto().preview"
+                            x-bind:alt="'Foto urutan ' + currentServerPhoto().sequence"
+                            x-on:load="serverImageLoading = false; serverImageError = false"
+                            x-on:error="serverImageLoading = false; serverImageError = true"
+                        >
                     </template>
+                    <div class="fm-server-viewer__loading" x-show="serverImageLoading" x-cloak>
+                        <span class="fm-spinner"></span>
+                        <b>Memuat foto...</b>
+                    </div>
+                    <div class="fm-server-viewer__loading is-error" x-show="serverImageError" x-cloak>
+                        <b>Foto gagal dimuat</b>
+                        <span>Tekan kembali lalu coba buka foto lagi.</span>
+                    </div>
                     <button type="button" class="fm-server-viewer__nav is-next" x-on:click="showNextServerPhoto()" x-show="serverPhotos.length > 1" aria-label="Foto berikutnya">
                         <x-filament::icon icon="heroicon-m-chevron-right" />
                     </button>
@@ -1650,6 +1703,7 @@
         <dialog
             x-ref="confirmDialog"
             class="fm-confirm"
+            wire:ignore
             x-on:cancel.prevent="closeConfirm()"
             x-on:click.self="closeConfirm()"
             aria-label="Konfirmasi penghapusan"
@@ -1837,6 +1891,10 @@
         .fm-server-viewer__header span { color:#aab7c7; font-size:.61rem; }
         .fm-server-viewer__stage { position:relative; display:grid; place-items:center; min-height:0; overflow:hidden; padding:.4rem; touch-action:pan-y; }
         .fm-server-viewer__stage>img { max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; user-select:none; -webkit-user-drag:none; }
+        .fm-server-viewer__loading { position:absolute; z-index:3; inset:0; display:grid; place-content:center; justify-items:center; gap:.55rem; color:#dbeafe; background:rgba(3,6,10,.72); font-size:.68rem; pointer-events:none; }
+        .fm-server-viewer__loading .fm-spinner { width:1.8rem; height:1.8rem; }
+        .fm-server-viewer__loading.is-error { color:#fecaca; background:rgba(3,6,10,.9); }
+        .fm-server-viewer__loading.is-error span { color:#aab7c7; font-size:.61rem; }
         .fm-server-viewer__nav { position:absolute; z-index:2; top:50%; display:grid; place-items:center; width:2.7rem; height:2.7rem; border:1px solid rgba(255,255,255,.2); border-radius:50%; color:#fff; background:rgba(8,15,24,.72); transform:translateY(-50%); }
         .fm-server-viewer__nav.is-prev { left:.7rem; }
         .fm-server-viewer__nav.is-next { right:.7rem; }
