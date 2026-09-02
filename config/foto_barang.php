@@ -8,16 +8,34 @@ return [
 
     'default_address' => env(
         'FOTO_BARANG_ADDRESS',
-        'Jl. Raya Paiton No. km.137, Dusun Matikan, Sumberejo, Kec. Paiton, Kabupaten Probolinggo, Jawa Timur 67291, Indonesia',
+        'Jl. Raya Paiton No. KM 137, Dusun Matikan, Sumberejo, Kec. Paiton, Kabupaten Probolinggo, Jawa Timur 67291, Indonesia',
     ),
 
     'default_latitude' => (float) env('FOTO_BARANG_LATITUDE', -7.717710),
     'default_longitude' => (float) env('FOTO_BARANG_LONGITUDE', 113.537297),
 
+    // Gunakan alamat resmi Handayani ketika GPS berada di sekitar lokasi operasional.
+    'handayani_location' => [
+        'enabled' => env('FOTO_BARANG_HANDAYANI_LOCATION', true),
+        'radius_meters' => (int) env('FOTO_BARANG_HANDAYANI_RADIUS', 100),
+        'latitude' => (float) env('FOTO_BARANG_HANDAYANI_LATITUDE', -7.717710),
+        'longitude' => (float) env('FOTO_BARANG_HANDAYANI_LONGITUDE', 113.537297),
+        'name' => env(
+            'FOTO_BARANG_HANDAYANI_NAME',
+            'Kecamatan Paiton, Jawa Timur, Indonesia',
+        ),
+        'address' => env(
+            'FOTO_BARANG_HANDAYANI_ADDRESS',
+            'Jl. Raya Paiton No. KM 137, Dusun Matikan, Sumberejo, Kec. Paiton, Kabupaten Probolinggo, Jawa Timur 67291, Indonesia',
+        ),
+    ],
+
     // Batas foto mentah. Hasil akhir diperkecil dan dikompres ulang sebagai JPEG.
     'max_upload_kb' => 10 * 1024,
     'max_dimension' => 1920,
     'target_file_size' => 1400 * 1024,
+    'thumbnail_dimension' => 480,
+    'thumbnail_quality' => 76,
     // Crop ringan atas-bawah agar watermark terbaca pada thumbnail WhatsApp.
     'vertical_crop_ratio' => 0.045,
 

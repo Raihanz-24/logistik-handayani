@@ -10,6 +10,13 @@ use Tests\TestCase;
 
 class ReverseGeocodingServiceTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config()->set('foto_barang.handayani_location.enabled', false);
+    }
+
     public function test_it_resolves_and_caches_an_indonesian_address(): void
     {
         Cache::flush();
@@ -92,5 +99,46 @@ class ReverseGeocodingServiceTest extends TestCase
         $this->assertFalse($result['resolved']);
         $this->assertStringContainsString('-7.717710, 113.537297', $result['name']);
         $this->assertStringContainsString('Alamat otomatis belum tersedia', $result['address']);
+    }
+
+    public function test_it_uses_complete_handayani_address_inside_one_hundred_meter_radius(): void
+    {
+        Cache::flush();
+        config()->set('foto_barang.handayani_location.enabled', true);
+        config()->set('foto_barang.handayani_location.radius_meters', 100);
+        config()->set('foto_barang.handayani_location.latitude', -7.717710);
+        config()->set('foto_barang.handayani_location.longitude', 113.537297);
+        config()->set('foto_barang.handayani_location.name', 'Kecamatan Paiton, Jawa Timur, Indonesia');
+        config()->set(
+            'foto_barang.handayani_location.address',
+            'Jl. Raya Paiton No. KM 137, Dusun Matikan, Sumberejo, Kec. Paiton, Kabupaten Probolinggo, Jawa Timur 67291, Indonesia',
+        );
+        Http::fake();
+
+        // Sekitar 55 meter dari titik utama Handayani.
+        $result = app(ReverseGeocodingService::class)->lookup(-7.717210, 113.537297);
+
+        $this->assertTrue($result['resolved']);
+        $this->assertSame('Kecamatan Paiton, Jawa Timur, Indonesia', $result['name']);
+        $this->assertSame(
+            'Jl. Raya Paiton No. KM 137, Dusun Matikan, Sumberejo, Kec. Paiton, Kabupaten Probolinggo, Jawa Timur 67291, Indonesia',
+            $result['address'],
+        );
+        Http::assertNothingSent();
+    }
+
+    public function test_it_does_not_use_handayani_template_outside_the_radius(): void
+    {
+        config()->set('foto_barang.handayani_location.enabled', true);
+        config()->set('foto_barang.handayani_location.radius_meters', 100);
+        config()->set('foto_barang.handayani_location.latitude', -7.717710);
+        config()->set('foto_barang.handayani_location.longitude', 113.537297);
+        config()->set('foto_barang.reverse_geocoding.enabled', false);
+
+        // Sekitar 111 meter dari titik utama Handayani.
+        $result = app(ReverseGeocodingService::class)->lookup(-7.716710, 113.537297);
+
+        $this->assertFalse($result['resolved']);
+        $this->assertStringNotContainsString('Dusun Matikan', $result['address']);
     }
 }

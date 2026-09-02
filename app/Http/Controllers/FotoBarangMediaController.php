@@ -12,11 +12,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 use ZipArchive;
 
 class FotoBarangMediaController extends Controller
@@ -92,7 +94,38 @@ class FotoBarangMediaController extends Controller
         $this->authorizeAccess($request, $session, $photo);
 
         return $this->disk()->response($photo->path, $photo->fileName(), [
-            'Cache-Control' => 'private, no-cache, must-revalidate',
+            'Cache-Control' => 'private, max-age=86400, stale-while-revalidate=3600',
+            'X-Content-Type-Options' => 'nosniff',
+        ], 'inline');
+    }
+
+    public function thumbnail(
+        Request $request,
+        FotoBarangSession $session,
+        FotoBarangItem $photo,
+    ): StreamedResponse {
+        $this->authorizeAccess($request, $session, $photo);
+
+        try {
+            $thumbnailPath = $this->ensureThumbnail($session, $photo);
+
+            if ($thumbnailPath !== null && $this->disk()->exists($thumbnailPath)) {
+                return $this->disk()->response(
+                    $thumbnailPath,
+                    'thumbnail-'.pathinfo($photo->fileName(), PATHINFO_FILENAME).'.jpg',
+                    [
+                        'Cache-Control' => 'private, max-age=604800, stale-while-revalidate=86400',
+                        'X-Content-Type-Options' => 'nosniff',
+                    ],
+                    'inline',
+                );
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+
+        return $this->disk()->response($photo->path, $photo->fileName(), [
+            'Cache-Control' => 'private, max-age=300',
             'X-Content-Type-Options' => 'nosniff',
         ], 'inline');
     }
@@ -175,6 +208,108 @@ class FotoBarangMediaController extends Controller
     private function disk(): FilesystemAdapter
     {
         return Storage::disk('local');
+    }
+
+    private function ensureThumbnail(FotoBarangSession $session, FotoBarangItem $photo): ?string
+    {
+        $disk = $this->disk();
+        $thumbnailPath = $session->storageDirectory().'/.thumbnails/'
+            .$photo->getKey().'-'.substr(sha1($photo->path), 0, 12).'.jpg';
+        $sourceModifiedAt = $disk->lastModified($photo->path);
+
+        if ($disk->exists($thumbnailPath) && $disk->lastModified($thumbnailPath) >= $sourceModifiedAt) {
+            return $thumbnailPath;
+        }
+
+        return Cache::lock('foto-barang-thumbnail:'.$photo->getKey(), 15)->block(5, function () use (
+            $disk,
+            $photo,
+            $sourceModifiedAt,
+            $thumbnailPath,
+        ): ?string {
+            if ($disk->exists($thumbnailPath) && $disk->lastModified($thumbnailPath) >= $sourceModifiedAt) {
+                return $thumbnailPath;
+            }
+
+            $sourcePath = $disk->path($photo->path);
+            $info = @getimagesize($sourcePath);
+
+            if ($info === false) {
+                return null;
+            }
+
+            $source = match ((string) ($info['mime'] ?? '')) {
+                'image/jpeg' => @imagecreatefromjpeg($sourcePath),
+                'image/png' => @imagecreatefrompng($sourcePath),
+                'image/webp' => @imagecreatefromwebp($sourcePath),
+                default => false,
+            };
+
+            if ($source === false) {
+                return null;
+            }
+
+            $temporaryPath = tempnam(sys_get_temp_dir(), 'foto-thumb-');
+
+            if ($temporaryPath === false) {
+                imagedestroy($source);
+
+                return null;
+            }
+
+            try {
+                $width = max(1, (int) ($info[0] ?? 1));
+                $height = max(1, (int) ($info[1] ?? 1));
+                $maximumDimension = max(240, (int) config('foto_barang.thumbnail_dimension', 480));
+                $scale = min(1, $maximumDimension / max($width, $height));
+                $targetWidth = max(1, (int) round($width * $scale));
+                $targetHeight = max(1, (int) round($height * $scale));
+                $thumbnail = imagecreatetruecolor($targetWidth, $targetHeight);
+                $background = imagecolorallocate($thumbnail, 15, 23, 42);
+                imagefill($thumbnail, 0, 0, $background);
+                imagecopyresampled(
+                    $thumbnail,
+                    $source,
+                    0,
+                    0,
+                    0,
+                    0,
+                    $targetWidth,
+                    $targetHeight,
+                    $width,
+                    $height,
+                );
+                imageinterlace($thumbnail, true);
+                $written = imagejpeg(
+                    $thumbnail,
+                    $temporaryPath,
+                    min(88, max(55, (int) config('foto_barang.thumbnail_quality', 76))),
+                );
+                imagedestroy($thumbnail);
+
+                if (! $written || ! is_file($temporaryPath) || filesize($temporaryPath) < 100) {
+                    return null;
+                }
+
+                $stream = fopen($temporaryPath, 'rb');
+
+                if ($stream === false) {
+                    return null;
+                }
+
+                try {
+                    return $disk->put($thumbnailPath, $stream) ? $thumbnailPath : null;
+                } finally {
+                    fclose($stream);
+                }
+            } finally {
+                imagedestroy($source);
+
+                if (is_file($temporaryPath)) {
+                    unlink($temporaryPath);
+                }
+            }
+        });
     }
 
     private function dispatchPhotoProcessing(FotoBarangItem $item): void

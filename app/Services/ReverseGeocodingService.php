@@ -12,6 +12,11 @@ class ReverseGeocodingService
     public function lookup(float $latitude, float $longitude): array
     {
         $fallback = $this->fallback($latitude, $longitude);
+        $handayaniLocation = $this->handayaniLocation($latitude, $longitude);
+
+        if ($handayaniLocation !== null) {
+            return $handayaniLocation;
+        }
 
         if (! (bool) config('foto_barang.reverse_geocoding.enabled', true)) {
             return $fallback;
@@ -279,6 +284,50 @@ class ReverseGeocodingService
         }
 
         return '';
+    }
+
+    /** @return array{name: string, address: string, resolved: bool}|null */
+    private function handayaniLocation(float $latitude, float $longitude): ?array
+    {
+        if (! (bool) config('foto_barang.handayani_location.enabled', true)) {
+            return null;
+        }
+
+        $radius = max(0, (int) config('foto_barang.handayani_location.radius_meters', 100));
+        $targetLatitude = (float) config('foto_barang.handayani_location.latitude', -7.717710);
+        $targetLongitude = (float) config('foto_barang.handayani_location.longitude', 113.537297);
+
+        if ($radius === 0 || $this->distanceInMeters($latitude, $longitude, $targetLatitude, $targetLongitude) > $radius) {
+            return null;
+        }
+
+        return [
+            'name' => (string) config(
+                'foto_barang.handayani_location.name',
+                'Kecamatan Paiton, Jawa Timur, Indonesia',
+            ),
+            'address' => (string) config(
+                'foto_barang.handayani_location.address',
+                'Jl. Raya Paiton No. KM 137, Dusun Matikan, Sumberejo, Kec. Paiton, Kabupaten Probolinggo, Jawa Timur 67291, Indonesia',
+            ),
+            'resolved' => true,
+        ];
+    }
+
+    private function distanceInMeters(
+        float $fromLatitude,
+        float $fromLongitude,
+        float $toLatitude,
+        float $toLongitude,
+    ): float {
+        $earthRadius = 6_371_000;
+        $latitudeDelta = deg2rad($toLatitude - $fromLatitude);
+        $longitudeDelta = deg2rad($toLongitude - $fromLongitude);
+        $a = sin($latitudeDelta / 2) ** 2
+            + cos(deg2rad($fromLatitude)) * cos(deg2rad($toLatitude)) * sin($longitudeDelta / 2) ** 2;
+        $a = min(1, max(0, $a));
+
+        return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
     /** @return array{name: string, address: string, resolved: bool} */

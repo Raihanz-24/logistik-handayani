@@ -414,7 +414,14 @@ class FotoBarangMaps extends Page
     {
         $session = $this->findVisibleSession((int) $this->activeSessionId);
         $photo = $session->items()->whereKey($photoId)->firstOrFail();
-        Storage::disk('local')->delete($photo->path);
+        $disk = Storage::disk('local');
+        $thumbnailDirectory = $session->storageDirectory().'/.thumbnails';
+        $thumbnailPrefix = $thumbnailDirectory.'/'.$photoId.'-';
+        $disk->delete($photo->path);
+        $disk->delete(array_values(array_filter(
+            $disk->files($thumbnailDirectory),
+            fn (string $path): bool => str_starts_with($path, $thumbnailPrefix),
+        )));
         $photo->delete();
         $this->dispatch('foto-barang-deleted');
 

@@ -2,15 +2,43 @@
 
 namespace Tests\Unit;
 
+use App\Http\Controllers\FotoBarangMediaController;
+use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
 use App\Services\FotoBarangImageService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use ReflectionMethod;
 use Tests\TestCase;
 
 class FotoBarangMapsFeatureTest extends TestCase
 {
+    public function test_gallery_thumbnail_is_lightweight_and_bounded(): void
+    {
+        Storage::fake('local');
+        $source = imagecreatetruecolor(1200, 1600);
+        $background = imagecolorallocate($source, 220, 120, 40);
+        imagefill($source, 0, 0, $background);
+        ob_start();
+        imagejpeg($source, null, 92);
+        $contents = (string) ob_get_clean();
+        imagedestroy($source);
+        Storage::disk('local')->put('foto-barang/test/source.jpg', $contents);
+
+        $session = new FotoBarangSession(['uuid' => 'test']);
+        $photo = new FotoBarangItem(['path' => 'foto-barang/test/source.jpg']);
+        $photo->setAttribute('id', 10);
+        $method = new ReflectionMethod(FotoBarangMediaController::class, 'ensureThumbnail');
+        $method->setAccessible(true);
+        $thumbnailPath = $method->invoke(new FotoBarangMediaController, $session, $photo);
+        $thumbnail = getimagesize(Storage::disk('local')->path($thumbnailPath));
+
+        $this->assertNotFalse($thumbnail);
+        $this->assertLessThanOrEqual(480, max($thumbnail[0], $thumbnail[1]));
+        $this->assertLessThan(strlen($contents), Storage::disk('local')->size($thumbnailPath));
+    }
+
     public function test_photo_is_resized_watermarked_and_compressed_as_jpeg(): void
     {
         $sourcePath = tempnam(sys_get_temp_dir(), 'foto-maps-source-');
@@ -137,6 +165,9 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
         $this->assertStringContainsString('openServerGallery', $view);
+        $this->assertStringContainsString('preloadAdjacentServerPhotos', $view);
+        $this->assertStringContainsString('fm-image-skeleton', $view);
+        $this->assertStringContainsString("route('foto-barang.thumbnail'", $view);
         $this->assertStringContainsString('syncServerPhotosFromDom', $view);
         $this->assertStringContainsString('x-ref="serverGalleryDialog"', $view);
         $this->assertStringContainsString('serverRefreshPending', $view);
@@ -180,6 +211,7 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString("Route::middleware('auth')->prefix('foto-barang-media')", $routes);
         $this->assertStringContainsString("->name('foto-barang.upload')", $routes);
         $this->assertStringContainsString("->name('foto-barang.preview')", $routes);
+        $this->assertStringContainsString("->name('foto-barang.thumbnail')", $routes);
         $this->assertStringContainsString("->name('foto-barang.archive')", $routes);
     }
 }
