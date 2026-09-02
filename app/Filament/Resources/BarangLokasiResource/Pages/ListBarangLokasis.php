@@ -69,7 +69,7 @@ class ListBarangLokasis extends ListRecords
      *     search: string
      * }
      */
-    public function stockPdfExportContext(): array
+    public function stockExportContext(): array
     {
         $warehouses = collect($this->gudangAktif)
             ->filter(fn (string $key): bool => array_key_exists($key, self::GUDANG_CEPAT))
@@ -81,6 +81,12 @@ class ListBarangLokasis extends ListRecords
             'warehouses' => $warehouses,
             'search' => trim((string) ($this->tableSearch ?? '')),
         ];
+    }
+
+    /** @deprecated Gunakan stockExportContext() untuk seluruh format export. */
+    public function stockPdfExportContext(): array
+    {
+        return $this->stockExportContext();
     }
 
     /** @return array<string, array{label: string, jumlah_barang: int, stok: int, baik: int, rusak: int, hilang: int}> */

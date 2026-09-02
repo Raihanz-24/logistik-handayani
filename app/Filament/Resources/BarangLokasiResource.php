@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\BarangLokasiResource\Pages;
 use App\Models\Barang;
 use App\Models\BarangLokasi;
+use App\Services\StockExcelExportService;
 use App\Services\StockPdfExportService;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -122,6 +123,27 @@ class BarangLokasiResource extends Resource
                 //
             ])
             ->headerActions([
+                Action::make('export-excel')
+                    ->label('Export Excel')
+                    ->icon('heroicon-o-table-cells')
+                    ->color('success')
+                    ->tooltip('Rekap stok pada akhir tanggal tertentu sesuai filter aktif')
+                    ->form([
+                        Forms\Components\DatePicker::make('as_of_date')
+                            ->label('Posisi stok per tanggal')
+                            ->helperText('Mutasi setelah tanggal ini tidak dihitung dalam hasil export.')
+                            ->default(now('Asia/Jakarta')->toDateString())
+                            ->maxDate(now('Asia/Jakarta')->toDateString())
+                            ->native(false)
+                            ->required(),
+                    ])
+                    ->modalHeading('Export Rekap Stok ke Excel')
+                    ->modalSubmitActionLabel('Unduh Excel')
+                    ->action(fn (array $data, $livewire) => app(StockExcelExportService::class)
+                        ->download([
+                            ...$livewire->stockExportContext(),
+                            'as_of_date' => $data['as_of_date'],
+                        ])),
                 Action::make('export-pdf')
                     ->label('Export PDF')
                     ->icon('heroicon-o-document-arrow-down')
