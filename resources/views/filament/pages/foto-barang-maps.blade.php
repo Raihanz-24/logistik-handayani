@@ -15,6 +15,7 @@
             accuracy: @js($accuracy),
             cameraOpen: false,
             cameraStream: null,
+            cameraReady: false,
             cameraError: '',
             captureBusy: false,
             uploadProgress: 0,
@@ -85,7 +86,9 @@
                 ));
             },
             async useDefaultGps() {
-                await $wire.useDefaultLocation();
+                if (! this.cameraOpen) {
+                    await $wire.useDefaultLocation();
+                }
                 this.latitude = @js((float) config('foto_barang.default_latitude'));
                 this.longitude = @js((float) config('foto_barang.default_longitude'));
                 this.accuracy = null;
@@ -104,6 +107,7 @@
                 }
 
                 this.cameraError = '';
+                this.cameraReady = false;
                 this.cameraOpen = true;
                 document.body.style.overflow = 'hidden';
                 this.updateClock();
@@ -118,17 +122,61 @@
                             height: { ideal: 1080 },
                         },
                     });
-                    this.$refs.cameraVideo.srcObject = this.cameraStream;
-                    await this.$refs.cameraVideo.play();
+                    const video = this.$refs.cameraVideo;
+                    video.srcObject = this.cameraStream;
+                    await Promise.all([video.play(), this.waitForCameraReady(video)]);
+                    this.cameraReady = true;
+                    const videoTrack = this.cameraStream.getVideoTracks()[0];
+                    videoTrack?.addEventListener('mute', () => {
+                        if (! this.cameraOpen) return;
+                        this.cameraReady = false;
+                        this.cameraError = 'Stream kamera terhenti sementara. Tunggu atau muat ulang kamera.';
+                    });
+                    videoTrack?.addEventListener('unmute', () => {
+                        if (! this.cameraOpen) return;
+                        this.cameraReady = true;
+                        this.cameraError = '';
+                    });
+                    videoTrack?.addEventListener('ended', () => {
+                        if (! this.cameraOpen) return;
+                        this.cameraReady = false;
+                        this.cameraError = 'Stream kamera terputus. Tekan muat ulang kamera.';
+                    });
                     await this.refreshGps();
                 } catch (error) {
                     this.cameraError = 'Kamera tidak dapat dibuka. Periksa izin kamera pada browser.';
                     this.closeCamera(false);
                 }
             },
+            waitForCameraReady(video) {
+                return new Promise((resolve, reject) => {
+                    let timeoutId;
+                    const cleanup = () => {
+                        window.clearTimeout(timeoutId);
+                        video.removeEventListener('loadedmetadata', check);
+                        video.removeEventListener('canplay', check);
+                        video.removeEventListener('playing', check);
+                    };
+                    const check = () => {
+                        if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+                            cleanup();
+                            window.requestAnimationFrame(resolve);
+                        }
+                    };
+                    timeoutId = window.setTimeout(() => {
+                        cleanup();
+                        reject(new Error('Kamera belum siap.'));
+                    }, 10000);
+                    video.addEventListener('loadedmetadata', check);
+                    video.addEventListener('canplay', check);
+                    video.addEventListener('playing', check);
+                    check();
+                });
+            },
             closeCamera(clearError = true) {
                 this.cameraStream?.getTracks().forEach((track) => track.stop());
                 this.cameraStream = null;
+                this.cameraReady = false;
                 if (this.$refs.cameraVideo) this.$refs.cameraVideo.srcObject = null;
                 if (this.clockTimer) window.clearInterval(this.clockTimer);
                 this.clockTimer = null;
@@ -136,6 +184,15 @@
                 this.captureBusy = false;
                 document.body.style.overflow = '';
                 if (clearError) this.cameraError = '';
+            },
+            async closeCameraAndRefresh() {
+                this.closeCamera();
+                await $wire.$refresh();
+            },
+            async restartCamera() {
+                this.closeCamera(false);
+                await this.$nextTick();
+                await this.openCamera();
             },
             async captureFrame() {
                 if (this.captureBusy) return;
@@ -146,7 +203,7 @@
                 }
 
                 const video = this.$refs.cameraVideo;
-                if (! video?.videoWidth || ! video?.videoHeight) {
+                if (! this.cameraReady || ! video?.videoWidth || ! video?.videoHeight || video.readyState < 2) {
                     this.cameraError = 'Kamera belum siap. Tunggu sebentar lalu coba lagi.';
                     return;
                 }
@@ -446,10 +503,10 @@
                     role="dialog"
                     aria-modal="true"
                     aria-label="Kamera foto barang"
-                    x-on:keydown.escape.window="if (cameraOpen && ! captureBusy) closeCamera()"
+                    x-on:keydown.escape.window="if (cameraOpen && ! captureBusy) closeCameraAndRefresh()"
                 >
                     <header class="fm-live-camera__header">
-                        <button type="button" x-on:click="closeCamera()" x-bind:disabled="captureBusy" aria-label="Tutup kamera">
+                        <button type="button" x-on:click="closeCameraAndRefresh()" x-bind:disabled="captureBusy" aria-label="Tutup kamera">
                             <x-filament::icon icon="heroicon-m-x-mark" />
                         </button>
                         <div>
@@ -506,7 +563,7 @@
                                 type="button"
                                 class="fm-live-camera__shutter"
                                 x-on:click="captureFrame()"
-                                x-bind:disabled="captureBusy || ! cameraStream"
+                                x-bind:disabled="captureBusy || ! cameraReady"
                                 aria-label="Ambil foto"
                             ><span></span></button>
                             <div class="fm-live-camera__sequence">
@@ -515,7 +572,10 @@
                             </div>
                         </div>
 
-                        <p class="fm-live-camera__error" x-show="cameraError" x-text="cameraError" x-cloak></p>
+                        <div class="fm-live-camera__error" x-show="cameraError" x-cloak>
+                            <span x-text="cameraError"></span>
+                            <button type="button" x-show="! cameraReady" x-on:click="restartCamera()">Muat ulang kamera</button>
+                        </div>
                     </footer>
                 </div>
             @endif
@@ -795,7 +855,8 @@
         .fm-live-camera__sequence { display:grid; justify-self:end; text-align:center; }
         .fm-live-camera__sequence strong { font-size:.82rem; }
         .fm-live-camera__sequence small { color:#9dadc0; font-size:.58rem; }
-        .fm-live-camera__error { margin:0; padding:.42rem .6rem; border-radius:.5rem; color:#fecaca; background:#35151b; font-size:.64rem; text-align:center; }
+        .fm-live-camera__error { display:flex; align-items:center; justify-content:center; gap:.55rem; margin:0; padding:.42rem .6rem; border-radius:.5rem; color:#fecaca; background:#35151b; font-size:.64rem; text-align:center; }
+        .fm-live-camera__error button { flex:0 0 auto; padding:.28rem .5rem; border:1px solid rgba(255,255,255,.28); border-radius:999px; color:#fff; background:transparent; font-size:.58rem; font-weight:800; }
         @media(max-width:900px) { .fm-hero,.fm-workspace { grid-template-columns:1fr; } .fm-template-preview { max-width:34rem; width:100%; justify-self:center; } }
         @media(max-width:640px) {
             .fm-page { gap:.8rem; }

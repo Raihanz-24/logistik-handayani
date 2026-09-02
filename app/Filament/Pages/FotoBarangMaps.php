@@ -174,6 +174,8 @@ class FotoBarangMaps extends Page
 
     public function savePhoto(): void
     {
+        $isLiveCapture = filled($this->capturedAt);
+
         $this->validate([
             'activeSessionId' => ['required', 'integer'],
             'photo' => [
@@ -233,6 +235,10 @@ class FotoBarangMaps extends Page
                 ->body($this->formatBytes($item->ukuran_asli).' dikompres menjadi '.$this->formatBytes($item->ukuran_hasil).'.')
                 ->success()
                 ->send();
+
+            if ($isLiveCapture) {
+                $this->skipRender();
+            }
         } catch (Throwable $exception) {
             report($exception);
 
@@ -244,6 +250,10 @@ class FotoBarangMaps extends Page
                 ->danger()
                 ->persistent()
                 ->send();
+
+            if ($isLiveCapture) {
+                $this->skipRender();
+            }
         }
     }
 
@@ -256,6 +266,7 @@ class FotoBarangMaps extends Page
         $this->latitude = round($latitude, 7);
         $this->longitude = round($longitude, 7);
         $this->accuracy = $accuracy === null ? null : max(0, (int) round($accuracy));
+        $this->skipRender();
     }
 
     public function updateCaptureMetadata(
@@ -278,6 +289,8 @@ class FotoBarangMaps extends Page
         } catch (Throwable) {
             $this->capturedAt = CarbonImmutable::now('Asia/Jakarta')->toIso8601String();
         }
+
+        $this->skipRender();
     }
 
     public function useDefaultLocation(): void

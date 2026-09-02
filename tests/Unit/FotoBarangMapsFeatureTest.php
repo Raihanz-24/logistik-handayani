@@ -77,8 +77,12 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function finishSession', $page);
         $this->assertStringContainsString('public function savePhoto', $page);
         $this->assertStringContainsString('public function updateCaptureMetadata', $page);
+        $this->assertStringContainsString('$this->skipRender()', $page);
         $this->assertStringContainsString('capture="environment"', $view);
         $this->assertStringContainsString('navigator.mediaDevices.getUserMedia', $view);
+        $this->assertStringContainsString('waitForCameraReady', $view);
+        $this->assertStringContainsString('cameraReady', $view);
+        $this->assertStringContainsString('closeCameraAndRefresh', $view);
         $this->assertStringContainsString('x-ref="cameraVideo"', $view);
         $this->assertStringContainsString('wire:ignore', $view);
         $this->assertStringContainsString('$wire.upload(', $view);
