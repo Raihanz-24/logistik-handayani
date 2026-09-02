@@ -69,8 +69,13 @@
                 this.loadLocalGallery();
             },
             destroy() {
+                window.clearTimeout(this.refreshTimer);
+                window.clearTimeout(this.queueRetryTimer);
+                this.serverGalleryOpen = false;
+                this.confirmOpen = false;
                 this.closeCamera();
                 this.closeLocalPreview();
+                document.body.style.overflow = '';
             },
             updateClock() {
                 const now = new Date();
@@ -494,6 +499,7 @@
                 });
             },
             openConfirm({ type, targetId, targetUuid = null, title, message, requiresText = false }) {
+                if (targetId === null || targetId === undefined) return;
                 this.confirmType = type;
                 this.confirmTargetId = targetId;
                 this.confirmTargetUuid = targetUuid;
@@ -1562,39 +1568,41 @@
             @endif
         </section>
 
-        <div
-            class="fm-confirm"
-            x-show="confirmOpen"
-            x-cloak
-            x-transition.opacity.duration.160ms
-            x-on:keydown.escape.window="if (confirmOpen && ! confirmBusy) closeConfirm()"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Konfirmasi penghapusan"
-        >
-            <div class="fm-confirm__backdrop" x-on:click="closeConfirm()"></div>
-            <section class="fm-confirm__card" x-show="confirmOpen" x-transition.scale.95.duration.180ms>
-                <div class="fm-confirm__icon"><x-filament::icon icon="heroicon-o-trash" /></div>
-                <h2 x-text="confirmTitle"></h2>
-                <p x-text="confirmMessage"></p>
-                <label x-show="confirmRequiresText" x-cloak>
-                    <span>Ketik <b>hapus</b> untuk mengonfirmasi</span>
-                    <input type="text" x-model="confirmInput" autocomplete="off" placeholder="Ketik hapus">
-                </label>
-                <div class="fm-confirm__actions">
-                    <button type="button" class="is-cancel" x-on:click="closeConfirm()" x-bind:disabled="confirmBusy">Batal</button>
-                    <button
-                        type="button"
-                        class="is-delete"
-                        x-on:click="executeConfirmedDelete()"
-                        x-bind:disabled="confirmBusy || (confirmRequiresText && confirmInput.trim().toLowerCase() !== 'hapus')"
-                    >
-                        <span x-show="! confirmBusy">Hapus Permanen</span>
-                        <span x-show="confirmBusy">Menghapus...</span>
-                    </button>
-                </div>
-            </section>
-        </div>
+        <template x-teleport="body">
+            <div
+                class="fm-confirm"
+                x-show="confirmOpen"
+                x-cloak
+                x-transition.opacity.duration.160ms
+                x-on:keydown.escape.window="if (confirmOpen && ! confirmBusy) closeConfirm()"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Konfirmasi penghapusan"
+            >
+                <div class="fm-confirm__backdrop" x-on:click="closeConfirm()"></div>
+                <section class="fm-confirm__card" x-on:click.stop>
+                    <div class="fm-confirm__icon"><x-filament::icon icon="heroicon-o-trash" /></div>
+                    <h2 x-text="confirmTitle"></h2>
+                    <p x-text="confirmMessage"></p>
+                    <label x-show="confirmRequiresText" x-cloak>
+                        <span>Ketik <b>hapus</b> untuk mengonfirmasi</span>
+                        <input type="text" x-model="confirmInput" autocomplete="off" placeholder="Ketik hapus">
+                    </label>
+                    <div class="fm-confirm__actions">
+                        <button type="button" class="is-cancel" x-on:click="closeConfirm()" x-bind:disabled="confirmBusy">Batal</button>
+                        <button
+                            type="button"
+                            class="is-delete"
+                            x-on:click="executeConfirmedDelete()"
+                            x-bind:disabled="confirmBusy || (confirmRequiresText && confirmInput.trim().toLowerCase() !== 'hapus')"
+                        >
+                            <span x-show="! confirmBusy">Hapus Permanen</span>
+                            <span x-show="confirmBusy">Menghapus...</span>
+                        </button>
+                    </div>
+                </section>
+            </div>
+        </template>
     </div>
 
     <style>
@@ -1764,7 +1772,7 @@
         .fm-server-viewer__footer>div { display:flex; gap:.5rem; }
         .fm-server-viewer__footer button,.fm-server-viewer__footer a { display:flex; align-items:center; justify-content:center; gap:.3rem; min-height:2.35rem; padding:.45rem .7rem; border:1px solid #334155; border-radius:.6rem; color:#fff; background:#172131; font-size:.65rem; font-weight:800; text-decoration:none; }
         .fm-server-viewer__footer svg { width:.95rem; }
-        .fm-confirm { position:fixed; z-index:10050; inset:0; display:grid; place-items:center; padding:1rem; }
+        .fm-confirm { position:fixed; z-index:2147483000; inset:0; display:grid; place-items:center; padding:1rem; isolation:isolate; }
         .fm-confirm__backdrop { position:absolute; inset:0; background:rgba(3,7,13,.64); backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px); }
         .fm-confirm__card { position:relative; z-index:1; display:grid; justify-items:center; max-width:25rem; width:100%; padding:1.35rem; border:1px solid rgba(255,255,255,.14); border-radius:1.25rem; color:#eef4fb; background:linear-gradient(155deg,rgba(28,39,54,.98),rgba(11,18,28,.98)); box-shadow:0 25px 70px rgba(0,0,0,.45); text-align:center; }
         .fm-confirm__icon { display:grid; place-items:center; width:3.5rem; height:3.5rem; border-radius:1rem; color:#fecaca; background:linear-gradient(145deg,#7f1d2d,#42151e); box-shadow:0 10px 25px rgba(127,29,45,.28); }

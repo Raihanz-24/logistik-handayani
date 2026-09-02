@@ -133,6 +133,7 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('showNextServerPhoto', $view);
         $this->assertStringContainsString('endGallerySwipe', $view);
         $this->assertStringContainsString('requestDeleteFolder', $view);
+        $this->assertStringContainsString('x-teleport="body"', $view);
         $this->assertStringContainsString('confirmInput.trim().toLowerCase()', $view);
         $this->assertStringContainsString('wire:model.live="historyDate"', $view);
         $this->assertStringContainsString("paginate(10, ['*'], 'fotoSessionsPage')", $page);
