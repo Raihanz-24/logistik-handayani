@@ -97,6 +97,17 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('cameraReady', $view);
         $this->assertStringContainsString('closeCameraAndRefresh', $view);
         $this->assertStringContainsString("indexedDB.open('handayani-foto-maps'", $view);
+        $this->assertStringContainsString("captureMode: 'server'", $view);
+        $this->assertStringContainsString("captureMode === 'local'", $view);
+        $this->assertStringContainsString("mode: this.captureMode", $view);
+        $this->assertStringContainsString("readLocalCaptures(sessionUuid, mode = 'server')", $view);
+        $this->assertStringContainsString("this.readLocalCaptures(sessionUuid, 'server')", $view);
+        $this->assertStringContainsString("this.readLocalCaptures(sessionUuid, 'local')", $view);
+        $this->assertStringContainsString('drawLocalWatermark(canvas, context, capturedAt)', $view);
+        $this->assertStringContainsString('downloadLocalCapture(captureId)', $view);
+        $this->assertStringContainsString('shareLocalCapture(captureId)', $view);
+        $this->assertStringContainsString('deleteLocalOnlyCapture(captureId)', $view);
+        $this->assertStringContainsString('Mode Lokal HP', $view);
         $this->assertStringContainsString('saveLocalCapture(capture)', $view);
         $this->assertStringContainsString('processUploadQueue()', $view);
         $this->assertStringContainsString('Foto tetap aman di perangkat', $view);

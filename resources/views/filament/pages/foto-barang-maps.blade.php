@@ -18,6 +18,9 @@
             cameraReady: false,
             cameraError: '',
             captureBusy: false,
+            captureMode: 'server',
+            sessionLocation: @js($activeSession?->nama_lokasi ?? ''),
+            sessionAddress: @js($activeSession?->alamat ?? ''),
             uploadInProgress: false,
             uploadProgress: 0,
             queuedCount: 0,
@@ -25,12 +28,18 @@
             serverCapturedCount: @js((int) ($activeSession?->items_count ?? 0)),
             sessionUuid: @js($activeSession?->uuid),
             captureQueue: [],
+            localCaptures: [],
+            localCapturedCount: 0,
+            localGalleryFor: null,
+            localPreviewUrl: null,
+            localPreviewCapture: null,
             currentUploadId: null,
             captureDbPromise: null,
             queueInitializedFor: null,
             queueRetryTimer: null,
             backgroundState: '',
             finishRequested: false,
+            finishAllowsEmptyLocal: false,
             finishingSession: false,
             liveTime: '',
             liveDate: '',
@@ -41,9 +50,11 @@
                 this.gpsReady = this.latitude !== null && this.longitude !== null;
                 this.updateClock();
                 this.initializeCaptureQueue();
+                this.loadLocalGallery();
             },
             destroy() {
                 this.closeCamera();
+                this.closeLocalPreview();
             },
             updateClock() {
                 const now = new Date();
@@ -67,12 +78,19 @@
                         return;
                     }
 
-                    const request = window.indexedDB.open('handayani-foto-maps', 1);
+                    const request = window.indexedDB.open('handayani-foto-maps', 2);
                     request.onupgradeneeded = () => {
                         const database = request.result;
+                        let store;
                         if (! database.objectStoreNames.contains('captures')) {
-                            const store = database.createObjectStore('captures', { keyPath: 'id' });
+                            store = database.createObjectStore('captures', { keyPath: 'id' });
                             store.createIndex('sessionUuid', 'sessionUuid', { unique: false });
+                        } else {
+                            store = request.transaction.objectStore('captures');
+                        }
+
+                        if (! store.indexNames.contains('mode')) {
+                            store.createIndex('mode', 'mode', { unique: false });
                         }
                     };
                     request.onsuccess = () => resolve(request.result);
@@ -107,7 +125,7 @@
                     transaction.onerror = () => reject(transaction.error || new Error('Antrean lokal gagal dibersihkan.'));
                 });
             },
-            async readLocalCaptures(sessionUuid) {
+            async readLocalCaptures(sessionUuid, mode = 'server') {
                 if (! sessionUuid) return [];
                 const database = await this.openCaptureDb();
 
@@ -124,8 +142,12 @@
                             return;
                         }
 
-                        const { blob, ...metadata } = cursor.value;
-                        captures.push(metadata);
+                        const storedCapture = cursor.value;
+                        const storedMode = storedCapture.mode || 'server';
+                        if (storedMode === mode) {
+                            const { blob, ...metadata } = storedCapture;
+                            captures.push(metadata);
+                        }
                         cursor.continue();
                     };
                     request.onerror = () => reject(request.error || new Error('Antrean foto tidak dapat dibaca.'));
@@ -151,7 +173,7 @@
                 navigator.storage?.persist?.().catch(() => false);
 
                 try {
-                    const storedCaptures = await this.readLocalCaptures(sessionUuid);
+                    const storedCaptures = await this.readLocalCaptures(sessionUuid, 'server');
                     const knownIds = new Set(this.captureQueue.map((capture) => capture.id));
                     this.captureQueue.push(...storedCaptures.filter((capture) => ! knownIds.has(capture.id)));
                     this.captureQueue.sort((first, second) => first.createdAt - second.createdAt);
@@ -169,6 +191,225 @@
                     this.queueInitializedFor = null;
                     this.backgroundState = error?.message || 'Antrean lokal tidak dapat dipulihkan.';
                 }
+            },
+            async loadLocalGallery(sessionUuid = this.sessionUuid) {
+                if (! sessionUuid) {
+                    this.localCaptures = [];
+                    this.localCapturedCount = 0;
+                    return;
+                }
+
+                try {
+                    this.localCaptures = (await this.readLocalCaptures(sessionUuid, 'local')).reverse();
+                    this.localCapturedCount = this.localCaptures.length;
+                    this.localGalleryFor = sessionUuid;
+                } catch (error) {
+                    this.backgroundState = error?.message || 'Foto lokal tidak dapat dibaca.';
+                }
+            },
+            wrapCanvasText(context, text, maxWidth, maxLines = 2) {
+                const words = String(text || '-').trim().split(/\s+/);
+                const lines = [];
+                let currentLine = '';
+
+                for (const word of words) {
+                    const candidate = currentLine ? `${currentLine} ${word}` : word;
+                    if (currentLine && context.measureText(candidate).width > maxWidth) {
+                        lines.push(currentLine);
+                        currentLine = word;
+                        if (lines.length === maxLines - 1) break;
+                    } else {
+                        currentLine = candidate;
+                    }
+                }
+
+                if (currentLine && lines.length < maxLines) lines.push(currentLine);
+                if (lines.join(' ').length < String(text || '').trim().length && lines.length) {
+                    let lastLine = lines[lines.length - 1];
+                    while (lastLine.length > 1 && context.measureText(`${lastLine}...`).width > maxWidth) {
+                        lastLine = lastLine.slice(0, -1);
+                    }
+                    lines[lines.length - 1] = `${lastLine.trim()}...`;
+                }
+
+                return lines;
+            },
+            drawLocalWatermark(canvas, context, capturedAt) {
+                const width = canvas.width;
+                const height = canvas.height;
+                const base = Math.min(width, height * 0.82);
+                const padding = Math.max(18, base * 0.025);
+                const contentX = padding * 1.05;
+                const timeFont = Math.max(42, base * 0.076);
+                const dateFont = Math.max(24, base * 0.039);
+                const locationFont = Math.max(21, base * 0.032);
+                const addressFont = Math.max(17, base * 0.0225);
+                const coordinateFont = Math.max(15, base * 0.019);
+                context.font = `600 ${addressFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                const addressLines = this.wrapCanvasText(context, this.sessionAddress, width - (contentX * 2), 2);
+                const timeRowHeight = timeFont * 1.12;
+                const locationLineHeight = locationFont * 1.18;
+                const addressLineHeight = addressFont * 1.14;
+                const outerBottomSpace = padding * 0.22;
+                const innerBottomSpace = padding * 0.22;
+                const overlayHeight = padding
+                    + timeRowHeight
+                    + (padding * 0.28)
+                    + locationLineHeight
+                    + (addressLines.length * addressLineHeight)
+                    + (padding * 0.12)
+                    + coordinateFont
+                    + innerBottomSpace;
+                const overlayBottom = height - outerBottomSpace;
+                const overlayTop = overlayBottom - overlayHeight;
+                const timeZone = 'Asia/Jakarta';
+                const date = new Date(capturedAt);
+                const time = new Intl.DateTimeFormat('en-US', {
+                    timeZone, hour: '2-digit', minute: '2-digit', hour12: true,
+                }).format(date);
+                const dateText = new Intl.DateTimeFormat('id-ID', {
+                    timeZone, day: '2-digit', month: 'short', year: 'numeric',
+                }).format(date);
+                const dayText = new Intl.DateTimeFormat('id-ID', {
+                    timeZone, weekday: 'long',
+                }).format(date);
+
+                context.save();
+                context.fillStyle = 'rgba(2, 7, 13, .78)';
+                context.fillRect(padding * 0.45, overlayTop, width - (padding * 0.9), overlayHeight);
+
+                const badgeFont = Math.max(13, base * 0.017);
+                const badgeText = 'HANDAYANI MAP CAMERA';
+                context.font = `800 ${badgeFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                const badgeWidth = context.measureText(badgeText).width + (padding * 1.6);
+                const badgeHeight = badgeFont * 2.05;
+                const badgeX = width - padding - badgeWidth;
+                const badgeY = overlayTop - badgeHeight - (padding * 0.25);
+                context.fillStyle = 'rgba(2, 7, 13, .76)';
+                context.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
+                context.fillStyle = '#fbbf24';
+                context.beginPath();
+                context.arc(badgeX + padding * 0.55, badgeY + badgeHeight / 2, badgeFont * 0.28, 0, Math.PI * 2);
+                context.fill();
+                context.fillStyle = '#ffffff';
+                context.textBaseline = 'middle';
+                context.fillText(badgeText, badgeX + padding, badgeY + badgeHeight / 2);
+
+                let y = overlayTop + padding;
+                context.textBaseline = 'top';
+                context.fillStyle = '#ffffff';
+                context.font = `800 ${timeFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.fillText(time, contentX, y);
+                const timeWidth = context.measureText(time).width;
+                const dividerX = contentX + timeWidth + padding * 0.75;
+                const dividerHeight = timeRowHeight;
+                context.fillStyle = '#f7b500';
+                context.fillRect(dividerX, y, Math.max(4, base * 0.004), dividerHeight);
+
+                const dateX = dividerX + padding * 0.55;
+                context.fillStyle = '#ffffff';
+                context.font = `800 ${dateFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.fillText(dateText, dateX, y);
+                context.fillText(dayText, dateX, y + dateFont * 1.02);
+                y += dividerHeight + padding * 0.28;
+
+                context.font = `800 ${locationFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.fillStyle = '#ffffff';
+                const locationLines = this.wrapCanvasText(context, this.sessionLocation, width - (contentX * 2), 1);
+                context.fillText(locationLines[0] || '-', contentX, y);
+                const flagX = Math.min(width - contentX - locationFont * 1.45, contentX + context.measureText(locationLines[0] || '-').width + padding * .35);
+                context.fillStyle = '#ef4444';
+                context.fillRect(flagX, y + locationFont * .12, locationFont * 1.25, locationFont * .38);
+                context.fillStyle = '#ffffff';
+                context.fillRect(flagX, y + locationFont * .5, locationFont * 1.25, locationFont * .38);
+                y += locationLineHeight;
+
+                context.font = `600 ${addressFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.fillStyle = '#f3f5f8';
+                for (const line of addressLines) {
+                    context.fillText(line, contentX, y);
+                    y += addressLineHeight;
+                }
+
+                context.font = `600 ${coordinateFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.fillStyle = '#e6ebf1';
+                const accuracyText = this.accuracy === null ? '' : ` | Akurasi +/-${this.accuracy} m`;
+                context.fillText(
+                    `Lat ${Number(this.latitude).toFixed(6)} | Long ${Number(this.longitude).toFixed(6)}${accuracyText}`,
+                    contentX,
+                    Math.min(y + padding * .12, overlayBottom - innerBottomSpace - coordinateFont),
+                );
+                context.restore();
+            },
+            localCaptureDate(capture) {
+                return new Intl.DateTimeFormat('id-ID', {
+                    timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                }).format(new Date(capture.capturedAt));
+            },
+            localCaptureFileName(capture) {
+                const sequence = String(capture.localSequence || 1).padStart(2, '0');
+                return `${sequence}_foto_maps_handayani_${capture.id.slice(0, 8)}.jpg`;
+            },
+            nextLocalSequence() {
+                return this.localCaptures.reduce(
+                    (highest, capture) => Math.max(highest, Number(capture.localSequence || 0)),
+                    0,
+                ) + 1;
+            },
+            async downloadLocalCapture(captureId) {
+                const capture = await this.getLocalCapture(captureId);
+                if (! capture?.blob) {
+                    this.backgroundState = 'File foto lokal tidak ditemukan.';
+                    return;
+                }
+                const url = URL.createObjectURL(capture.blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = this.localCaptureFileName(capture);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+            },
+            async shareLocalCapture(captureId) {
+                const capture = await this.getLocalCapture(captureId);
+                if (! capture?.blob) return;
+                const file = new File([capture.blob], this.localCaptureFileName(capture), {
+                    type: capture.blob.type || 'image/jpeg', lastModified: capture.createdAt,
+                });
+                try {
+                    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+                        await navigator.share({
+                            title: 'Foto barang datang',
+                            text: 'Laporan foto barang datang Logistik Handayani',
+                            files: [file],
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    if (error?.name === 'AbortError') return;
+                }
+                await this.downloadLocalCapture(captureId);
+            },
+            async previewLocalCapture(captureId) {
+                const capture = await this.getLocalCapture(captureId);
+                if (! capture?.blob) return;
+                this.closeLocalPreview();
+                this.localPreviewCapture = capture;
+                this.localPreviewUrl = URL.createObjectURL(capture.blob);
+            },
+            closeLocalPreview() {
+                if (this.localPreviewUrl) URL.revokeObjectURL(this.localPreviewUrl);
+                this.localPreviewUrl = null;
+                this.localPreviewCapture = null;
+            },
+            async deleteLocalOnlyCapture(captureId) {
+                if (! window.confirm('Hapus foto lokal ini? File tidak dapat dipulihkan.')) return;
+                await this.deleteLocalCapture(captureId);
+                this.localCaptures = this.localCaptures.filter((capture) => capture.id !== captureId);
+                this.localCapturedCount = this.localCaptures.length;
+                if (this.localPreviewCapture?.id === captureId) this.closeLocalPreview();
             },
             createCaptureId() {
                 if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -256,8 +497,9 @@
 
                 this.finishingSession = true;
                 this.finishRequested = false;
-                await $wire.finishSession();
+                await $wire.finishSession(this.finishAllowsEmptyLocal);
                 this.finishingSession = false;
+                this.finishAllowsEmptyLocal = false;
             },
             async refreshGps() {
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
@@ -309,7 +551,7 @@
                 this.gpsReady = true;
                 this.gpsState = 'Menggunakan lokasi default Paiton';
             },
-            async openCamera(sessionUuid = this.sessionUuid) {
+            async openCamera(sessionUuid = this.sessionUuid, sessionLocation = this.sessionLocation, sessionAddress = this.sessionAddress) {
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
                     this.cameraError = 'Kamera membutuhkan akses HTTPS.';
                     return;
@@ -323,7 +565,10 @@
                 this.cameraError = '';
                 this.cameraReady = false;
                 this.sessionUuid = sessionUuid;
+                this.sessionLocation = sessionLocation || '';
+                this.sessionAddress = sessionAddress || '';
                 this.initializeCaptureQueue(sessionUuid);
+                await this.loadLocalGallery(sessionUuid);
                 this.cameraOpen = true;
                 document.body.style.overflow = 'hidden';
                 this.updateClock();
@@ -440,15 +685,21 @@
                     context.imageSmoothingQuality = 'high';
                     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+                    const createdAt = Date.now();
+                    if (this.captureMode === 'local') {
+                        this.drawLocalWatermark(canvas, context, createdAt);
+                    }
+
                     const blob = await new Promise((resolve, reject) => canvas.toBlob(
                         (result) => result ? resolve(result) : reject(new Error('Foto gagal dibuat.')),
                         'image/jpeg',
-                        0.9,
+                        this.captureMode === 'local' ? 0.86 : 0.9,
                     ));
-                    const createdAt = Date.now();
                     const capture = {
                         id: this.createCaptureId(),
                         sessionUuid: this.sessionUuid,
+                        mode: this.captureMode,
+                        localSequence: this.captureMode === 'local' ? this.nextLocalSequence() : null,
                         createdAt,
                         capturedAt: new Date(createdAt).toISOString(),
                         latitude: this.latitude,
@@ -461,15 +712,23 @@
                     await this.saveLocalCapture(capture);
                     const captureMetadata = { ...capture };
                     delete captureMetadata.blob;
-                    this.captureQueue.push(captureMetadata);
-                    this.captureQueue.sort((first, second) => first.createdAt - second.createdAt);
-                    this.queuedCount = this.captureQueue.length;
-                    this.capturedCount++;
-                    this.backgroundState = `${this.queuedCount} foto aman di perangkat`;
+
+                    if (this.captureMode === 'server') {
+                        this.captureQueue.push(captureMetadata);
+                        this.captureQueue.sort((first, second) => first.createdAt - second.createdAt);
+                        this.queuedCount = this.captureQueue.length;
+                        this.capturedCount++;
+                        this.backgroundState = `${this.queuedCount} foto aman di perangkat`;
+                    } else {
+                        this.localCaptures.unshift(captureMetadata);
+                        this.localCapturedCount = this.localCaptures.length;
+                        this.backgroundState = `${this.localCapturedCount} foto tersimpan lokal di perangkat`;
+                    }
+
                     this.$refs.cameraFlash?.classList.add('is-visible');
                     window.setTimeout(() => this.$refs.cameraFlash?.classList.remove('is-visible'), 140);
                     this.captureBusy = false;
-                    this.processUploadQueue();
+                    if (this.captureMode === 'server') this.processUploadQueue();
                 } catch (error) {
                     this.captureBusy = false;
                     this.cameraError = error?.message || 'Foto gagal diamankan. Silakan potret ulang.';
@@ -523,6 +782,16 @@
                 if (! window.confirm('Selesaikan sesi foto ini? Kamera akan ditutup.')) return;
                 this.closeCamera();
                 this.finishRequested = true;
+                this.finishAllowsEmptyLocal = this.captureMode === 'local';
+                this.backgroundState = this.captureQueue.length > 0 || this.uploadInProgress
+                    ? 'Menunggu semua foto aman di server sebelum menyelesaikan sesi'
+                    : this.backgroundState;
+                await this.completeFinishIfReady();
+            },
+            async finishSessionFromPage() {
+                if (! window.confirm('Selesaikan sesi ini? Setelah selesai, foto server tidak dapat ditambah atau dihapus.')) return;
+                this.finishRequested = true;
+                this.finishAllowsEmptyLocal = this.localCapturedCount > 0;
                 this.backgroundState = this.captureQueue.length > 0 || this.uploadInProgress
                     ? 'Menunggu semua foto aman di server sebelum menyelesaikan sesi'
                     : this.backgroundState;
@@ -621,7 +890,12 @@
                         <span>{{ $activeSession->code() }}</span>
                     </div>
                     <h2>{{ $activeSession->judul }}</h2>
-                    <p>{{ $activeSession->nama_lokasi }} · {{ $activeSession->items_count }} foto</p>
+                    <p>
+                        {{ $activeSession->nama_lokasi }} · {{ $activeSession->items_count }} foto server
+                        <span x-show="localGalleryFor === @js($activeSession->uuid) && localCapturedCount > 0" x-cloak>
+                            · <b x-text="localCapturedCount"></b> foto lokal HP
+                        </span>
+                    </p>
                 </div>
 
                 <div class="fm-session-actions">
@@ -641,8 +915,7 @@
                             type="button"
                             color="success"
                             icon="heroicon-m-check-circle"
-                            wire:click="finishSession"
-                            wire:confirm="Selesaikan sesi ini? Setelah selesai, foto tidak dapat ditambah atau dihapus."
+                            x-on:click="finishSessionFromPage()"
                         >
                             Selesaikan Sesi
                         </x-filament::button>
@@ -667,9 +940,9 @@
                         <div class="fm-section-heading fm-section-heading--compact">
                             <div>
                                 <span class="fm-section-kicker">Foto berikutnya</span>
-                                <h2>Ambil foto ke-{{ $activeSession->items_count + 1 }}</h2>
+                                <h2 x-text="'Ambil foto ke-' + ((captureMode === 'local' ? localCapturedCount : capturedCount) + 1)"></h2>
                             </div>
-                            <span class="fm-counter">{{ $activeSession->items_count }}</span>
+                            <span class="fm-counter" x-text="captureMode === 'local' ? localCapturedCount : capturedCount"></span>
                         </div>
 
                         <div :class="gpsReady ? 'fm-gps fm-gps--ready' : 'fm-gps'">
@@ -694,7 +967,37 @@
                             <button type="button" x-on:click="useDefaultGps()">Gunakan lokasi default Paiton</button>
                         </div>
 
-                        <button type="button" class="fm-open-camera" x-on:click="openCamera(@js($activeSession->uuid))">
+                        <div class="fm-mode-picker" role="group" aria-label="Pilih penyimpanan foto">
+                            <button
+                                type="button"
+                                x-on:click="captureMode = 'server'"
+                                x-bind:class="captureMode === 'server' && 'is-active'"
+                            >
+                                <span><x-filament::icon icon="heroicon-o-cloud-arrow-up" /></span>
+                                <strong>Mode Server</strong>
+                                <small>Aman di server dan bisa dibuka dari perangkat lain</small>
+                            </button>
+                            <button
+                                type="button"
+                                x-on:click="captureMode = 'local'"
+                                x-bind:class="captureMode === 'local' && 'is-active'"
+                            >
+                                <span><x-filament::icon icon="heroicon-o-device-phone-mobile" /></span>
+                                <strong>Mode Lokal HP</strong>
+                                <small>Tanpa upload, paling cepat dan hanya ada di perangkat ini</small>
+                            </button>
+                        </div>
+
+                        <div class="fm-local-warning" x-show="captureMode === 'local'" x-cloak>
+                            <x-filament::icon icon="heroicon-o-information-circle" />
+                            <p>Foto disimpan di penyimpanan aplikasi pada HP ini. Unduh atau bagikan foto penting sebelum membersihkan data browser.</p>
+                        </div>
+
+                        <button
+                            type="button"
+                            class="fm-open-camera"
+                            x-on:click="openCamera(@js($activeSession->uuid), @js($activeSession->nama_lokasi), @js($activeSession->alamat))"
+                        >
                             <span><x-filament::icon icon="heroicon-o-camera" /></span>
                             <span>
                                 <strong>Buka Kamera Berkelanjutan</strong>
@@ -705,7 +1008,7 @@
 
                         <p class="fm-camera-error" x-show="cameraError && ! cameraOpen" x-text="cameraError" x-cloak></p>
 
-                        <div class="fm-camera-box" wire:key="camera-input-{{ $uploadKey }}">
+                        <div class="fm-camera-box" wire:key="camera-input-{{ $uploadKey }}" x-show="captureMode === 'server'">
                             <input
                                 id="foto-barang-camera-{{ $uploadKey }}"
                                 type="file"
@@ -780,7 +1083,10 @@
                         </button>
                         <div>
                             <strong>{{ $activeSession->judul }}</strong>
-                            <span><b x-text="capturedCount"></b> foto tersimpan</span>
+                            <span>
+                                <b x-text="captureMode === 'local' ? localCapturedCount : capturedCount"></b>
+                                foto tersimpan · <b x-text="captureMode === 'local' ? 'Lokal HP' : 'Server'"></b>
+                            </span>
                         </div>
                         <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating || captureBusy" aria-label="Refresh GPS">
                             <x-filament::icon icon="heroicon-m-arrow-path" x-bind:class="locating && 'is-spinning'" />
@@ -791,9 +1097,9 @@
                         <video x-ref="cameraVideo" autoplay playsinline muted></video>
                         <canvas x-ref="captureCanvas" hidden></canvas>
                         <div class="fm-live-camera__shade"></div>
-                        <div class="fm-live-camera__badge"><i></i> HANDAYANI MAP CAMERA</div>
 
                         <div class="fm-live-camera__watermark" aria-hidden="true">
+                            <div class="fm-live-camera__badge"><i></i> HANDAYANI MAP CAMERA</div>
                             <div class="fm-live-camera__datetime">
                                 <strong><span x-text="liveTime"></span> WIB</strong>
                                 <i></i>
@@ -818,11 +1124,16 @@
                             <button type="button" x-show="! gpsReady" x-on:click="useDefaultGps()">Pakai default</button>
                         </div>
 
-                        <div class="fm-live-camera__queue" x-show="queuedCount > 0 || uploadInProgress" x-cloak>
+                        <div class="fm-live-camera__queue" x-show="captureMode === 'server' && (queuedCount > 0 || uploadInProgress)" x-cloak>
                             <x-filament::icon icon="heroicon-m-cloud-arrow-up" />
                             <span x-text="backgroundState"></span>
                             <b x-show="uploadInProgress"><span x-text="uploadProgress"></span>%</b>
                             <button type="button" x-show="! uploadInProgress" x-on:click="retryPendingUploads()">Kirim ulang</button>
+                        </div>
+
+                        <div class="fm-live-camera__queue is-local" x-show="captureMode === 'local'" x-cloak>
+                            <x-filament::icon icon="heroicon-m-device-phone-mobile" />
+                            <span><b x-text="localCapturedCount"></b> foto aman di perangkat · tidak diunggah</span>
                         </div>
 
                         <div class="fm-live-camera__actions">
@@ -837,7 +1148,7 @@
                                 aria-label="Ambil foto"
                             ><span></span></button>
                             <div class="fm-live-camera__sequence">
-                                <strong>#<span x-text="String(capturedCount + 1).padStart(2, '0')"></span></strong>
+                                <strong>#<span x-text="String((captureMode === 'local' ? localCapturedCount : capturedCount) + 1).padStart(2, '0')"></span></strong>
                                 <small>berikutnya</small>
                             </div>
                         </div>
@@ -853,8 +1164,8 @@
             <section class="fm-gallery">
                 <div class="fm-section-heading">
                     <div>
-                        <span class="fm-section-kicker">Isi folder</span>
-                        <h2>{{ $activeSession->items_count }} foto tersimpan</h2>
+                        <span class="fm-section-kicker">Penyimpanan server</span>
+                        <h2>{{ $activeSession->items_count }} foto di server</h2>
                         <p>Foto terbaru berada di urutan paling awal.</p>
                     </div>
                     <x-filament::icon icon="heroicon-o-photo" />
@@ -924,6 +1235,76 @@
                     </div>
                 @endif
             </section>
+
+            <section
+                class="fm-gallery fm-local-gallery"
+                wire:key="foto-local-session-{{ $activeSession->uuid }}"
+                x-init="loadLocalGallery(@js($activeSession->uuid))"
+                x-show="localGalleryFor === @js($activeSession->uuid) && localCapturedCount > 0"
+                x-cloak
+            >
+                <div class="fm-section-heading">
+                    <div>
+                        <span class="fm-section-kicker">Penyimpanan perangkat</span>
+                        <h2><span x-text="localCapturedCount"></span> foto lokal HP</h2>
+                        <p>Foto ini tidak dikirim ke server. Unduh atau bagikan sebelum data browser dibersihkan.</p>
+                    </div>
+                    <x-filament::icon icon="heroicon-o-device-phone-mobile" />
+                </div>
+
+                <div class="fm-local-grid">
+                    <template x-for="capture in localCaptures" :key="capture.id">
+                        <article class="fm-local-card">
+                            <button type="button" class="fm-local-card__preview" x-on:click="previewLocalCapture(capture.id)">
+                                <x-filament::icon icon="heroicon-o-photo" />
+                                <strong>#<span x-text="String(capture.localSequence || 1).padStart(2, '0')"></span></strong>
+                                <small>Pratinjau foto</small>
+                            </button>
+                            <div class="fm-local-card__info">
+                                <strong x-text="localCaptureDate(capture) + ' WIB'"></strong>
+                                <span><i></i> Aman di perangkat ini</span>
+                            </div>
+                            <div class="fm-photo-card__actions">
+                                <button type="button" x-on:click="shareLocalCapture(capture.id)">
+                                    <x-filament::icon icon="heroicon-m-share" /> Bagikan
+                                </button>
+                                <button type="button" x-on:click="downloadLocalCapture(capture.id)">
+                                    <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
+                                </button>
+                                <button type="button" class="is-danger" x-on:click="deleteLocalOnlyCapture(capture.id)" aria-label="Hapus foto lokal">
+                                    <x-filament::icon icon="heroicon-m-trash" />
+                                </button>
+                            </div>
+                        </article>
+                    </template>
+                </div>
+            </section>
+
+            <div
+                class="fm-local-preview"
+                x-show="localPreviewUrl"
+                x-cloak
+                x-on:click.self="closeLocalPreview()"
+                x-on:keydown.escape.window="closeLocalPreview()"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Pratinjau foto lokal"
+            >
+                <div class="fm-local-preview__panel">
+                    <button type="button" class="fm-local-preview__close" x-on:click="closeLocalPreview()" aria-label="Tutup pratinjau">
+                        <x-filament::icon icon="heroicon-m-x-mark" />
+                    </button>
+                    <img x-bind:src="localPreviewUrl" alt="Pratinjau foto lokal">
+                    <div>
+                        <button type="button" x-on:click="shareLocalCapture(localPreviewCapture.id)">
+                            <x-filament::icon icon="heroicon-m-share" /> Bagikan
+                        </button>
+                        <button type="button" x-on:click="downloadLocalCapture(localPreviewCapture.id)">
+                            <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
+                        </button>
+                    </div>
+                </div>
+            </div>
         @endif
 
         <section class="fm-history">
@@ -1030,6 +1411,19 @@
         .fm-location-fallback { display:flex; justify-content:space-between; gap:.75rem; margin-top:.65rem; padding:.7rem .8rem; border-radius:.7rem; background:var(--fm-soft); }
         .fm-location-fallback p { margin:0; color:var(--fm-muted); font-size:.65rem; line-height:1.45; }
         .fm-location-fallback button { flex:0 0 auto; }
+        .fm-mode-picker { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; margin-top:1rem; }
+        .fm-mode-picker>button { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.12rem .65rem; align-items:center; padding:.75rem; border:1px solid var(--fm-line); border-radius:.8rem; color:var(--fm-ink); background:var(--fm-soft); text-align:left; cursor:pointer; transition:border-color .15s,box-shadow .15s,background .15s; }
+        .fm-mode-picker>button.is-active { border-color:#f59e0b; background:#fff8e6; box-shadow:0 0 0 3px rgba(245,158,11,.12); }
+        .dark .fm-mode-picker>button.is-active { background:#302719; }
+        .fm-mode-picker>button>span { grid-row:1/3; display:grid; place-items:center; width:2.25rem; height:2.25rem; border-radius:.65rem; color:#64748b; background:var(--fi-body-bg,#fff); }
+        .fm-mode-picker>button.is-active>span { color:#b45309; }
+        .fm-mode-picker svg { width:1.15rem; }
+        .fm-mode-picker strong { font-size:.7rem; }
+        .fm-mode-picker small { color:var(--fm-muted); font-size:.57rem; line-height:1.35; }
+        .fm-local-warning { display:flex; gap:.5rem; margin-top:.65rem; padding:.65rem .75rem; border:1px solid #fde68a; border-radius:.7rem; color:#854d0e; background:#fffbeb; }
+        .dark .fm-local-warning { border-color:#58441b; color:#fde68a; background:#2c2517; }
+        .fm-local-warning svg { flex:0 0 auto; width:1rem; }
+        .fm-local-warning p { margin:0; font-size:.62rem; line-height:1.45; }
         .fm-open-camera { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.8rem; align-items:center; width:100%; margin-top:1rem; padding:.9rem; border:0; border-radius:.9rem; color:#fff; background:linear-gradient(135deg,#d97706,#f59e0b); box-shadow:0 12px 24px rgba(217,119,6,.22); text-align:left; cursor:pointer; }
         .fm-open-camera>span:first-child { display:grid; place-items:center; width:2.7rem; height:2.7rem; border-radius:.75rem; background:rgba(255,255,255,.18); }
         .fm-open-camera>span:nth-child(2) { display:grid; gap:.1rem; }
@@ -1070,6 +1464,29 @@
         .fm-template-overlay p { display:-webkit-box; overflow:hidden; margin:0; color:#d8e0e9; font-size:.52rem; line-height:1.4; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
         .fm-template-overlay>span { display:block; margin-top:.3rem; color:#cbd5e1; font-size:.5rem; }
         .fm-gallery,.fm-history { display:grid; gap:1rem; }
+        .fm-local-gallery { border-color:#f6d88d; background:linear-gradient(145deg,var(--fi-body-bg,#fff),#fffbeb); }
+        .dark .fm-local-gallery { border-color:#51411e; background:linear-gradient(145deg,#111c2b,#211d16); }
+        .fm-local-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.9rem; }
+        .fm-local-card { overflow:hidden; border:1px solid var(--fm-line); border-radius:.9rem; background:var(--fi-body-bg,#fff); }
+        .dark .fm-local-card { background:#142132; }
+        .fm-local-card__preview { display:grid; place-items:center; align-content:center; width:100%; min-height:9rem; border:0; color:#d7920b; background:radial-gradient(circle at 50% 30%,#fff7db,#f3f6f9 70%); cursor:pointer; }
+        .dark .fm-local-card__preview { color:#fbbf24; background:radial-gradient(circle at 50% 30%,#342c1b,#101b29 70%); }
+        .fm-local-card__preview svg { width:2.2rem; opacity:.8; }
+        .fm-local-card__preview strong { margin-top:.35rem; color:var(--fm-ink); font-size:.75rem; }
+        .fm-local-card__preview small { margin-top:.15rem; color:var(--fm-muted); font-size:.58rem; }
+        .fm-local-card__info { display:grid; gap:.25rem; padding:.7rem; }
+        .fm-local-card__info strong { font-size:.67rem; }
+        .fm-local-card__info span { display:flex; align-items:center; gap:.3rem; color:#15803d; font-size:.58rem; font-weight:750; }
+        .fm-local-card__info i { width:.42rem; height:.42rem; border-radius:50%; background:#22c55e; }
+        .fm-local-preview[x-cloak] { display:none!important; }
+        .fm-local-preview { position:fixed; z-index:10020; inset:0; display:grid; place-items:center; padding:1rem; background:rgba(2,6,12,.9); }
+        .fm-local-preview__panel { position:relative; display:grid; gap:.75rem; max-width:46rem; max-height:calc(100dvh - 2rem); width:100%; padding:.7rem; border-radius:1rem; background:#0b111b; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+        .fm-local-preview__panel>img { width:100%; max-height:calc(100dvh - 7rem); border-radius:.65rem; object-fit:contain; background:#000; }
+        .fm-local-preview__close { position:absolute; z-index:2; top:1rem; right:1rem; display:grid; place-items:center; width:2.35rem; height:2.35rem; border:0; border-radius:50%; color:#fff; background:rgba(2,6,12,.78); cursor:pointer; }
+        .fm-local-preview__close svg { width:1.15rem; }
+        .fm-local-preview__panel>div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
+        .fm-local-preview__panel>div button { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:2.5rem; border:1px solid #334155; border-radius:.65rem; color:#fff; background:#172033; font-size:.7rem; font-weight:800; }
+        .fm-local-preview__panel>div svg { width:1rem; }
         .fm-empty { display:grid; justify-items:center; gap:.35rem; padding:2.4rem 1rem; border:1px dashed var(--fm-line); border-radius:.9rem; color:var(--fm-muted); text-align:center; }
         .fm-empty svg { width:2.5rem; opacity:.55; }
         .fm-empty strong { color:var(--fm-ink); font-size:.8rem; }
@@ -1119,13 +1536,13 @@
         .fm-live-camera__stage { position:relative; min-height:0; overflow:hidden; background:#000; }
         .fm-live-camera__stage>video { width:100%; height:100%; object-fit:contain; background:#000; }
         .fm-live-camera__shade { position:absolute; inset:0; pointer-events:none; background:linear-gradient(to bottom,rgba(0,0,0,.12),transparent 24%,transparent 58%,rgba(0,0,0,.35)); }
-        .fm-live-camera__badge { position:absolute; z-index:2; right:.75rem; bottom:clamp(12.2rem,27vh,18rem); display:flex; align-items:center; gap:.38rem; padding:.42rem .58rem; border-radius:.15rem; color:#fff; background:rgba(2,7,13,.72); font-size:clamp(.63rem,2.5vw,.9rem); font-weight:800; letter-spacing:.015em; text-shadow:0 1px 2px #000; }
+        .fm-live-camera__badge { position:absolute; z-index:2; right:0; bottom:calc(100% + .4rem); display:flex; align-items:center; gap:.38rem; padding:.42rem .58rem; border-radius:.15rem; color:#fff; background:rgba(2,7,13,.72); font-size:clamp(.63rem,2.5vw,.9rem); font-weight:800; letter-spacing:.015em; text-shadow:0 1px 2px #000; }
         .fm-live-camera__badge i { width:.52rem; height:.52rem; border-radius:50%; background:#fbbf24; box-shadow:0 0 0 2px rgba(255,255,255,.35); }
-        .fm-live-camera__watermark { position:absolute; z-index:2; right:.55rem; bottom:.55rem; left:.55rem; min-height:clamp(10.8rem,24vh,16rem); padding:clamp(.72rem,2.4vw,1.25rem); color:#fff; background:rgba(2,7,13,.76); text-shadow:0 1px 3px rgba(0,0,0,.95); }
+        .fm-live-camera__watermark { position:absolute; z-index:2; right:.55rem; bottom:.35rem; left:.55rem; padding:clamp(.72rem,2.4vw,1.25rem); color:#fff; background:rgba(2,7,13,.76); text-shadow:0 1px 3px rgba(0,0,0,.95); }
         .fm-live-camera__datetime { display:grid; grid-template-columns:auto .24rem minmax(0,1fr); gap:clamp(.65rem,3vw,1.15rem); align-items:center; }
         .fm-live-camera__datetime>strong { font-size:clamp(2.05rem,9.2vw,5.7rem); font-weight:800; line-height:.95; letter-spacing:-.04em; white-space:nowrap; }
         .fm-live-camera__datetime>i { width:.24rem; height:clamp(3.15rem,12vw,6rem); background:#f7b500; }
-        .fm-live-camera__datetime>b { font-size:clamp(1.15rem,5vw,3rem); font-weight:800; line-height:1.15; }
+        .fm-live-camera__datetime>b { font-size:clamp(1.15rem,5vw,3rem); font-weight:800; line-height:1.02; }
         .fm-live-camera__watermark h3 { display:flex; align-items:center; gap:.35rem; overflow:hidden; margin:clamp(.45rem,1.7vw,.8rem) 0 .12rem; font-size:clamp(1rem,4.5vw,2.6rem); font-weight:800; line-height:1.05; text-overflow:ellipsis; white-space:nowrap; }
         .fm-live-camera__watermark h3 span { font-size:.85em; }
         .fm-live-camera__watermark p { display:-webkit-box; overflow:hidden; margin:0; color:#f3f5f8; font-size:clamp(.77rem,3.15vw,1.65rem); font-weight:600; line-height:1.18; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
@@ -1141,6 +1558,7 @@
         .fm-live-camera__queue svg { flex:0 0 auto; width:.9rem; }
         .fm-live-camera__queue b { color:#fff; font-size:.59rem; }
         .fm-live-camera__queue button { padding:.2rem .42rem; border:1px solid #52657b; border-radius:999px; color:#fff; background:#1b2635; font-size:.56rem; font-weight:800; }
+        .fm-live-camera__queue.is-local { color:#86efac; }
         .fm-live-camera__actions { display:grid; grid-template-columns:minmax(4.5rem,1fr) 5rem minmax(4.5rem,1fr); gap:1rem; align-items:center; max-width:30rem; width:100%; margin:auto; }
         .fm-live-camera__finish { justify-self:start; padding:.52rem .72rem; border:1px solid #465466; border-radius:999px; color:#fff; background:#1b2635; font-size:.68rem; font-weight:800; }
         .fm-live-camera__shutter { display:grid; place-items:center; width:4.8rem; height:4.8rem; padding:.3rem; border:3px solid #fff; border-radius:50%; background:transparent; cursor:pointer; }
@@ -1167,13 +1585,15 @@
             .fm-gps { grid-template-columns:auto minmax(0,1fr); }
             .fm-gps>button { grid-column:1/-1; justify-self:start; }
             .fm-location-fallback { align-items:flex-start; flex-direction:column; }
+            .fm-mode-picker { grid-template-columns:1fr; }
             .fm-photo-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
+            .fm-local-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
             .fm-session-row { grid-template-columns:auto minmax(0,1fr) auto; gap:.55rem; }
             .fm-session-row__count { display:none; }
             .fm-session-row .fm-status { grid-column:2; }
             .fm-session-row>svg { grid-column:3; grid-row:1/3; }
         }
-        @media(max-width:410px) { .fm-photo-grid { grid-template-columns:1fr; } }
+        @media(max-width:410px) { .fm-photo-grid,.fm-local-grid { grid-template-columns:1fr; } }
         @media(prefers-reduced-motion:reduce) { .fm-spinner { animation-duration:1.5s; } }
     </style>
 </x-filament-panels::page>

@@ -366,12 +366,40 @@ class FotoBarangImageService
         $width = imagesx($image);
         $height = imagesy($image);
         $margin = max(18, (int) round($width * 0.024));
-        $overlayHeight = (int) min(max(285, $height * 0.32), max(285, $height * 0.42));
+        $fontRegular = $this->fontPath(false);
+        $fontBold = $this->fontPath(true) ?? $fontRegular;
+        $timeSize = max(36, (int) round($width * 0.064));
+        $dateSize = max(23, (int) round($width * 0.038));
+        $locationSize = max(20, (int) round($width * 0.031));
+        $detailSize = max(15, (int) round($width * 0.020));
+        $contentWidth = $width - ($margin * 4);
+        $addressLines = $this->wrapText(
+            (string) $session->alamat,
+            $detailSize,
+            $fontRegular,
+            $contentWidth,
+            2,
+        );
+        $timeRowHeight = max($timeSize, (int) round($dateSize * 2.05));
+        $locationLineHeight = max(37, (int) round($locationSize * 1.45));
+        $detailGap = max(28, (int) round($detailSize * 1.55));
+        $detailLineHeight = max(21, (int) round($detailSize * 1.35));
+        $bottomPadding = max(8, (int) round($detailSize * 0.45));
+        $coordinateOffset = $margin
+            + $timeRowHeight
+            + $locationLineHeight
+            + $detailGap
+            + (count($addressLines) * $detailLineHeight)
+            + 4;
+        $overlayHeight = min(
+            $height - ($margin * 2),
+            $coordinateOffset + $bottomPadding,
+        );
         $overlayTop = $height - $overlayHeight - $margin;
         $overlayLeft = $margin;
         $overlayRight = $width - $margin;
-        $fontRegular = $this->fontPath(false);
-        $fontBold = $this->fontPath(true) ?? $fontRegular;
+        $contentLeft = $overlayLeft + $margin;
+        $contentTop = $overlayTop + $margin;
 
         imagealphablending($image, true);
         $overlay = imagecolorallocatealpha($image, 5, 10, 18, 34);
@@ -413,12 +441,7 @@ class FotoBarangImageService
             $fontBold,
         );
 
-        $timeSize = max(36, (int) round($width * 0.064));
-        $dateSize = max(23, (int) round($width * 0.038));
-        $locationSize = max(20, (int) round($width * 0.031));
-        $detailSize = max(15, (int) round($width * 0.020));
-        $contentLeft = $overlayLeft + $margin;
-        $firstLineBaseline = $overlayTop + max(70, (int) round($overlayHeight * 0.30));
+        $firstLineBaseline = $contentTop + (int) round(($timeRowHeight + $timeSize) / 2);
         $timeText = $capturedAt->format('H:i').' WIB';
         $timeWidth = $this->textWidth($timeText, $timeSize, $fontBold);
 
@@ -431,19 +454,28 @@ class FotoBarangImageService
         imagefilledrectangle(
             $image,
             $separatorX,
-            $overlayTop + 22,
+            $contentTop,
             $separatorX + max(4, (int) round($width * 0.004)),
-            $firstLineBaseline + 8,
+            $contentTop + $timeRowHeight,
             $amber,
         );
 
         $dateX = $separatorX + max(18, (int) round($width * 0.018));
         $dateText = $capturedAt->locale('id')->translatedFormat('d M Y');
         $dayText = $capturedAt->locale('id')->translatedFormat('l');
-        $this->drawText($image, $dateText, $dateSize, $dateX, $overlayTop + 49, $white, $fontBold);
-        $this->drawText($image, $dayText, $dateSize, $dateX, $firstLineBaseline, $white, $fontBold);
+        $dateBaseline = $contentTop + $dateSize;
+        $this->drawText($image, $dateText, $dateSize, $dateX, $dateBaseline, $white, $fontBold);
+        $this->drawText(
+            $image,
+            $dayText,
+            $dateSize,
+            $dateX,
+            $dateBaseline + (int) round($dateSize * 1.05),
+            $white,
+            $fontBold,
+        );
 
-        $locationBaseline = $firstLineBaseline + max(37, (int) round($locationSize * 1.45));
+        $locationBaseline = $contentTop + $timeRowHeight + $locationLineHeight;
         $location = $this->fitText(
             (string) $session->nama_lokasi,
             $locationSize,
@@ -460,18 +492,11 @@ class FotoBarangImageService
         imagefilledrectangle($image, $flagX, $flagTop, $flagX + 28, $flagTop + 10, $red);
         imagefilledrectangle($image, $flagX, $flagTop + 10, $flagX + 28, $flagTop + 20, $white);
 
-        $addressLines = $this->wrapText(
-            (string) $session->alamat,
-            $detailSize,
-            $fontRegular,
-            ($overlayRight - $contentLeft) - $margin,
-            2,
-        );
-        $detailBaseline = $locationBaseline + max(28, (int) round($detailSize * 1.55));
+        $detailBaseline = $locationBaseline + $detailGap;
 
         foreach ($addressLines as $line) {
             $this->drawText($image, $line, $detailSize, $contentLeft, $detailBaseline, $softWhite, $fontRegular);
-            $detailBaseline += max(21, (int) round($detailSize * 1.35));
+            $detailBaseline += $detailLineHeight;
         }
 
         $coordinateText = sprintf('Lat %.6f  Long %.6f', $latitude, $longitude);
@@ -486,7 +511,7 @@ class FotoBarangImageService
             $fontRegular,
             ($overlayRight - $contentLeft) - $margin,
         );
-        $coordinateBaseline = min($height - $margin - 14, $detailBaseline + 4);
+        $coordinateBaseline = min($height - $margin - $bottomPadding, $detailBaseline + 4);
         $this->drawText(
             $image,
             $coordinateText,

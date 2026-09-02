@@ -322,7 +322,7 @@ class FotoBarangMaps extends Page
             ->send();
     }
 
-    public function finishSession(): void
+    public function finishSession(bool $allowEmptyLocal = false): void
     {
         $session = $this->findVisibleSession((int) $this->activeSessionId);
 
@@ -330,7 +330,7 @@ class FotoBarangMaps extends Page
             return;
         }
 
-        if (! $session->items()->exists()) {
+        if (! $allowEmptyLocal && ! $session->items()->exists()) {
             Notification::make()
                 ->title('Sesi masih kosong')
                 ->body('Ambil minimal satu foto sebelum menyelesaikan sesi.')
@@ -349,12 +349,18 @@ class FotoBarangMaps extends Page
             'foto_session_complete',
             "Menyelesaikan sesi foto barang: {$session->judul}",
             auth()->user(),
-            ['session_id' => $session->getKey(), 'photo_count' => $session->items()->count()],
+            [
+                'session_id' => $session->getKey(),
+                'photo_count' => $session->items()->count(),
+                'storage_mode' => $allowEmptyLocal ? 'local_device' : 'server',
+            ],
         );
 
         Notification::make()
             ->title('Sesi selesai')
-            ->body('Folder foto siap diunduh atau dibagikan sebagai laporan.')
+            ->body($allowEmptyLocal
+                ? 'Sesi lokal selesai. Foto tetap tersedia hanya pada perangkat ini.'
+                : 'Folder foto siap diunduh atau dibagikan sebagai laporan.')
             ->success()
             ->send();
     }
