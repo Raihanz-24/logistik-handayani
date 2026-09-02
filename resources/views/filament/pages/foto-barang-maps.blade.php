@@ -41,7 +41,6 @@
             serverPhotoIndex: 0,
             serverImageLoading: false,
             serverImageError: false,
-            serverPreloadedUrls: {},
             galleryTouchStartX: null,
             confirmOpen: false,
             confirmType: null,
@@ -467,7 +466,6 @@
                 this.serverPhotoIndex = Math.max(0, Math.min(Number(index), this.serverPhotos.length - 1));
                 this.serverImageLoading = true;
                 this.serverImageError = false;
-                this.preloadServerPhoto(this.serverPhotoIndex);
                 this.serverGalleryOpen = true;
                 this.$nextTick(() => {
                     const dialog = this.$refs.serverGalleryDialog;
@@ -498,55 +496,17 @@
             currentServerPhoto() {
                 return this.serverPhotos[this.serverPhotoIndex] || null;
             },
-            preloadServerPhoto(index) {
-                const photo = this.serverPhotos[index];
-                if (! photo?.preview || this.serverPreloadedUrls[photo.preview]) return;
-
-                const image = new Image();
-                this.serverPreloadedUrls[photo.preview] = 'loading';
-                image.decoding = 'async';
-                image.src = photo.preview;
-                image.onload = () => {
-                    this.serverPreloadedUrls[photo.preview] = true;
-                };
-                image.onerror = () => {
-                    delete this.serverPreloadedUrls[photo.preview];
-                };
-            },
-            preloadAdjacentServerPhotos() {
-                if (this.serverPhotos.length < 2) return;
-                this.preloadServerPhoto((this.serverPhotoIndex - 1 + this.serverPhotos.length) % this.serverPhotos.length);
-                this.preloadServerPhoto((this.serverPhotoIndex + 1) % this.serverPhotos.length);
-            },
-            handleServerImageLoaded(event) {
-                const photo = this.currentServerPhoto();
-                if (! photo || event.currentTarget.src !== new URL(photo.preview, document.baseURI).href) return;
-
-                this.serverImageLoading = false;
-                this.serverImageError = false;
-                this.serverPreloadedUrls[photo.preview] = true;
-                this.preloadAdjacentServerPhotos();
-            },
-            handleServerImageError(event) {
-                const photo = this.currentServerPhoto();
-                if (! photo || event.currentTarget.src !== new URL(photo.preview, document.baseURI).href) return;
-
-                this.serverImageLoading = false;
-                this.serverImageError = true;
-            },
             showPreviousServerPhoto() {
                 if (this.serverPhotos.length < 2) return;
                 this.serverPhotoIndex = (this.serverPhotoIndex - 1 + this.serverPhotos.length) % this.serverPhotos.length;
                 this.serverImageLoading = true;
                 this.serverImageError = false;
-                this.preloadServerPhoto(this.serverPhotoIndex);
             },
             showNextServerPhoto() {
                 if (this.serverPhotos.length < 2) return;
                 this.serverPhotoIndex = (this.serverPhotoIndex + 1) % this.serverPhotos.length;
                 this.serverImageLoading = true;
                 this.serverImageError = false;
-                this.preloadServerPhoto(this.serverPhotoIndex);
             },
             beginGallerySwipe(event) {
                 this.galleryTouchStartX = event.changedTouches?.[0]?.clientX ?? null;
@@ -1528,21 +1488,17 @@
                                 <button
                                     type="button"
                                     class="fm-photo-card__image"
-                                    x-data="{ imageReady: false, imageFailed: false }"
-                                    x-on:pointerdown.passive="preloadServerPhoto({{ $loop->index }})"
                                     x-on:click="openServerGallery({{ $loop->index }})"
                                 >
-                                    <span class="fm-image-skeleton" x-show="! imageReady && ! imageFailed" aria-hidden="true"></span>
+                                    <span class="fm-image-skeleton" aria-hidden="true"><small>Pratinjau belum tersedia</small></span>
                                     <img
                                         src="{{ $thumbnailUrl }}"
                                         alt="Foto barang urutan {{ $item->urutan }}"
                                         loading="{{ $loop->index < 2 ? 'eager' : 'lazy' }}"
                                         decoding="async"
-                                        x-bind:class="imageReady && 'is-ready'"
-                                        x-on:load="imageReady = true"
-                                        x-on:error="imageFailed = true"
+                                        x-on:load="$el.classList.add('is-ready'); $el.parentElement.classList.add('is-image-ready')"
+                                        x-on:error="$el.parentElement.classList.add('is-image-failed')"
                                     >
-                                    <span class="fm-image-failed" x-show="imageFailed" x-cloak>Pratinjau belum tersedia</span>
                                     <span class="fm-photo-sequence">#{{ str_pad((string) $item->urutan, 2, '0', STR_PAD_LEFT) }}</span>
                                 </button>
 
@@ -1624,8 +1580,8 @@
                             x-bind:src="currentServerPhoto().preview"
                             x-bind:alt="'Foto urutan ' + currentServerPhoto().sequence"
                             x-bind:class="! serverImageLoading && ! serverImageError && 'is-ready'"
-                            x-on:load="handleServerImageLoaded($event)"
-                            x-on:error="handleServerImageError($event)"
+                            x-on:load="serverImageLoading = false; serverImageError = false"
+                            x-on:error="serverImageLoading = false; serverImageError = true"
                             decoding="async"
                             fetchpriority="high"
                         >
@@ -1980,9 +1936,13 @@
         .fm-photo-card__image img { width:100%; height:100%; object-fit:contain; opacity:0; transform:scale(1.015); transition:opacity .24s ease,transform .32s ease; }
         .fm-photo-card__image img.is-ready { opacity:1; transform:scale(1); }
         .fm-photo-card__image>.fm-photo-sequence { position:absolute; z-index:3; top:.55rem; left:.55rem; padding:.3rem .45rem; border-radius:.5rem; color:#1f1708; background:#fbbf24; font-size:.62rem; font-weight:850; }
-        .fm-image-skeleton { position:absolute; z-index:1; inset:0; display:block; background:linear-gradient(110deg,#172235 8%,#26354a 22%,#172235 36%); background-size:220% 100%; animation:fm-skeleton 1.25s ease-in-out infinite; }
+        .fm-image-skeleton { position:absolute; z-index:1; inset:0; display:grid; place-items:center; background:linear-gradient(110deg,#172235 8%,#26354a 22%,#172235 36%); background-size:220% 100%; animation:fm-skeleton 1.25s ease-in-out infinite; opacity:1; transition:opacity .18s ease; pointer-events:none; }
         .fm-image-skeleton::after { content:''; position:absolute; right:16%; bottom:18%; left:16%; height:30%; border-radius:.7rem; background:rgba(255,255,255,.055); }
-        .fm-image-failed { position:absolute; z-index:2; inset:0; display:grid; place-items:center; padding:1rem; color:#94a3b8; background:#111c2d; font-size:.61rem; font-weight:700; }
+        .fm-image-skeleton small { display:none; position:relative; z-index:1; padding:1rem; color:#94a3b8; font-size:.61rem; font-weight:700; }
+        .fm-photo-card__image.is-image-ready .fm-image-skeleton { visibility:hidden; opacity:0; animation:none; }
+        .fm-photo-card__image.is-image-failed .fm-image-skeleton { background:#111c2d; animation:none; }
+        .fm-photo-card__image.is-image-failed .fm-image-skeleton::after { display:none; }
+        .fm-photo-card__image.is-image-failed .fm-image-skeleton small { display:block; }
         .fm-photo-card__body { display:grid; gap:.15rem; padding:.75rem; }
         .fm-photo-card__body strong { font-size:.7rem; }
         .fm-photo-card__body span,.fm-photo-card__body small { color:var(--fm-muted); font-size:.6rem; }

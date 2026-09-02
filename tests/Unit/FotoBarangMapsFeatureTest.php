@@ -165,9 +165,11 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
         $this->assertStringContainsString('openServerGallery', $view);
-        $this->assertStringContainsString('preloadAdjacentServerPhotos', $view);
         $this->assertStringContainsString('fm-image-skeleton', $view);
         $this->assertStringContainsString("route('foto-barang.thumbnail'", $view);
+        $this->assertStringContainsString('x-on:click="openServerGallery({{ $loop->index }})"', $view);
+        $this->assertStringNotContainsString('x-data="{ imageReady:', $view);
+        $this->assertStringNotContainsString('x-on:pointerdown.passive', $view);
         $this->assertStringContainsString('syncServerPhotosFromDom', $view);
         $this->assertStringContainsString('x-ref="serverGalleryDialog"', $view);
         $this->assertStringContainsString('serverRefreshPending', $view);
