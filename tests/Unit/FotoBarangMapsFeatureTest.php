@@ -123,6 +123,14 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('validateProcessedFile', $imageService);
         $this->assertStringContainsString('foto sumber tetap dipertahankan', $imageService);
 
+        preg_match('/x-data="(\{.*?\})"\s*x-init=/s', $view, $alpineData);
+        $this->assertArrayHasKey(1, $alpineData, 'Atribut x-data kamera harus tetap utuh.');
+        $this->assertStringNotContainsString(
+            '"',
+            $alpineData[1],
+            'Tanda kutip ganda di dalam x-data akan memutus atribut HTML dan mencetak JavaScript ke halaman.',
+        );
+
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Regular.ttf');
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Bold.ttf');
     }

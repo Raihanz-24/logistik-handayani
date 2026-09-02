@@ -245,7 +245,7 @@
                 const locationFont = Math.max(21, base * 0.032);
                 const addressFont = Math.max(17, base * 0.0225);
                 const coordinateFont = Math.max(15, base * 0.019);
-                context.font = `600 ${addressFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.font = `600 ${addressFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 const addressLines = this.wrapCanvasText(context, this.sessionAddress, width - (contentX * 2), 2);
                 const timeRowHeight = timeFont * 1.12;
                 const locationLineHeight = locationFont * 1.18;
@@ -280,7 +280,7 @@
 
                 const badgeFont = Math.max(13, base * 0.017);
                 const badgeText = 'HANDAYANI MAP CAMERA';
-                context.font = `800 ${badgeFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.font = `800 ${badgeFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 const badgeWidth = context.measureText(badgeText).width + (padding * 1.6);
                 const badgeHeight = badgeFont * 2.05;
                 const badgeX = width - padding - badgeWidth;
@@ -298,7 +298,7 @@
                 let y = overlayTop + padding;
                 context.textBaseline = 'top';
                 context.fillStyle = '#ffffff';
-                context.font = `800 ${timeFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.font = `800 ${timeFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 context.fillText(time, contentX, y);
                 const timeWidth = context.measureText(time).width;
                 const dividerX = contentX + timeWidth + padding * 0.75;
@@ -308,12 +308,12 @@
 
                 const dateX = dividerX + padding * 0.55;
                 context.fillStyle = '#ffffff';
-                context.font = `800 ${dateFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.font = `800 ${dateFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 context.fillText(dateText, dateX, y);
                 context.fillText(dayText, dateX, y + dateFont * 1.02);
                 y += dividerHeight + padding * 0.28;
 
-                context.font = `800 ${locationFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.font = `800 ${locationFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 context.fillStyle = '#ffffff';
                 const locationLines = this.wrapCanvasText(context, this.sessionLocation, width - (contentX * 2), 1);
                 context.fillText(locationLines[0] || '-', contentX, y);
@@ -324,14 +324,14 @@
                 context.fillRect(flagX, y + locationFont * .5, locationFont * 1.25, locationFont * .38);
                 y += locationLineHeight;
 
-                context.font = `600 ${addressFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.font = `600 ${addressFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 context.fillStyle = '#f3f5f8';
                 for (const line of addressLines) {
                     context.fillText(line, contentX, y);
                     y += addressLineHeight;
                 }
 
-                context.font = `600 ${coordinateFont}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+                context.font = `600 ${coordinateFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 context.fillStyle = '#e6ebf1';
                 const accuracyText = this.accuracy === null ? '' : ` | Akurasi +/-${this.accuracy} m`;
                 context.fillText(
