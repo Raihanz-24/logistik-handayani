@@ -6,6 +6,7 @@ use App\Models\FotoBarangSession;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\FotoBarangImageService;
+use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
@@ -47,6 +48,8 @@ class FotoBarangMaps extends Page
     public ?float $longitude = null;
 
     public ?int $accuracy = null;
+
+    public ?string $capturedAt = null;
 
     public int $uploadKey = 0;
 
@@ -207,6 +210,7 @@ class FotoBarangMaps extends Page
                 (float) $this->latitude,
                 (float) $this->longitude,
                 $this->accuracy,
+                $this->captureTime(),
             );
 
             app(AuditLogger::class)->activity(
@@ -220,7 +224,7 @@ class FotoBarangMaps extends Page
                 ],
             );
 
-            $this->reset('photo');
+            $this->reset('photo', 'capturedAt');
             $this->uploadKey++;
             $this->dispatch('foto-barang-saved');
 
@@ -231,6 +235,8 @@ class FotoBarangMaps extends Page
                 ->send();
         } catch (Throwable $exception) {
             report($exception);
+
+            $this->dispatch('foto-barang-failed');
 
             Notification::make()
                 ->title('Foto gagal diproses')
@@ -250,6 +256,28 @@ class FotoBarangMaps extends Page
         $this->latitude = round($latitude, 7);
         $this->longitude = round($longitude, 7);
         $this->accuracy = $accuracy === null ? null : max(0, (int) round($accuracy));
+    }
+
+    public function updateCaptureMetadata(
+        float $latitude,
+        float $longitude,
+        ?float $accuracy,
+        string $capturedAt,
+    ): void {
+        $this->updateCoordinates($latitude, $longitude, $accuracy);
+
+        try {
+            $captured = CarbonImmutable::parse($capturedAt)->setTimezone('Asia/Jakarta');
+            $now = CarbonImmutable::now('Asia/Jakarta');
+
+            if ($captured->diffInMinutes($now, true) > 10) {
+                $captured = $now;
+            }
+
+            $this->capturedAt = $captured->toIso8601String();
+        } catch (Throwable) {
+            $this->capturedAt = CarbonImmutable::now('Asia/Jakarta')->toIso8601String();
+        }
     }
 
     public function useDefaultLocation(): void
@@ -315,6 +343,7 @@ class FotoBarangMaps extends Page
         $photo = $session->items()->whereKey($photoId)->firstOrFail();
         Storage::disk('local')->delete($photo->path);
         $photo->delete();
+        $this->dispatch('foto-barang-deleted');
 
         app(AuditLogger::class)->activity(
             'foto_barang_delete',
@@ -348,7 +377,7 @@ class FotoBarangMaps extends Page
         }
 
         $this->activeSessionId = null;
-        $this->reset('photo', 'latitude', 'longitude', 'accuracy');
+        $this->reset('photo', 'latitude', 'longitude', 'accuracy', 'capturedAt');
         $this->uploadKey++;
         $this->resetSessionForm();
     }
@@ -413,5 +442,18 @@ class FotoBarangMaps extends Page
         $this->judul = 'Barang Datang - '.now('Asia/Jakarta')->locale('id')->translatedFormat('d M Y H.i');
         $this->namaLokasi = (string) config('foto_barang.default_location_name');
         $this->alamat = (string) config('foto_barang.default_address');
+    }
+
+    private function captureTime(): CarbonImmutable
+    {
+        if (blank($this->capturedAt)) {
+            return CarbonImmutable::now('Asia/Jakarta');
+        }
+
+        try {
+            return CarbonImmutable::parse($this->capturedAt)->setTimezone('Asia/Jakarta');
+        } catch (Throwable) {
+            return CarbonImmutable::now('Asia/Jakarta');
+        }
     }
 }

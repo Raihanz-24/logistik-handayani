@@ -10,38 +10,205 @@
             gpsState: 'Mencari lokasi GPS...',
             gpsReady: false,
             locating: false,
-            async locate() {
+            latitude: @js($latitude),
+            longitude: @js($longitude),
+            accuracy: @js($accuracy),
+            cameraOpen: false,
+            cameraStream: null,
+            cameraError: '',
+            captureBusy: false,
+            uploadProgress: 0,
+            capturedCount: @js((int) ($activeSession?->items_count ?? 0)),
+            liveTime: '',
+            liveDate: '',
+            liveDay: '',
+            clockTimer: null,
+            initCamera() {
+                this.gpsState = 'GPS akan diambil saat kamera dibuka';
+                this.gpsReady = this.latitude !== null && this.longitude !== null;
+                this.updateClock();
+            },
+            destroy() {
+                this.closeCamera();
+            },
+            updateClock() {
+                const now = new Date();
+                const timeZone = 'Asia/Jakarta';
+                this.liveTime = new Intl.DateTimeFormat('id-ID', {
+                    timeZone, hour: '2-digit', minute: '2-digit', hour12: false,
+                }).format(now).replace('.', ':');
+                this.liveDate = new Intl.DateTimeFormat('id-ID', {
+                    timeZone, day: '2-digit', month: 'short', year: 'numeric',
+                }).format(now);
+                this.liveDay = new Intl.DateTimeFormat('id-ID', {
+                    timeZone, weekday: 'long',
+                }).format(now);
+            },
+            async refreshGps() {
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
                     this.gpsState = 'GPS membutuhkan koneksi HTTPS';
-                    return;
+                    this.gpsReady = false;
+                    return false;
                 }
 
                 if (! navigator.geolocation) {
                     this.gpsState = 'GPS tidak didukung perangkat ini';
-                    return;
+                    this.gpsReady = false;
+                    return false;
                 }
 
                 this.locating = true;
                 this.gpsState = 'Meminta lokasi perangkat...';
 
-                navigator.geolocation.getCurrentPosition(
+                return await new Promise((resolve) => navigator.geolocation.getCurrentPosition(
                     async (position) => {
-                        await $wire.updateCoordinates(
-                            position.coords.latitude,
-                            position.coords.longitude,
-                            position.coords.accuracy,
-                        );
+                        this.latitude = position.coords.latitude;
+                        this.longitude = position.coords.longitude;
+                        this.accuracy = Math.max(0, Math.round(position.coords.accuracy));
+                        await $wire.updateCoordinates(this.latitude, this.longitude, this.accuracy);
                         this.gpsReady = true;
                         this.locating = false;
-                        this.gpsState = `GPS aktif · akurasi ±${Math.round(position.coords.accuracy)} meter`;
+                        this.gpsState = this.accuracy > 100
+                            ? `Akurasi rendah (+/-${this.accuracy} m), tekan refresh`
+                            : `GPS aktif - akurasi +/-${this.accuracy} meter`;
+                        resolve(true);
                     },
-                    () => {
+                    (error) => {
                         this.gpsReady = false;
                         this.locating = false;
-                        this.gpsState = 'Izin lokasi belum diberikan';
+                        this.gpsState = error.code === 1
+                            ? 'Izin lokasi belum diberikan'
+                            : 'Lokasi belum valid, tekan refresh GPS';
+                        resolve(false);
                     },
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
-                );
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+                ));
+            },
+            async useDefaultGps() {
+                await $wire.useDefaultLocation();
+                this.latitude = @js((float) config('foto_barang.default_latitude'));
+                this.longitude = @js((float) config('foto_barang.default_longitude'));
+                this.accuracy = null;
+                this.gpsReady = true;
+                this.gpsState = 'Menggunakan lokasi default Paiton';
+            },
+            async openCamera() {
+                if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+                    this.cameraError = 'Kamera membutuhkan akses HTTPS.';
+                    return;
+                }
+
+                if (! navigator.mediaDevices?.getUserMedia) {
+                    this.cameraError = 'Kamera live tidak didukung browser ini. Gunakan tombol kamera alternatif.';
+                    return;
+                }
+
+                this.cameraError = '';
+                this.cameraOpen = true;
+                document.body.style.overflow = 'hidden';
+                this.updateClock();
+                this.clockTimer = window.setInterval(() => this.updateClock(), 1000);
+
+                try {
+                    this.cameraStream = await navigator.mediaDevices.getUserMedia({
+                        audio: false,
+                        video: {
+                            facingMode: { ideal: 'environment' },
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 },
+                        },
+                    });
+                    this.$refs.cameraVideo.srcObject = this.cameraStream;
+                    await this.$refs.cameraVideo.play();
+                    await this.refreshGps();
+                } catch (error) {
+                    this.cameraError = 'Kamera tidak dapat dibuka. Periksa izin kamera pada browser.';
+                    this.closeCamera(false);
+                }
+            },
+            closeCamera(clearError = true) {
+                this.cameraStream?.getTracks().forEach((track) => track.stop());
+                this.cameraStream = null;
+                if (this.$refs.cameraVideo) this.$refs.cameraVideo.srcObject = null;
+                if (this.clockTimer) window.clearInterval(this.clockTimer);
+                this.clockTimer = null;
+                this.cameraOpen = false;
+                this.captureBusy = false;
+                document.body.style.overflow = '';
+                if (clearError) this.cameraError = '';
+            },
+            async captureFrame() {
+                if (this.captureBusy) return;
+
+                if (! this.gpsReady || this.latitude === null || this.longitude === null) {
+                    this.cameraError = 'Lokasi belum valid. Tekan refresh GPS atau gunakan lokasi default.';
+                    return;
+                }
+
+                const video = this.$refs.cameraVideo;
+                if (! video?.videoWidth || ! video?.videoHeight) {
+                    this.cameraError = 'Kamera belum siap. Tunggu sebentar lalu coba lagi.';
+                    return;
+                }
+
+                this.captureBusy = true;
+                this.uploadProgress = 0;
+                this.cameraError = '';
+
+                try {
+                    const maxDimension = 1920;
+                    const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+                    const canvas = this.$refs.captureCanvas;
+                    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+                    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+                    const context = canvas.getContext('2d', { alpha: false });
+                    context.imageSmoothingEnabled = true;
+                    context.imageSmoothingQuality = 'high';
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    const capturedAt = new Date().toISOString();
+                    await $wire.updateCaptureMetadata(this.latitude, this.longitude, this.accuracy, capturedAt);
+
+                    const blob = await new Promise((resolve, reject) => canvas.toBlob(
+                        (result) => result ? resolve(result) : reject(new Error('Foto gagal dibuat.')),
+                        'image/jpeg',
+                        0.9,
+                    ));
+                    const file = new File([blob], `foto-barang-${Date.now()}.jpg`, {
+                        type: 'image/jpeg', lastModified: Date.now(),
+                    });
+
+                    $wire.upload(
+                        'photo',
+                        file,
+                        () => {},
+                        () => {
+                            this.captureBusy = false;
+                            this.cameraError = 'Foto gagal diunggah. Periksa koneksi lalu coba lagi.';
+                        },
+                        (event) => this.uploadProgress = event.detail?.progress ?? 0,
+                    );
+                } catch (error) {
+                    this.captureBusy = false;
+                    this.cameraError = error?.message || 'Foto gagal diproses.';
+                }
+            },
+            handlePhotoSaved() {
+                this.captureBusy = false;
+                this.uploadProgress = 100;
+                this.capturedCount++;
+                this.$refs.cameraFlash?.classList.add('is-visible');
+                window.setTimeout(() => this.$refs.cameraFlash?.classList.remove('is-visible'), 140);
+            },
+            handlePhotoFailed() {
+                this.captureBusy = false;
+                this.cameraError = 'Foto gagal diproses server. Silakan ambil ulang.';
+            },
+            async finishCaptureSession() {
+                if (this.captureBusy) return;
+                if (! window.confirm('Selesaikan sesi foto ini? Kamera akan ditutup.')) return;
+                this.closeCamera();
+                await $wire.finishSession();
             },
             async sharePhoto(previewUrl, downloadUrl, fileName) {
                 try {
@@ -64,8 +231,10 @@
                 window.location.href = downloadUrl;
             },
         }"
-        x-init="locate()"
-        x-on:foto-barang-saved.window="gpsState = gpsReady ? gpsState : 'Periksa kembali lokasi sebelum foto berikutnya'"
+        x-init="initCamera()"
+        x-on:foto-barang-saved.window="handlePhotoSaved()"
+        x-on:foto-barang-failed.window="handlePhotoFailed()"
+        x-on:foto-barang-deleted.window="capturedCount = Math.max(0, capturedCount - 1)"
     >
         <section class="fm-hero">
             <div class="fm-hero__copy">
@@ -191,13 +360,24 @@
                                     @endif
                                 </span>
                             </div>
-                            <button type="button" x-on:click="locate()" x-bind:disabled="locating">Coba GPS</button>
+                            <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating">Refresh GPS</button>
                         </div>
 
                         <div class="fm-location-fallback">
                             <p>Jika GPS browser ditolak, gunakan titik Paiton hanya bila foto memang diambil di lokasi ini.</p>
-                            <button type="button" wire:click="useDefaultLocation">Gunakan lokasi default Paiton</button>
+                            <button type="button" x-on:click="useDefaultGps()">Gunakan lokasi default Paiton</button>
                         </div>
+
+                        <button type="button" class="fm-open-camera" x-on:click="openCamera()">
+                            <span><x-filament::icon icon="heroicon-o-camera" /></span>
+                            <span>
+                                <strong>Buka Kamera Berkelanjutan</strong>
+                                <small>Foto banyak barang tanpa keluar dari kamera</small>
+                            </span>
+                            <x-filament::icon icon="heroicon-m-chevron-right" />
+                        </button>
+
+                        <p class="fm-camera-error" x-show="cameraError && ! cameraOpen" x-text="cameraError" x-cloak></p>
 
                         <div class="fm-camera-box" wire:key="camera-input-{{ $uploadKey }}">
                             <input
@@ -210,7 +390,7 @@
 
                             <label for="foto-barang-camera-{{ $uploadKey }}" class="fm-camera-button">
                                 <span><x-filament::icon icon="heroicon-o-camera" /></span>
-                                <strong>Ambil Foto Barang</strong>
+                                <strong>Kamera / Galeri Alternatif</strong>
                                 <small>Kamera belakang · maksimal 10 MB</small>
                             </label>
 
@@ -255,6 +435,88 @@
                             </div>
                         </div>
                     </aside>
+                </div>
+
+                <div
+                    class="fm-live-camera"
+                    x-show="cameraOpen"
+                    x-cloak
+                    x-transition.opacity.duration.180ms
+                    wire:ignore
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Kamera foto barang"
+                    x-on:keydown.escape.window="if (cameraOpen && ! captureBusy) closeCamera()"
+                >
+                    <header class="fm-live-camera__header">
+                        <button type="button" x-on:click="closeCamera()" x-bind:disabled="captureBusy" aria-label="Tutup kamera">
+                            <x-filament::icon icon="heroicon-m-x-mark" />
+                        </button>
+                        <div>
+                            <strong>{{ $activeSession->judul }}</strong>
+                            <span><b x-text="capturedCount"></b> foto tersimpan</span>
+                        </div>
+                        <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating || captureBusy" aria-label="Refresh GPS">
+                            <x-filament::icon icon="heroicon-m-arrow-path" x-bind:class="locating && 'is-spinning'" />
+                        </button>
+                    </header>
+
+                    <main class="fm-live-camera__stage">
+                        <video x-ref="cameraVideo" autoplay playsinline muted></video>
+                        <canvas x-ref="captureCanvas" hidden></canvas>
+                        <div class="fm-live-camera__shade"></div>
+                        <div class="fm-live-camera__badge"><i></i> HANDAYANI MAP CAMERA</div>
+
+                        <div class="fm-live-camera__watermark" aria-hidden="true">
+                            <div class="fm-live-camera__datetime">
+                                <strong><span x-text="liveTime"></span> WIB</strong>
+                                <i></i>
+                                <b><span x-text="liveDate"></span><br><span x-text="liveDay"></span></b>
+                            </div>
+                            <h3>{{ $activeSession->nama_lokasi }} <span>🇮🇩</span></h3>
+                            <p>{{ $activeSession->alamat }}</p>
+                            <small>
+                                Lat <span x-text="latitude === null ? '-' : Number(latitude).toFixed(6)"></span>
+                                &nbsp; Long <span x-text="longitude === null ? '-' : Number(longitude).toFixed(6)"></span>
+                                <template x-if="accuracy !== null"><span>&nbsp; Akurasi +/-<b x-text="accuracy"></b> m</span></template>
+                            </small>
+                        </div>
+
+                        <div class="fm-live-camera__flash" x-ref="cameraFlash"></div>
+
+                        <div class="fm-live-camera__busy" x-show="captureBusy" x-cloak>
+                            <span class="fm-spinner"></span>
+                            <strong>Foto sedang dikompres...</strong>
+                            <small><span x-text="uploadProgress"></span>% - kamera tetap aktif</small>
+                        </div>
+                    </main>
+
+                    <footer class="fm-live-camera__controls">
+                        <div class="fm-live-camera__gps" x-bind:class="gpsReady ? 'is-ready' : 'is-warning'">
+                            <x-filament::icon icon="heroicon-m-map-pin" />
+                            <span x-text="gpsState"></span>
+                            <button type="button" x-show="! gpsReady" x-on:click="useDefaultGps()">Pakai default</button>
+                        </div>
+
+                        <div class="fm-live-camera__actions">
+                            <button type="button" class="fm-live-camera__finish" x-on:click="finishCaptureSession()" x-bind:disabled="captureBusy">
+                                Selesai
+                            </button>
+                            <button
+                                type="button"
+                                class="fm-live-camera__shutter"
+                                x-on:click="captureFrame()"
+                                x-bind:disabled="captureBusy || ! cameraStream"
+                                aria-label="Ambil foto"
+                            ><span></span></button>
+                            <div class="fm-live-camera__sequence">
+                                <strong>#<span x-text="String(capturedCount + 1).padStart(2, '0')"></span></strong>
+                                <small>berikutnya</small>
+                            </div>
+                        </div>
+
+                        <p class="fm-live-camera__error" x-show="cameraError" x-text="cameraError" x-cloak></p>
+                    </footer>
                 </div>
             @endif
 
@@ -421,6 +683,14 @@
         .fm-location-fallback { display:flex; justify-content:space-between; gap:.75rem; margin-top:.65rem; padding:.7rem .8rem; border-radius:.7rem; background:var(--fm-soft); }
         .fm-location-fallback p { margin:0; color:var(--fm-muted); font-size:.65rem; line-height:1.45; }
         .fm-location-fallback button { flex:0 0 auto; }
+        .fm-open-camera { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.8rem; align-items:center; width:100%; margin-top:1rem; padding:.9rem; border:0; border-radius:.9rem; color:#fff; background:linear-gradient(135deg,#d97706,#f59e0b); box-shadow:0 12px 24px rgba(217,119,6,.22); text-align:left; cursor:pointer; }
+        .fm-open-camera>span:first-child { display:grid; place-items:center; width:2.7rem; height:2.7rem; border-radius:.75rem; background:rgba(255,255,255,.18); }
+        .fm-open-camera>span:nth-child(2) { display:grid; gap:.1rem; }
+        .fm-open-camera svg { width:1.3rem; }
+        .fm-open-camera>svg { width:1rem; }
+        .fm-open-camera strong { font-size:.82rem; }
+        .fm-open-camera small { color:#fff7d6; font-size:.65rem; }
+        .fm-camera-error { margin:.65rem 0 0; padding:.65rem .75rem; border-radius:.65rem; color:#991b1b; background:#fee2e2; font-size:.68rem; }
         .fm-camera-box { position:relative; overflow:hidden; min-height:12rem; margin-top:1rem; border:1.5px dashed #b7c4d2; border-radius:1rem; background:linear-gradient(145deg,var(--fm-soft),rgba(245,158,11,.06)); }
         .fm-camera-box>input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
         .fm-camera-button { display:grid; place-items:center; align-content:center; min-height:12rem; padding:1.2rem; cursor:pointer; text-align:center; }
@@ -482,6 +752,50 @@
         .fm-session-row__main strong { overflow:hidden; font-size:.72rem; text-overflow:ellipsis; white-space:nowrap; }
         .fm-session-row__main small,.fm-session-row__count { color:var(--fm-muted); font-size:.61rem; }
         .fm-load-more { justify-self:center; padding:.65rem 1rem; border:1px solid var(--fm-line); border-radius:.65rem; color:var(--fm-ink); background:var(--fm-soft); font-size:.68rem; font-weight:750; cursor:pointer; }
+        .fm-live-camera[x-cloak] { display:none!important; }
+        .fm-live-camera { position:fixed; z-index:9999; inset:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; color:#fff; background:#020408; font-family:"Roboto Condensed","Arial Narrow",Roboto,Arial,sans-serif; }
+        .fm-live-camera__header { display:grid; grid-template-columns:2.7rem minmax(0,1fr) 2.7rem; gap:.7rem; align-items:center; padding:calc(.55rem + env(safe-area-inset-top)) .75rem .55rem; background:#080d14; }
+        .fm-live-camera__header>button { display:grid; place-items:center; width:2.7rem; height:2.7rem; border:0; border-radius:999px; color:#fff; background:#1b2635; cursor:pointer; }
+        .fm-live-camera__header>button:disabled { opacity:.45; cursor:not-allowed; }
+        .fm-live-camera__header svg { width:1.25rem; }
+        .fm-live-camera__header svg.is-spinning { animation:fm-spin .75s linear infinite; }
+        .fm-live-camera__header>div { display:grid; min-width:0; text-align:center; }
+        .fm-live-camera__header strong { overflow:hidden; font-size:.8rem; text-overflow:ellipsis; white-space:nowrap; }
+        .fm-live-camera__header span { color:#aab7c7; font-size:.65rem; }
+        .fm-live-camera__stage { position:relative; min-height:0; overflow:hidden; background:#000; }
+        .fm-live-camera__stage>video { width:100%; height:100%; object-fit:contain; background:#000; }
+        .fm-live-camera__shade { position:absolute; inset:0; pointer-events:none; background:linear-gradient(to bottom,rgba(0,0,0,.12),transparent 24%,transparent 58%,rgba(0,0,0,.35)); }
+        .fm-live-camera__badge { position:absolute; z-index:2; right:.75rem; bottom:clamp(12.2rem,27vh,18rem); display:flex; align-items:center; gap:.38rem; padding:.42rem .58rem; border-radius:.15rem; color:#fff; background:rgba(2,7,13,.72); font-size:clamp(.63rem,2.5vw,.9rem); font-weight:800; letter-spacing:.015em; text-shadow:0 1px 2px #000; }
+        .fm-live-camera__badge i { width:.52rem; height:.52rem; border-radius:50%; background:#fbbf24; box-shadow:0 0 0 2px rgba(255,255,255,.35); }
+        .fm-live-camera__watermark { position:absolute; z-index:2; right:.55rem; bottom:.55rem; left:.55rem; min-height:clamp(10.8rem,24vh,16rem); padding:clamp(.72rem,2.4vw,1.25rem); color:#fff; background:rgba(2,7,13,.76); text-shadow:0 1px 3px rgba(0,0,0,.95); }
+        .fm-live-camera__datetime { display:grid; grid-template-columns:auto .24rem minmax(0,1fr); gap:clamp(.65rem,3vw,1.15rem); align-items:center; }
+        .fm-live-camera__datetime>strong { font-size:clamp(2.05rem,9.2vw,5.7rem); font-weight:800; line-height:.95; letter-spacing:-.04em; white-space:nowrap; }
+        .fm-live-camera__datetime>i { width:.24rem; height:clamp(3.15rem,12vw,6rem); background:#f7b500; }
+        .fm-live-camera__datetime>b { font-size:clamp(1.15rem,5vw,3rem); font-weight:800; line-height:1.15; }
+        .fm-live-camera__watermark h3 { display:flex; align-items:center; gap:.35rem; overflow:hidden; margin:clamp(.45rem,1.7vw,.8rem) 0 .12rem; font-size:clamp(1rem,4.5vw,2.6rem); font-weight:800; line-height:1.05; text-overflow:ellipsis; white-space:nowrap; }
+        .fm-live-camera__watermark h3 span { font-size:.85em; }
+        .fm-live-camera__watermark p { display:-webkit-box; overflow:hidden; margin:0; color:#f3f5f8; font-size:clamp(.77rem,3.15vw,1.65rem); font-weight:600; line-height:1.18; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+        .fm-live-camera__watermark>small { display:block; overflow:hidden; margin-top:.22rem; color:#e6ebf1; font-size:clamp(.68rem,2.75vw,1.4rem); font-weight:600; line-height:1.1; text-overflow:ellipsis; white-space:nowrap; }
+        .fm-live-camera__flash { position:absolute; z-index:5; inset:0; pointer-events:none; background:#fff; opacity:0; transition:opacity .14s ease-out; }
+        .fm-live-camera__flash.is-visible { opacity:.72; transition:none; }
+        .fm-live-camera__busy { position:absolute; z-index:6; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; background:rgba(0,0,0,.58); backdrop-filter:blur(2px); }
+        .fm-live-camera__busy strong { margin-top:.35rem; font-size:.84rem; }
+        .fm-live-camera__busy small { color:#d3dbe5; font-size:.67rem; }
+        .fm-live-camera__controls { display:grid; gap:.55rem; padding:.55rem .8rem calc(.65rem + env(safe-area-inset-bottom)); background:#080d14; }
+        .fm-live-camera__gps { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:1.4rem; color:#fbbf24; font-size:.64rem; font-weight:700; text-align:center; }
+        .fm-live-camera__gps.is-ready { color:#86efac; }
+        .fm-live-camera__gps svg { flex:0 0 auto; width:.85rem; }
+        .fm-live-camera__gps button { margin-left:.2rem; padding:.22rem .45rem; border:1px solid rgba(255,255,255,.25); border-radius:999px; color:#fff; background:transparent; font-size:.58rem; font-weight:800; }
+        .fm-live-camera__actions { display:grid; grid-template-columns:minmax(4.5rem,1fr) 5rem minmax(4.5rem,1fr); gap:1rem; align-items:center; max-width:30rem; width:100%; margin:auto; }
+        .fm-live-camera__finish { justify-self:start; padding:.52rem .72rem; border:1px solid #465466; border-radius:999px; color:#fff; background:#1b2635; font-size:.68rem; font-weight:800; }
+        .fm-live-camera__shutter { display:grid; place-items:center; width:4.8rem; height:4.8rem; padding:.3rem; border:3px solid #fff; border-radius:50%; background:transparent; cursor:pointer; }
+        .fm-live-camera__shutter span { width:100%; height:100%; border-radius:50%; background:#fff; transition:transform .1s,background .1s; }
+        .fm-live-camera__shutter:active span { transform:scale(.88); background:#fbbf24; }
+        .fm-live-camera__shutter:disabled { opacity:.45; cursor:not-allowed; }
+        .fm-live-camera__sequence { display:grid; justify-self:end; text-align:center; }
+        .fm-live-camera__sequence strong { font-size:.82rem; }
+        .fm-live-camera__sequence small { color:#9dadc0; font-size:.58rem; }
+        .fm-live-camera__error { margin:0; padding:.42rem .6rem; border-radius:.5rem; color:#fecaca; background:#35151b; font-size:.64rem; text-align:center; }
         @media(max-width:900px) { .fm-hero,.fm-workspace { grid-template-columns:1fr; } .fm-template-preview { max-width:34rem; width:100%; justify-self:center; } }
         @media(max-width:640px) {
             .fm-page { gap:.8rem; }

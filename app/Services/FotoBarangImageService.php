@@ -194,7 +194,7 @@ class FotoBarangImageService
         $width = imagesx($image);
         $height = imagesy($image);
         $margin = max(18, (int) round($width * 0.024));
-        $overlayHeight = (int) min(max(255, $height * 0.29), max(255, $height * 0.4));
+        $overlayHeight = (int) min(max(285, $height * 0.32), max(285, $height * 0.42));
         $overlayTop = $height - $overlayHeight - $margin;
         $overlayLeft = $margin;
         $overlayRight = $width - $margin;
@@ -212,7 +212,7 @@ class FotoBarangImageService
         imagefilledrectangle($image, $overlayLeft, $overlayTop, $overlayRight, $height - $margin, $overlay);
 
         $badgeText = 'HANDAYANI MAP CAMERA';
-        $badgeSize = max(12, (int) round($width * 0.014));
+        $badgeSize = max(13, (int) round($width * 0.016));
         $badgeWidth = $this->textWidth($badgeText, $badgeSize, $fontBold) + ($margin * 2);
         $badgeTop = max($margin, $overlayTop - (int) round($badgeSize * 2.25));
         imagefilledrectangle(
@@ -241,10 +241,10 @@ class FotoBarangImageService
             $fontBold,
         );
 
-        $timeSize = max(30, (int) round($width * 0.054));
-        $dateSize = max(20, (int) round($width * 0.032));
-        $locationSize = max(17, (int) round($width * 0.025));
-        $detailSize = max(13, (int) round($width * 0.016));
+        $timeSize = max(36, (int) round($width * 0.064));
+        $dateSize = max(23, (int) round($width * 0.038));
+        $locationSize = max(20, (int) round($width * 0.031));
+        $detailSize = max(15, (int) round($width * 0.020));
         $contentLeft = $overlayLeft + $margin;
         $firstLineBaseline = $overlayTop + max(70, (int) round($overlayHeight * 0.30));
         $timeText = $capturedAt->format('H:i').' WIB';
@@ -393,6 +393,7 @@ class FotoBarangImageService
         $windows = getenv('WINDIR') ?: 'C:\\Windows';
         $candidates = $bold
             ? [
+                resource_path('fonts/RobotoCondensed-Bold.ttf'),
                 resource_path('fonts/DejaVuSans-Bold.ttf'),
                 '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
                 '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
@@ -403,6 +404,7 @@ class FotoBarangImageService
                 $windows.'\\Fonts\\arialbd.ttf',
             ]
             : [
+                resource_path('fonts/RobotoCondensed-Regular.ttf'),
                 resource_path('fonts/DejaVuSans.ttf'),
                 '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
                 '/usr/share/fonts/dejavu/DejaVuSans.ttf',

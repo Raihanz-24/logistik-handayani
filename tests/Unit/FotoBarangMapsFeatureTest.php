@@ -76,9 +76,19 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function startSession', $page);
         $this->assertStringContainsString('public function finishSession', $page);
         $this->assertStringContainsString('public function savePhoto', $page);
+        $this->assertStringContainsString('public function updateCaptureMetadata', $page);
         $this->assertStringContainsString('capture="environment"', $view);
+        $this->assertStringContainsString('navigator.mediaDevices.getUserMedia', $view);
+        $this->assertStringContainsString('x-ref="cameraVideo"', $view);
+        $this->assertStringContainsString('wire:ignore', $view);
+        $this->assertStringContainsString('$wire.upload(', $view);
+        $this->assertStringContainsString('refreshGps()', $view);
+        $this->assertStringContainsString('Foto sedang dikompres', $view);
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
+
+        $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Regular.ttf');
+        $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Bold.ttf');
     }
 
     public function test_private_media_routes_require_authentication(): void
