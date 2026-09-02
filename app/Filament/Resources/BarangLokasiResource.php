@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\BarangLokasiResource\Pages;
 use App\Models\Barang;
 use App\Models\BarangLokasi;
+use App\Services\HistoricalStockService;
 use App\Services\StockExcelExportService;
 use App\Services\StockPdfExportService;
 use Filament\Forms;
@@ -12,6 +13,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Actions\Action;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -29,8 +31,11 @@ class BarangLokasiResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()
+        $query = parent::getEloquentQuery()
             ->whereHas('lokasi', fn (Builder $query): Builder => $query->gudang());
+
+        return app(HistoricalStockService::class)
+            ->applyCurrentSnapshotToQuery($query);
     }
 
     public static function form(Form $form): Form
@@ -80,36 +85,47 @@ class BarangLokasiResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('barang.nama_barang')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('lokasi.nama_lokasi')
                     ->label('Gudang')
                     ->searchable()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('posisiRak.kode')
+                    ->sortable()
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('posisiRakTampil.kode')
                     ->label('Posisi Rak')
                     ->placeholder('Tanpa rak')
                     ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stok')
-                    ->label('Total')
-                    ->searchable()
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('stok_tampil')
+                    ->label('Total Stok')
                     ->numeric()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stok_baik')
+                    ->sortable()
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('barang.satuan')
+                    ->label('Satuan')
+                    ->placeholder('-')
+                    ->searchable()
+                    ->sortable()
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('stok_baik_tampil')
                     ->label('Baik')
                     ->numeric()
                     ->color('success')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stok_rusak')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('stok_rusak_tampil')
                     ->label('Rusak')
                     ->numeric()
                     ->color('danger')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stok_hilang')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('stok_hilang_tampil')
                     ->label('Hilang')
                     ->numeric()
                     ->color('warning')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -120,7 +136,33 @@ class BarangLokasiResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Filter::make('tanggal_stok')
+                    ->label('Stok per Tanggal')
+                    ->form([
+                        Forms\Components\DatePicker::make('tanggal')
+                            ->label('Posisi stok pada akhir tanggal')
+                            ->helperText('Kosongkan untuk menampilkan stok saat ini.')
+                            ->maxDate(now('Asia/Jakarta')->toDateString())
+                            ->native(false),
+                    ])
+                    ->baseQuery(function (Builder $query, array $data): Builder {
+                        if (blank($data['tanggal'] ?? null)) {
+                            return $query;
+                        }
+
+                        return app(HistoricalStockService::class)
+                            ->applyTableSnapshotToQuery($query, $data['tanggal']);
+                    })
+                    ->indicateUsing(function (array $data): ?string {
+                        if (blank($data['tanggal'] ?? null)) {
+                            return null;
+                        }
+
+                        $date = app(HistoricalStockService::class)
+                            ->parseAsOfDate($data['tanggal']);
+
+                        return 'Posisi stok: '.$date->locale('id')->translatedFormat('d F Y');
+                    }),
             ])
             ->headerActions([
                 Action::make('export-excel')
@@ -132,7 +174,7 @@ class BarangLokasiResource extends Resource
                         Forms\Components\DatePicker::make('as_of_date')
                             ->label('Posisi stok per tanggal')
                             ->helperText('Mutasi setelah tanggal ini tidak dihitung dalam hasil export.')
-                            ->default(now('Asia/Jakarta')->toDateString())
+                            ->default(fn ($livewire): string => $livewire->stockAsOfDate())
                             ->maxDate(now('Asia/Jakarta')->toDateString())
                             ->native(false)
                             ->required(),

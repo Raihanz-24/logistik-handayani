@@ -10,12 +10,45 @@ use App\Models\MutasiRak;
 use App\Models\PosisiRak;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use RuntimeException;
 
 class HistoricalStockService
 {
+    public function applyCurrentSnapshotToQuery(Builder $query): Builder
+    {
+        return $query
+            ->select('barang_lokasi.*')
+            ->selectRaw('barang_lokasi.posisi_rak_id AS posisi_rak_tampil_id')
+            ->selectRaw('barang_lokasi.stok AS stok_tampil')
+            ->selectRaw('barang_lokasi.stok_baik AS stok_baik_tampil')
+            ->selectRaw('barang_lokasi.stok_rusak AS stok_rusak_tampil')
+            ->selectRaw('barang_lokasi.stok_hilang AS stok_hilang_tampil');
+    }
+
+    public function applyTableSnapshotToQuery(Builder $query, mixed $asOfDate): Builder
+    {
+        $date = $this->parseAsOfDate($asOfDate)->format('Y-m-d');
+
+        $query->select('barang_lokasi.*')
+            ->selectRaw($this->historicalRackExpression().' AS posisi_rak_tampil_id', [$date]);
+
+        foreach ([
+            'stok_baik' => 'baik',
+            'stok_rusak' => 'rusak',
+            'stok_hilang' => 'hilang',
+        ] as $column => $condition) {
+            $query->selectRaw(
+                $this->historicalConditionExpression($column, $condition).' AS '.$column.'_tampil',
+                [$date],
+            );
+        }
+
+        return $query->selectRaw($this->historicalTotalExpression().' AS stok_tampil', [$date]);
+    }
+
     /**
      * @return array{
      *     rows: array<int, array<string, int|string>>,
@@ -192,7 +225,7 @@ class HistoricalStockService
         return $state;
     }
 
-    private function parseAsOfDate(mixed $value): CarbonImmutable
+    public function parseAsOfDate(mixed $value): CarbonImmutable
     {
         $dateString = trim((string) ($value ?: now('Asia/Jakarta')->toDateString()));
 
@@ -211,6 +244,75 @@ class HistoricalStockService
         }
 
         return $date;
+    }
+
+    private function historicalConditionExpression(string $column, string $condition): string
+    {
+        return "barang_lokasi.{$column} - COALESCE((
+            SELECT SUM(CASE
+                WHEN history_mutations.jenis_mutasi = 'masuk'
+                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
+                    AND COALESCE(history_mutations.kondisi_tujuan, 'baik') = '{$condition}'
+                    THEN history_mutations.jumlah
+                WHEN history_mutations.jenis_mutasi = 'keluar'
+                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
+                    AND COALESCE(history_mutations.kondisi_asal, 'baik') = '{$condition}'
+                    THEN -history_mutations.jumlah
+                WHEN history_mutations.jenis_mutasi = 'keluar'
+                    AND history_mutations.lokasi_tujuan_id = barang_lokasi.lokasi_id
+                    AND COALESCE(history_mutations.kondisi_asal, 'baik') = '{$condition}'
+                    THEN history_mutations.jumlah
+                WHEN history_mutations.jenis_mutasi = 'perubahan_kondisi'
+                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
+                    AND COALESCE(history_mutations.kondisi_asal, 'baik') = '{$condition}'
+                    THEN -history_mutations.jumlah
+                WHEN history_mutations.jenis_mutasi = 'perubahan_kondisi'
+                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
+                    AND COALESCE(history_mutations.kondisi_tujuan, 'baik') = '{$condition}'
+                    THEN history_mutations.jumlah
+                ELSE 0
+            END)
+            FROM mutasis AS history_mutations
+            WHERE history_mutations.barang_id = barang_lokasi.barang_id
+                AND history_mutations.status = 'approved'
+                AND history_mutations.tanggal > ?
+        ), 0)";
+    }
+
+    private function historicalTotalExpression(): string
+    {
+        return "barang_lokasi.stok - COALESCE((
+            SELECT SUM(CASE
+                WHEN history_mutations.jenis_mutasi = 'masuk'
+                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
+                    THEN history_mutations.jumlah
+                WHEN history_mutations.jenis_mutasi = 'keluar'
+                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
+                    THEN -history_mutations.jumlah
+                WHEN history_mutations.jenis_mutasi = 'keluar'
+                    AND history_mutations.lokasi_tujuan_id = barang_lokasi.lokasi_id
+                    THEN history_mutations.jumlah
+                ELSE 0
+            END)
+            FROM mutasis AS history_mutations
+            WHERE history_mutations.barang_id = barang_lokasi.barang_id
+                AND history_mutations.status = 'approved'
+                AND history_mutations.tanggal > ?
+        ), 0)";
+    }
+
+    private function historicalRackExpression(): string
+    {
+        return "COALESCE((
+            SELECT history_racks.posisi_rak_asal_id
+            FROM mutasi_raks AS history_racks
+            WHERE history_racks.barang_id = barang_lokasi.barang_id
+                AND history_racks.lokasi_id = barang_lokasi.lokasi_id
+                AND history_racks.status = 'approved'
+                AND history_racks.tanggal > ?
+            ORDER BY history_racks.approved_at ASC, history_racks.id ASC
+            LIMIT 1
+        ), barang_lokasi.posisi_rak_id)";
     }
 
     /** @param array<int, int> $warehouseIds */

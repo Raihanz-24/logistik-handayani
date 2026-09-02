@@ -44,6 +44,11 @@ class BarangLokasi extends Pivot
         return $this->belongsTo(PosisiRak::class, 'posisi_rak_id');
     }
 
+    public function posisiRakTampil(): BelongsTo
+    {
+        return $this->belongsTo(PosisiRak::class, 'posisi_rak_tampil_id');
+    }
+
     public static function conditionColumn(string $condition): string
     {
         return match ($condition) {

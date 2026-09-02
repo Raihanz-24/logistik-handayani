@@ -4,6 +4,7 @@ namespace App\Filament\Resources\BarangLokasiResource\Pages;
 
 use App\Filament\Resources\BarangLokasiResource;
 use App\Models\BarangLokasi;
+use App\Services\HistoricalStockService;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Url;
@@ -80,7 +81,28 @@ class ListBarangLokasis extends ListRecords
         return [
             'warehouses' => $warehouses,
             'search' => trim((string) ($this->tableSearch ?? '')),
+            'as_of_date' => $this->stockAsOfDate(),
         ];
+    }
+
+    public function activeStockDate(): ?string
+    {
+        $date = data_get($this->tableFilters, 'tanggal_stok.tanggal');
+
+        if (blank($date)) {
+            return null;
+        }
+
+        try {
+            return app(HistoricalStockService::class)->parseAsOfDate($date)->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    public function stockAsOfDate(): string
+    {
+        return $this->activeStockDate() ?? now('Asia/Jakarta')->toDateString();
     }
 
     /** @deprecated Gunakan stockExportContext() untuk seluruh format export. */

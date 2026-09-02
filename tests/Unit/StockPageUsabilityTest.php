@@ -36,4 +36,42 @@ class StockPageUsabilityTest extends TestCase
         $this->assertStringContainsString('.fi-ta-pagination .fi-pagination-overview', $styles);
         $this->assertStringContainsString('.fi-ta-pagination .fi-pagination-items', $styles);
     }
+
+    public function test_stock_table_has_a_unit_and_configurable_visible_columns(): void
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $resource = (string) file_get_contents(
+            $projectRoot.'/app/Filament/Resources/BarangLokasiResource.php',
+        );
+
+        $this->assertStringContainsString("TextColumn::make('barang.satuan')", $resource);
+        $this->assertStringContainsString("->label('Total Stok')", $resource);
+        $this->assertSame(5, substr_count($resource, '->toggleable()'));
+        $this->assertSame(5, substr_count($resource, '->toggleable(isToggledHiddenByDefault: true)'));
+        $this->assertStringContainsString("TextColumn::make('stok_baik_tampil')", $resource);
+        $this->assertStringContainsString("TextColumn::make('stok_rusak_tampil')", $resource);
+        $this->assertStringContainsString("TextColumn::make('stok_hilang_tampil')", $resource);
+    }
+
+    public function test_stock_table_can_preview_the_historical_stock_date_used_by_export(): void
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $resource = (string) file_get_contents(
+            $projectRoot.'/app/Filament/Resources/BarangLokasiResource.php',
+        );
+        $page = (string) file_get_contents(
+            $projectRoot.'/app/Filament/Resources/BarangLokasiResource/Pages/ListBarangLokasis.php',
+        );
+        $service = (string) file_get_contents(
+            $projectRoot.'/app/Services/HistoricalStockService.php',
+        );
+
+        $this->assertStringContainsString("Filter::make('tanggal_stok')", $resource);
+        $this->assertStringContainsString("DatePicker::make('tanggal')", $resource);
+        $this->assertStringContainsString('applyTableSnapshotToQuery', $resource);
+        $this->assertStringContainsString('public function stockAsOfDate', $page);
+        $this->assertStringContainsString("'as_of_date' => \$this->stockAsOfDate()", $page);
+        $this->assertStringContainsString("history_mutations.status = 'approved'", $service);
+        $this->assertStringContainsString('history_mutations.tanggal > ?', $service);
+    }
 }

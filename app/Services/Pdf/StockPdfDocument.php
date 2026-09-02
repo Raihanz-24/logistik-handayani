@@ -22,7 +22,7 @@ class StockPdfDocument
         ['key' => 'stok_baik', 'label' => 'Baik', 'width' => 54, 'align' => 'right'],
         ['key' => 'stok_rusak', 'label' => 'Rusak', 'width' => 54, 'align' => 'right'],
         ['key' => 'stok_hilang', 'label' => 'Hilang', 'width' => 54, 'align' => 'right'],
-        ['key' => 'stok', 'label' => 'Total', 'width' => 54, 'align' => 'right'],
+        ['key' => 'stok', 'label' => 'Total Stok', 'width' => 54, 'align' => 'right'],
         ['key' => 'satuan', 'label' => 'Satuan', 'width' => 59],
     ];
 

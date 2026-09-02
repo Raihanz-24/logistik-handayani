@@ -16,7 +16,7 @@ class StockExcelExportService
 {
     private const HEADERS = [
         'No.', 'Kode Barang', 'Nama Barang', 'Gudang', 'Posisi Rak',
-        'Baik', 'Rusak', 'Hilang', 'Total', 'Satuan',
+        'Baik', 'Rusak', 'Hilang', 'Total Stok', 'Satuan',
     ];
 
     public function __construct(private readonly HistoricalStockService $historicalStockService) {}
