@@ -508,7 +508,6 @@
                 this.confirmRequiresText = requiresText;
                 this.confirmInput = '';
                 this.confirmOpen = true;
-                document.body.style.overflow = 'hidden';
             },
             closeConfirm() {
                 if (this.confirmBusy) return;
@@ -517,7 +516,7 @@
                 this.confirmTargetId = null;
                 this.confirmTargetUuid = null;
                 this.confirmInput = '';
-                if (! this.cameraOpen && ! this.serverGalleryOpen && ! this.localPreviewUrl) {
+                if (! this.cameraOpen && ! this.serverGalleryOpen) {
                     document.body.style.overflow = '';
                 }
             },
