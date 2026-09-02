@@ -438,17 +438,48 @@
                     this.serverPhotoIndex = Math.max(0, this.serverPhotos.length - 1);
                 }
             },
+            syncServerPhotosFromDom() {
+                const source = this.$root.querySelector('[data-server-photos]');
+                if (! source) {
+                    this.syncServerPhotos([]);
+                    return;
+                }
+
+                try {
+                    this.syncServerPhotos(JSON.parse(source.textContent || '[]'));
+                } catch (error) {
+                    this.syncServerPhotos([]);
+                    this.backgroundState = 'Daftar foto perlu dimuat ulang.';
+                }
+            },
             openServerGallery(index = 0) {
+                this.syncServerPhotosFromDom();
                 if (this.serverPhotos.length === 0) return;
                 this.serverPhotoIndex = Math.max(0, Math.min(Number(index), this.serverPhotos.length - 1));
                 this.serverGalleryOpen = true;
-                document.body.style.overflow = 'hidden';
+                this.$nextTick(() => {
+                    const dialog = this.$refs.serverGalleryDialog;
+                    if (! dialog || dialog.open) return;
+
+                    if (typeof dialog.showModal === 'function') {
+                        try {
+                            dialog.showModal();
+                        } catch (error) {
+                            dialog.setAttribute('open', '');
+                        }
+                    } else {
+                        dialog.setAttribute('open', '');
+                    }
+                });
             },
             closeServerGallery() {
                 this.serverGalleryOpen = false;
                 this.galleryTouchStartX = null;
-                if (! this.cameraOpen && ! this.localPreviewUrl && ! this.confirmOpen) {
-                    document.body.style.overflow = '';
+                const dialog = this.$refs.serverGalleryDialog;
+                if (dialog?.open && typeof dialog.close === 'function') {
+                    dialog.close();
+                } else {
+                    dialog?.removeAttribute('open');
                 }
             },
             currentServerPhoto() {
@@ -474,6 +505,7 @@
                 distance > 0 ? this.showPreviousServerPhoto() : this.showNextServerPhoto();
             },
             requestDeleteServerPhoto(photoId) {
+                if (this.serverGalleryOpen) this.closeServerGallery();
                 this.openConfirm({
                     type: 'server-photo',
                     targetId: photoId,
@@ -514,7 +546,11 @@
                     if (! dialog || dialog.open) return;
 
                     if (typeof dialog.showModal === 'function') {
-                        dialog.showModal();
+                        try {
+                            dialog.showModal();
+                        } catch (error) {
+                            dialog.setAttribute('open', '');
+                        }
                     } else {
                         dialog.setAttribute('open', '');
                     }
@@ -541,27 +577,40 @@
                 if (this.confirmBusy) return;
                 if (this.confirmRequiresText && this.confirmInput.trim().toLowerCase() !== 'hapus') return;
                 this.confirmBusy = true;
+                let deleted = false;
+                let refreshAfterDelete = false;
 
                 try {
                     if (this.confirmType === 'server-photo') {
                         const photoId = this.confirmTargetId;
-                        await $wire.deletePhoto(photoId);
+                        const result = await $wire.deletePhoto(photoId);
+                        if (! result?.deleted) throw new Error('Server belum menghapus foto.');
                         this.serverPhotos = this.serverPhotos.filter((photo) => photo.id !== photoId);
                         if (this.serverPhotos.length === 0) this.closeServerGallery();
                         this.serverPhotoIndex = Math.min(this.serverPhotoIndex, Math.max(0, this.serverPhotos.length - 1));
-                        this.scheduleServerRefresh();
+                        refreshAfterDelete = true;
                     } else if (this.confirmType === 'local-photo') {
                         await this.deleteLocalOnlyCapture(this.confirmTargetId);
                     } else if (this.confirmType === 'folder') {
                         const result = await $wire.deleteSessionFolder(this.confirmTargetId, this.confirmInput);
-                        if (! result?.deleted) return;
+                        if (! result?.deleted) throw new Error('Server belum menghapus folder.');
                         await this.deleteLocalSessionCaptures(result.uuid || this.confirmTargetUuid);
                         this.closeServerGallery();
+                        refreshAfterDelete = true;
+                    } else {
+                        throw new Error('Target hapus tidak ditemukan.');
                     }
+                    deleted = true;
                     this.confirmOpen = false;
+                } catch (error) {
+                    this.confirmMessage = error?.message || 'Penghapusan gagal. Silakan coba lagi.';
+                    this.backgroundState = this.confirmMessage;
                 } finally {
                     this.confirmBusy = false;
-                    if (! this.confirmOpen) this.closeConfirm();
+                    if (deleted) {
+                        this.closeConfirm();
+                        if (refreshAfterDelete) this.scheduleServerRefresh(150);
+                    }
                 }
             },
             async deleteLocalSessionCaptures(sessionUuid) {
@@ -1022,7 +1071,7 @@
         x-init="initCamera()"
         x-on:foto-barang-saved.window="handlePhotoSaved()"
         x-on:foto-barang-failed.window="handlePhotoFailed()"
-        x-on:foto-barang-deleted.window="capturedCount = Math.max(0, capturedCount - 1)"
+        x-on:foto-barang-deleted.window="serverCapturedCount = Math.max(0, serverCapturedCount - 1); capturedCount = Math.max(0, capturedCount - 1)"
         x-on:online.window="retryPendingUploads()"
     >
         <section class="fm-hero">
@@ -1323,6 +1372,7 @@
                 wire:key="foto-server-session-{{ $activeSession->uuid }}"
                 x-init="syncServerPhotos(@js($serverPhotos))"
             >
+                <script type="application/json" data-server-photos>@json($serverPhotos)</script>
                 <div class="fm-section-heading">
                     <div>
                         <span class="fm-section-kicker">Penyimpanan server</span>
@@ -1394,15 +1444,13 @@
                 @endif
             </section>
 
-            <div
+            <dialog
+                x-ref="serverGalleryDialog"
                 class="fm-server-viewer"
-                x-show="serverGalleryOpen"
-                x-cloak
-                x-on:keydown.escape.window="if (serverGalleryOpen && ! confirmOpen) closeServerGallery()"
+                x-on:cancel.prevent="if (! confirmOpen) closeServerGallery()"
+                x-on:close="serverGalleryOpen = false"
                 x-on:keydown.left.window="if (serverGalleryOpen && ! confirmOpen) showPreviousServerPhoto()"
                 x-on:keydown.right.window="if (serverGalleryOpen && ! confirmOpen) showNextServerPhoto()"
-                role="dialog"
-                aria-modal="true"
                 aria-label="Galeri foto server"
             >
                 <header class="fm-server-viewer__header">
@@ -1448,7 +1496,7 @@
                         </a>
                     </div>
                 </footer>
-            </div>
+            </dialog>
 
             <section
                 class="fm-gallery fm-local-gallery"
@@ -1777,8 +1825,9 @@
         .dark .fm-photo-card__actions button,.dark .fm-photo-card__actions a { background:#172436; }
         .fm-photo-card__actions svg { width:.85rem; }
         .fm-photo-card__actions .is-danger { flex:0 0 2rem; color:#dc2626; }
-        .fm-server-viewer[x-cloak],.fm-confirm[x-cloak] { display:none!important; }
-        .fm-server-viewer { position:fixed; z-index:10010; inset:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; color:#fff; background:#03060a; }
+        .fm-server-viewer { position:fixed; inset:0; grid-template-rows:auto minmax(0,1fr) auto; width:100%; max-width:none; height:100dvh; max-height:none; margin:0; padding:0; border:0; color:#fff; background:#03060a; overflow:hidden; }
+        .fm-server-viewer[open] { display:grid; }
+        .fm-server-viewer::backdrop { background:#03060a; }
         .fm-server-viewer__header { display:grid; grid-template-columns:minmax(5rem,1fr) auto minmax(5rem,1fr); gap:.7rem; align-items:center; padding:calc(.65rem + env(safe-area-inset-top)) .8rem .65rem; background:#0b111a; }
         .fm-server-viewer__header>button { display:flex; align-items:center; gap:.35rem; width:max-content; min-height:2.4rem; padding:.45rem .65rem; border:1px solid #334155; border-radius:999px; color:#fff; background:#172131; font-size:.68rem; font-weight:800; }
         .fm-server-viewer__header>button.is-danger { justify-self:end; width:2.4rem; padding:.45rem; color:#fecaca; border-color:#71343c; background:#361820; }

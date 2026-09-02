@@ -404,7 +404,8 @@ class FotoBarangMaps extends Page
             ->send();
     }
 
-    public function deletePhoto(int $photoId): void
+    /** @return array{deleted: bool, photo_id: int} */
+    public function deletePhoto(int $photoId): array
     {
         $session = $this->findVisibleSession((int) $this->activeSessionId);
         $photo = $session->items()->whereKey($photoId)->firstOrFail();
@@ -420,6 +421,9 @@ class FotoBarangMaps extends Page
         );
 
         Notification::make()->title('Foto dihapus')->success()->send();
+        $this->skipRender();
+
+        return ['deleted' => true, 'photo_id' => $photoId];
     }
 
     /** @return array{deleted: bool, uuid: string|null} */
@@ -467,6 +471,7 @@ class FotoBarangMaps extends Page
 
         $this->resetPage('fotoSessionsPage');
         Notification::make()->title('Folder dan seluruh fotonya dihapus')->success()->send();
+        $this->skipRender();
 
         return ['deleted' => true, 'uuid' => $sessionUuid];
     }

@@ -130,6 +130,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
         $this->assertStringContainsString('openServerGallery', $view);
+        $this->assertStringContainsString('syncServerPhotosFromDom', $view);
+        $this->assertStringContainsString('x-ref="serverGalleryDialog"', $view);
         $this->assertStringContainsString('showNextServerPhoto', $view);
         $this->assertStringContainsString('endGallerySwipe', $view);
         $this->assertStringContainsString('requestDeleteFolder', $view);
@@ -140,6 +142,7 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('wire:model.live="historyDate"', $view);
         $this->assertStringContainsString("paginate(10, ['*'], 'fotoSessionsPage')", $page);
         $this->assertStringContainsString('public function deleteSessionFolder', $page);
+        $this->assertStringContainsString("return ['deleted' => true, 'photo_id' => \$photoId]", $page);
         $this->assertStringContainsString("!== 'hapus'", $page);
         $this->assertStringContainsString('ShouldBeUnique', $job);
         $this->assertStringContainsString('PROCESSING_FAILED', $job);
