@@ -14,6 +14,7 @@ use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Tables\Actions\Action as TableAction;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
@@ -170,7 +171,23 @@ class BarangResource extends Resource
                     ->disk('public')
                     ->height(48)
                     ->width(48)
-                    ->square(),
+                    ->square()
+                    ->tooltip(fn (Barang $record): string => filled($record->gambar)
+                        ? 'Klik untuk melihat gambar'
+                        : 'Gambar belum tersedia')
+                    ->extraImgAttributes(['style' => 'cursor: zoom-in;'])
+                    ->action(
+                        TableAction::make('preview-gambar-barang')
+                            ->modalHeading(fn (Barang $record): string => $record->nama_barang)
+                            ->modalContent(fn (Barang $record) => view(
+                                'filament.components.barang-image-preview',
+                                ['barang' => $record],
+                            ))
+                            ->modalWidth('5xl')
+                            ->modalSubmitAction(false)
+                            ->modalCancelActionLabel('Kembali')
+                            ->visible(fn (Barang $record): bool => filled($record->gambar)),
+                    ),
                 Tables\Columns\TextColumn::make('nama_barang')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('kode_barang')

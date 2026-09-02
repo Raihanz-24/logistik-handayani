@@ -7,6 +7,7 @@ use App\Models\BarangLokasi;
 use App\Services\HistoricalStockService;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Livewire\Attributes\Url;
 
 class ListBarangLokasis extends ListRecords
@@ -33,6 +34,18 @@ class ListBarangLokasis extends ListRecords
     public function getTableRecordKey($record): string
     {
         return "{$record->barang_id}-{$record->lokasi_id}";
+    }
+
+    protected function resolveTableRecord(?string $key): ?Model
+    {
+        if (! is_string($key) || ! preg_match('/^(\d+)-(\d+)$/', $key, $matches)) {
+            return null;
+        }
+
+        return $this->getFilteredTableQuery()
+            ->where('barang_lokasi.barang_id', (int) $matches[1])
+            ->where('barang_lokasi.lokasi_id', (int) $matches[2])
+            ->first();
     }
 
     protected static string $resource = BarangLokasiResource::class;

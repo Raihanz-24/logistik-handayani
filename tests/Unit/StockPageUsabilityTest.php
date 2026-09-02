@@ -46,7 +46,7 @@ class StockPageUsabilityTest extends TestCase
 
         $this->assertStringContainsString("TextColumn::make('barang.satuan')", $resource);
         $this->assertStringContainsString("->label('Total Stok')", $resource);
-        $this->assertSame(5, substr_count($resource, '->toggleable()'));
+        $this->assertSame(6, substr_count($resource, '->toggleable()'));
         $this->assertSame(5, substr_count($resource, '->toggleable(isToggledHiddenByDefault: true)'));
         $this->assertStringContainsString("TextColumn::make('stok_baik_tampil')", $resource);
         $this->assertStringContainsString("TextColumn::make('stok_rusak_tampil')", $resource);
@@ -71,7 +71,8 @@ class StockPageUsabilityTest extends TestCase
         $this->assertStringContainsString('applyTableSnapshotToQuery', $resource);
         $this->assertStringContainsString('public function stockAsOfDate', $page);
         $this->assertStringContainsString("'as_of_date' => \$this->stockAsOfDate()", $page);
-        $this->assertStringContainsString("history_mutations.status = 'approved'", $service);
-        $this->assertStringContainsString('history_mutations.tanggal > ?', $service);
+        $this->assertStringContainsString("->where('status', 'approved')", $service);
+        $this->assertStringContainsString("->whereDate('tanggal', '>', \$date)", $service);
+        $this->assertStringContainsString("->fromSub(\$events, 'history_stock_events')", $service);
     }
 }

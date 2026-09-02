@@ -83,6 +83,29 @@ class BarangLokasiResource extends Resource
                 ),
             )
             ->columns([
+                Tables\Columns\ImageColumn::make('barang.gambar')
+                    ->label('Gambar')
+                    ->disk('public')
+                    ->height(48)
+                    ->width(48)
+                    ->square()
+                    ->tooltip(fn (BarangLokasi $record): string => filled($record->barang?->gambar)
+                        ? 'Klik untuk melihat gambar'
+                        : 'Gambar belum tersedia')
+                    ->extraImgAttributes(['style' => 'cursor: zoom-in;'])
+                    ->toggleable()
+                    ->action(
+                        Action::make('preview-gambar-stok')
+                            ->modalHeading(fn (BarangLokasi $record): string => $record->barang?->nama_barang ?? 'Gambar Barang')
+                            ->modalContent(fn (BarangLokasi $record) => view(
+                                'filament.components.barang-image-preview',
+                                ['barang' => $record->barang],
+                            ))
+                            ->modalWidth('5xl')
+                            ->modalSubmitAction(false)
+                            ->modalCancelActionLabel('Kembali')
+                            ->visible(fn (BarangLokasi $record): bool => filled($record->barang?->gambar)),
+                    ),
                 Tables\Columns\TextColumn::make('barang.nama_barang')
                     ->searchable()
                     ->sortable()

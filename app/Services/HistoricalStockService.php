@@ -12,6 +12,7 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -31,22 +32,19 @@ class HistoricalStockService
     public function applyTableSnapshotToQuery(Builder $query, mixed $asOfDate): Builder
     {
         $date = $this->parseAsOfDate($asOfDate)->format('Y-m-d');
+        $effects = $this->historicalEffectsQuery($date);
 
-        $query->select('barang_lokasi.*')
-            ->selectRaw($this->historicalRackExpression().' AS posisi_rak_tampil_id', [$date]);
-
-        foreach ([
-            'stok_baik' => 'baik',
-            'stok_rusak' => 'rusak',
-            'stok_hilang' => 'hilang',
-        ] as $column => $condition) {
-            $query->selectRaw(
-                $this->historicalConditionExpression($column, $condition).' AS '.$column.'_tampil',
-                [$date],
-            );
-        }
-
-        return $query->selectRaw($this->historicalTotalExpression().' AS stok_tampil', [$date]);
+        return $query
+            ->leftJoinSub($effects, 'history_stock_effects', function ($join): void {
+                $join->on('history_stock_effects.barang_id', '=', 'barang_lokasi.barang_id')
+                    ->on('history_stock_effects.lokasi_id', '=', 'barang_lokasi.lokasi_id');
+            })
+            ->select('barang_lokasi.*')
+            ->selectRaw('barang_lokasi.posisi_rak_id AS posisi_rak_tampil_id')
+            ->selectRaw('barang_lokasi.stok - COALESCE(history_stock_effects.effect_total, 0) AS stok_tampil')
+            ->selectRaw('barang_lokasi.stok_baik - COALESCE(history_stock_effects.effect_baik, 0) AS stok_baik_tampil')
+            ->selectRaw('barang_lokasi.stok_rusak - COALESCE(history_stock_effects.effect_rusak, 0) AS stok_rusak_tampil')
+            ->selectRaw('barang_lokasi.stok_hilang - COALESCE(history_stock_effects.effect_hilang, 0) AS stok_hilang_tampil');
     }
 
     /**
@@ -246,73 +244,61 @@ class HistoricalStockService
         return $date;
     }
 
-    private function historicalConditionExpression(string $column, string $condition): string
+    private function historicalEffectsQuery(string $date): \Illuminate\Database\Query\Builder
     {
-        return "barang_lokasi.{$column} - COALESCE((
-            SELECT SUM(CASE
-                WHEN history_mutations.jenis_mutasi = 'masuk'
-                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
-                    AND COALESCE(history_mutations.kondisi_tujuan, 'baik') = '{$condition}'
-                    THEN history_mutations.jumlah
-                WHEN history_mutations.jenis_mutasi = 'keluar'
-                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
-                    AND COALESCE(history_mutations.kondisi_asal, 'baik') = '{$condition}'
-                    THEN -history_mutations.jumlah
-                WHEN history_mutations.jenis_mutasi = 'keluar'
-                    AND history_mutations.lokasi_tujuan_id = barang_lokasi.lokasi_id
-                    AND COALESCE(history_mutations.kondisi_asal, 'baik') = '{$condition}'
-                    THEN history_mutations.jumlah
-                WHEN history_mutations.jenis_mutasi = 'perubahan_kondisi'
-                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
-                    AND COALESCE(history_mutations.kondisi_asal, 'baik') = '{$condition}'
-                    THEN -history_mutations.jumlah
-                WHEN history_mutations.jenis_mutasi = 'perubahan_kondisi'
-                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
-                    AND COALESCE(history_mutations.kondisi_tujuan, 'baik') = '{$condition}'
-                    THEN history_mutations.jumlah
+        $sourceEffects = DB::table('mutasis')
+            ->select(['barang_id', 'lokasi_id'])
+            ->selectRaw("CASE
+                WHEN jenis_mutasi = 'masuk' THEN jumlah
+                WHEN jenis_mutasi = 'keluar' THEN -jumlah
                 ELSE 0
-            END)
-            FROM mutasis AS history_mutations
-            WHERE history_mutations.barang_id = barang_lokasi.barang_id
-                AND history_mutations.status = 'approved'
-                AND history_mutations.tanggal > ?
-        ), 0)";
+            END AS effect_total")
+            ->selectRaw($this->conditionEffectCase('baik').' AS effect_baik')
+            ->selectRaw($this->conditionEffectCase('rusak').' AS effect_rusak')
+            ->selectRaw($this->conditionEffectCase('hilang').' AS effect_hilang')
+            ->where('status', 'approved')
+            ->whereDate('tanggal', '>', $date);
+
+        $destinationEffects = DB::table('mutasis')
+            ->selectRaw('barang_id, lokasi_tujuan_id AS lokasi_id')
+            ->selectRaw('jumlah AS effect_total')
+            ->selectRaw($this->destinationConditionEffectCase('baik').' AS effect_baik')
+            ->selectRaw($this->destinationConditionEffectCase('rusak').' AS effect_rusak')
+            ->selectRaw($this->destinationConditionEffectCase('hilang').' AS effect_hilang')
+            ->where('status', 'approved')
+            ->where('jenis_mutasi', 'keluar')
+            ->whereNotNull('lokasi_tujuan_id')
+            ->whereDate('tanggal', '>', $date);
+
+        $events = $sourceEffects->unionAll($destinationEffects);
+
+        return DB::query()
+            ->fromSub($events, 'history_stock_events')
+            ->select(['barang_id', 'lokasi_id'])
+            ->selectRaw('SUM(effect_total) AS effect_total')
+            ->selectRaw('SUM(effect_baik) AS effect_baik')
+            ->selectRaw('SUM(effect_rusak) AS effect_rusak')
+            ->selectRaw('SUM(effect_hilang) AS effect_hilang')
+            ->groupBy(['barang_id', 'lokasi_id']);
     }
 
-    private function historicalTotalExpression(): string
+    private function conditionEffectCase(string $condition): string
     {
-        return "barang_lokasi.stok - COALESCE((
-            SELECT SUM(CASE
-                WHEN history_mutations.jenis_mutasi = 'masuk'
-                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
-                    THEN history_mutations.jumlah
-                WHEN history_mutations.jenis_mutasi = 'keluar'
-                    AND history_mutations.lokasi_id = barang_lokasi.lokasi_id
-                    THEN -history_mutations.jumlah
-                WHEN history_mutations.jenis_mutasi = 'keluar'
-                    AND history_mutations.lokasi_tujuan_id = barang_lokasi.lokasi_id
-                    THEN history_mutations.jumlah
-                ELSE 0
-            END)
-            FROM mutasis AS history_mutations
-            WHERE history_mutations.barang_id = barang_lokasi.barang_id
-                AND history_mutations.status = 'approved'
-                AND history_mutations.tanggal > ?
-        ), 0)";
+        return "CASE
+            WHEN jenis_mutasi = 'masuk' AND COALESCE(kondisi_tujuan, 'baik') = '{$condition}' THEN jumlah
+            WHEN jenis_mutasi = 'keluar' AND COALESCE(kondisi_asal, 'baik') = '{$condition}' THEN -jumlah
+            WHEN jenis_mutasi = 'perubahan_kondisi' AND COALESCE(kondisi_asal, 'baik') = '{$condition}' THEN -jumlah
+            WHEN jenis_mutasi = 'perubahan_kondisi' AND COALESCE(kondisi_tujuan, 'baik') = '{$condition}' THEN jumlah
+            ELSE 0
+        END";
     }
 
-    private function historicalRackExpression(): string
+    private function destinationConditionEffectCase(string $condition): string
     {
-        return "COALESCE((
-            SELECT history_racks.posisi_rak_asal_id
-            FROM mutasi_raks AS history_racks
-            WHERE history_racks.barang_id = barang_lokasi.barang_id
-                AND history_racks.lokasi_id = barang_lokasi.lokasi_id
-                AND history_racks.status = 'approved'
-                AND history_racks.tanggal > ?
-            ORDER BY history_racks.approved_at ASC, history_racks.id ASC
-            LIMIT 1
-        ), barang_lokasi.posisi_rak_id)";
+        return "CASE
+            WHEN COALESCE(kondisi_asal, 'baik') = '{$condition}' THEN jumlah
+            ELSE 0
+        END";
     }
 
     /** @param array<int, int> $warehouseIds */
