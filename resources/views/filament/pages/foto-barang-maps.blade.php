@@ -34,6 +34,21 @@
             localGalleryFor: null,
             localPreviewUrl: null,
             localPreviewCapture: null,
+            serverPhotos: [],
+            serverGalleryOpen: false,
+            serverPhotoIndex: 0,
+            galleryTouchStartX: null,
+            confirmOpen: false,
+            confirmType: null,
+            confirmTargetId: null,
+            confirmTargetUuid: null,
+            confirmTitle: '',
+            confirmMessage: '',
+            confirmInput: '',
+            confirmRequiresText: false,
+            confirmBusy: false,
+            refreshTimer: null,
+            historyFiltersOpen: false,
             currentUploadId: null,
             captureDbPromise: null,
             queueInitializedFor: null,
@@ -334,9 +349,8 @@
 
                 context.font = `600 ${coordinateFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 context.fillStyle = '#e6ebf1';
-                const accuracyText = this.accuracy === null ? '' : ` | Akurasi +/-${this.accuracy} m`;
                 context.fillText(
-                    `Lat ${Number(this.latitude).toFixed(6)} | Long ${Number(this.longitude).toFixed(6)}${accuracyText}`,
+                    `Lat ${Number(this.latitude).toFixed(6)} | Long ${Number(this.longitude).toFixed(6)}`,
                     contentX,
                     Math.min(y + padding * .12, overlayBottom - innerBottomSpace - coordinateFont),
                 );
@@ -406,11 +420,155 @@
                 this.localPreviewCapture = null;
             },
             async deleteLocalOnlyCapture(captureId) {
-                if (! window.confirm('Hapus foto lokal ini? File tidak dapat dipulihkan.')) return;
                 await this.deleteLocalCapture(captureId);
                 this.localCaptures = this.localCaptures.filter((capture) => capture.id !== captureId);
                 this.localCapturedCount = this.localCaptures.length;
                 if (this.localPreviewCapture?.id === captureId) this.closeLocalPreview();
+            },
+            syncServerPhotos(photos) {
+                this.serverPhotos = Array.isArray(photos) ? photos : [];
+                if (this.serverPhotos.length === 0) this.closeServerGallery();
+                if (this.serverPhotoIndex >= this.serverPhotos.length) {
+                    this.serverPhotoIndex = Math.max(0, this.serverPhotos.length - 1);
+                }
+            },
+            openServerGallery(index = 0) {
+                if (this.serverPhotos.length === 0) return;
+                this.serverPhotoIndex = Math.max(0, Math.min(Number(index), this.serverPhotos.length - 1));
+                this.serverGalleryOpen = true;
+                document.body.style.overflow = 'hidden';
+            },
+            closeServerGallery() {
+                this.serverGalleryOpen = false;
+                this.galleryTouchStartX = null;
+                if (! this.cameraOpen && ! this.localPreviewUrl && ! this.confirmOpen) {
+                    document.body.style.overflow = '';
+                }
+            },
+            currentServerPhoto() {
+                return this.serverPhotos[this.serverPhotoIndex] || null;
+            },
+            showPreviousServerPhoto() {
+                if (this.serverPhotos.length < 2) return;
+                this.serverPhotoIndex = (this.serverPhotoIndex - 1 + this.serverPhotos.length) % this.serverPhotos.length;
+            },
+            showNextServerPhoto() {
+                if (this.serverPhotos.length < 2) return;
+                this.serverPhotoIndex = (this.serverPhotoIndex + 1) % this.serverPhotos.length;
+            },
+            beginGallerySwipe(event) {
+                this.galleryTouchStartX = event.changedTouches?.[0]?.clientX ?? null;
+            },
+            endGallerySwipe(event) {
+                const endX = event.changedTouches?.[0]?.clientX;
+                if (this.galleryTouchStartX === null || endX === undefined) return;
+                const distance = endX - this.galleryTouchStartX;
+                this.galleryTouchStartX = null;
+                if (Math.abs(distance) < 45) return;
+                distance > 0 ? this.showPreviousServerPhoto() : this.showNextServerPhoto();
+            },
+            requestDeleteServerPhoto(photoId) {
+                this.openConfirm({
+                    type: 'server-photo',
+                    targetId: photoId,
+                    title: 'Hapus foto ini?',
+                    message: 'Foto akan dihapus permanen dari folder dan server.',
+                });
+            },
+            requestDeleteLocalPhoto(captureId) {
+                this.openConfirm({
+                    type: 'local-photo',
+                    targetId: captureId,
+                    title: 'Hapus foto lokal?',
+                    message: 'Foto akan dihapus permanen dari perangkat ini.',
+                });
+            },
+            requestDeleteFolder(sessionId, sessionUuid, sessionTitle) {
+                this.openConfirm({
+                    type: 'folder',
+                    targetId: sessionId,
+                    targetUuid: sessionUuid,
+                    title: 'Hapus seluruh folder?',
+                    message: `Folder ${sessionTitle} dan seluruh fotonya akan dihapus permanen.`,
+                    requiresText: true,
+                });
+            },
+            openConfirm({ type, targetId, targetUuid = null, title, message, requiresText = false }) {
+                this.confirmType = type;
+                this.confirmTargetId = targetId;
+                this.confirmTargetUuid = targetUuid;
+                this.confirmTitle = title;
+                this.confirmMessage = message;
+                this.confirmRequiresText = requiresText;
+                this.confirmInput = '';
+                this.confirmOpen = true;
+                document.body.style.overflow = 'hidden';
+            },
+            closeConfirm() {
+                if (this.confirmBusy) return;
+                this.confirmOpen = false;
+                this.confirmType = null;
+                this.confirmTargetId = null;
+                this.confirmTargetUuid = null;
+                this.confirmInput = '';
+                if (! this.cameraOpen && ! this.serverGalleryOpen && ! this.localPreviewUrl) {
+                    document.body.style.overflow = '';
+                }
+            },
+            async executeConfirmedDelete() {
+                if (this.confirmBusy) return;
+                if (this.confirmRequiresText && this.confirmInput.trim().toLowerCase() !== 'hapus') return;
+                this.confirmBusy = true;
+
+                try {
+                    if (this.confirmType === 'server-photo') {
+                        const photoId = this.confirmTargetId;
+                        await $wire.deletePhoto(photoId);
+                        this.serverPhotos = this.serverPhotos.filter((photo) => photo.id !== photoId);
+                        if (this.serverPhotos.length === 0) this.closeServerGallery();
+                        this.serverPhotoIndex = Math.min(this.serverPhotoIndex, Math.max(0, this.serverPhotos.length - 1));
+                        this.scheduleServerRefresh();
+                    } else if (this.confirmType === 'local-photo') {
+                        await this.deleteLocalOnlyCapture(this.confirmTargetId);
+                    } else if (this.confirmType === 'folder') {
+                        const result = await $wire.deleteSessionFolder(this.confirmTargetId, this.confirmInput);
+                        if (! result?.deleted) return;
+                        await this.deleteLocalSessionCaptures(result.uuid || this.confirmTargetUuid);
+                        this.closeServerGallery();
+                    }
+                    this.confirmOpen = false;
+                } finally {
+                    this.confirmBusy = false;
+                    if (! this.confirmOpen) this.closeConfirm();
+                }
+            },
+            async deleteLocalSessionCaptures(sessionUuid) {
+                if (! sessionUuid) return;
+                const database = await this.openCaptureDb();
+                await new Promise((resolve, reject) => {
+                    const transaction = database.transaction('captures', 'readwrite');
+                    const request = transaction.objectStore('captures').index('sessionUuid').openCursor(IDBKeyRange.only(sessionUuid));
+                    request.onsuccess = () => {
+                        const cursor = request.result;
+                        if (! cursor) return;
+                        cursor.delete();
+                        cursor.continue();
+                    };
+                    transaction.oncomplete = () => resolve();
+                    transaction.onerror = () => reject(transaction.error || new Error('Foto lokal folder gagal dibersihkan.'));
+                });
+                if (this.localGalleryFor === sessionUuid) {
+                    this.localCaptures = [];
+                    this.localCapturedCount = 0;
+                }
+            },
+            scheduleServerRefresh(delay = 350) {
+                window.clearTimeout(this.refreshTimer);
+                this.refreshTimer = window.setTimeout(() => {
+                    if (! this.cameraOpen && ! this.uploadInProgress && this.captureQueue.length === 0) {
+                        $wire.$refresh();
+                    }
+                }, delay);
             },
             createCaptureId() {
                 if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -536,8 +694,8 @@
                             this.sessionAddress = location?.address || `Koordinat ${Number(this.latitude).toFixed(6)}, ${Number(this.longitude).toFixed(6)}`;
                             this.gpsReady = true;
                             this.gpsState = location?.resolved
-                                ? `GPS & alamat aktif - akurasi +/-${this.accuracy} meter`
-                                : `GPS aktif - alamat otomatis belum tersedia`;
+                                ? 'GPS dan alamat otomatis aktif'
+                                : 'GPS aktif - alamat otomatis belum tersedia';
                             resolve(true);
                         } catch (error) {
                             this.gpsReady = false;
@@ -559,28 +717,6 @@
                     { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
                 ));
             },
-            async useDefaultGps() {
-                this.latitude = @js((float) config('foto_barang.default_latitude'));
-                this.longitude = @js((float) config('foto_barang.default_longitude'));
-                this.accuracy = null;
-                this.gpsReady = false;
-                this.resolvingAddress = true;
-                this.gpsState = 'Mencari alamat lokasi default Paiton...';
-
-                try {
-                    const location = await $wire.resolveSessionLocation(this.latitude, this.longitude, null);
-                    this.sessionLocation = location?.name || 'Lokasi GPS Paiton';
-                    this.sessionAddress = location?.address || `Koordinat ${Number(this.latitude).toFixed(6)}, ${Number(this.longitude).toFixed(6)}`;
-                    this.gpsReady = true;
-                    this.gpsState = location?.resolved
-                        ? 'Lokasi default Paiton & alamat otomatis aktif'
-                        : 'Lokasi default aktif - alamat otomatis belum tersedia';
-                } catch (error) {
-                    this.gpsState = 'Alamat lokasi default gagal dimuat';
-                } finally {
-                    this.resolvingAddress = false;
-                }
-            },
             async openCamera(sessionUuid = this.sessionUuid, sessionLocation = this.sessionLocation, sessionAddress = this.sessionAddress) {
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
                     this.cameraError = 'Kamera membutuhkan akses HTTPS.';
@@ -588,7 +724,7 @@
                 }
 
                 if (! navigator.mediaDevices?.getUserMedia) {
-                    this.cameraError = 'Kamera live tidak didukung browser ini. Gunakan tombol kamera alternatif.';
+                    this.cameraError = 'Kamera live tidak didukung browser ini.';
                     return;
                 }
 
@@ -679,7 +815,9 @@
             async closeCameraAndRefresh() {
                 this.closeCamera();
                 if (! this.uploadInProgress && this.captureQueue.length === 0) {
-                    await $wire.$refresh();
+                    this.scheduleServerRefresh(100);
+                } else {
+                    this.backgroundState = 'Menyelesaikan pengiriman foto ke server...';
                 }
             },
             async restartCamera() {
@@ -691,7 +829,7 @@
                 if (this.captureBusy) return;
 
                 if (! this.gpsReady || this.latitude === null || this.longitude === null) {
-                    this.cameraError = 'Lokasi belum valid. Tekan refresh GPS atau gunakan lokasi default.';
+                    this.cameraError = 'Lokasi belum valid. Tekan refresh GPS lalu coba lagi.';
                     return;
                 }
 
@@ -771,6 +909,7 @@
                 if (! uploadedId) {
                     this.serverCapturedCount++;
                     this.capturedCount++;
+                    if (! this.cameraOpen) this.scheduleServerRefresh();
                     return;
                 }
 
@@ -794,9 +933,7 @@
                 } else {
                     await this.completeFinishIfReady();
 
-                    if (! this.cameraOpen && ! this.finishRequested) {
-                        window.setTimeout(() => $wire.$refresh(), 900);
-                    }
+                    if (! this.cameraOpen) this.scheduleServerRefresh(500);
                 }
             },
             handlePhotoFailed() {
@@ -809,7 +946,6 @@
             },
             async finishCaptureSession() {
                 if (this.captureBusy) return;
-                if (! window.confirm('Selesaikan sesi foto ini? Kamera akan ditutup.')) return;
                 this.closeCamera();
                 this.finishRequested = true;
                 this.finishAllowsEmptyLocal = this.captureMode === 'local';
@@ -819,7 +955,6 @@
                 await this.completeFinishIfReady();
             },
             async finishSessionFromPage() {
-                if (! window.confirm('Selesaikan sesi ini? Setelah selesai, foto server tidak dapat ditambah atau dihapus.')) return;
                 this.finishRequested = true;
                 this.finishAllowsEmptyLocal = this.localCapturedCount > 0;
                 this.backgroundState = this.captureQueue.length > 0 || this.uploadInProgress
@@ -975,11 +1110,6 @@
                             <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating || resolvingAddress">Refresh GPS</button>
                         </div>
 
-                        <div class="fm-location-fallback">
-                            <p>Jika GPS browser ditolak, gunakan titik Paiton hanya bila foto memang diambil di lokasi ini.</p>
-                            <button type="button" x-on:click="useDefaultGps()">Gunakan lokasi default Paiton</button>
-                        </div>
-
                         <div class="fm-mode-picker" role="group" aria-label="Pilih penyimpanan foto">
                             <button
                                 type="button"
@@ -1021,39 +1151,8 @@
 
                         <p class="fm-camera-error" x-show="cameraError && ! cameraOpen" x-text="cameraError" x-cloak></p>
 
-                        <div class="fm-camera-box" wire:key="camera-input-{{ $uploadKey }}" x-show="captureMode === 'server'">
-                            <input
-                                id="foto-barang-camera-{{ $uploadKey }}"
-                                type="file"
-                                accept="image/jpeg,image/png,image/webp"
-                                capture="environment"
-                                wire:model="photo"
-                            >
-
-                            <label for="foto-barang-camera-{{ $uploadKey }}" class="fm-camera-button">
-                                <span><x-filament::icon icon="heroicon-o-camera" /></span>
-                                <strong>Kamera / Galeri Alternatif</strong>
-                                <small>Kamera belakang · maksimal 10 MB</small>
-                            </label>
-
-                            <div class="fm-processing" wire:loading.flex wire:target="photo,savePhoto">
-                                <span class="fm-spinner"></span>
-                                <strong>Memproses foto...</strong>
-                                <small>Menambahkan maps dan mengompres otomatis</small>
-                            </div>
-                        </div>
-
                         @error('photo') <p class="fm-error">{{ $message }}</p> @enderror
                         @error('latitude') <p class="fm-error">{{ $message }}</p> @enderror
-
-                        @if ($photo)
-                            <div class="fm-pending-photo">
-                                <p>Foto sudah dipilih dan menunggu koordinat lokasi.</p>
-                                <x-filament::button type="button" wire:click="savePhoto" wire:loading.attr="disabled">
-                                    Proses Foto Sekarang
-                                </x-filament::button>
-                            </div>
-                        @endif
 
                         <div class="fm-capture-note">
                             <x-filament::icon icon="heroicon-o-bolt" />
@@ -1123,7 +1222,6 @@
                             <small>
                                 Lat <span x-text="latitude === null ? '-' : Number(latitude).toFixed(6)"></span>
                                 &nbsp; Long <span x-text="longitude === null ? '-' : Number(longitude).toFixed(6)"></span>
-                                <template x-if="accuracy !== null"><span>&nbsp; Akurasi +/-<b x-text="accuracy"></b> m</span></template>
                             </small>
                         </div>
 
@@ -1134,7 +1232,6 @@
                         <div class="fm-live-camera__gps" x-bind:class="gpsReady ? 'is-ready' : 'is-warning'">
                             <x-filament::icon icon="heroicon-m-map-pin" />
                             <span x-text="gpsState"></span>
-                            <button type="button" x-show="! gpsReady" x-on:click="useDefaultGps()">Pakai default</button>
                         </div>
 
                         <div class="fm-live-camera__queue" x-show="captureMode === 'server' && (queuedCount > 0 || uploadInProgress)" x-cloak>
@@ -1174,7 +1271,21 @@
                 </div>
             @endif
 
-            <section class="fm-gallery">
+            @php
+                $serverPhotos = $activeSession->items->values()->map(fn ($item): array => [
+                    'id' => $item->id,
+                    'sequence' => $item->urutan,
+                    'preview' => route('foto-barang.preview', [$activeSession, $item]),
+                    'download' => route('foto-barang.download', [$activeSession, $item]),
+                    'fileName' => $item->fileName(),
+                    'capturedAt' => $item->diambil_at->locale('id')->translatedFormat('d M Y, H:i').' WIB',
+                ])->all();
+            @endphp
+            <section
+                class="fm-gallery"
+                wire:key="foto-server-session-{{ $activeSession->uuid }}"
+                x-init="syncServerPhotos(@js($serverPhotos))"
+            >
                 <div class="fm-section-heading">
                     <div>
                         <span class="fm-section-kicker">Penyimpanan server</span>
@@ -1199,10 +1310,10 @@
                             @endphp
 
                             <article class="fm-photo-card" wire:key="foto-barang-{{ $item->id }}">
-                                <a href="{{ $previewUrl }}" target="_blank" class="fm-photo-card__image">
+                                <button type="button" class="fm-photo-card__image" x-on:click="openServerGallery({{ $loop->index }})">
                                     <img src="{{ $previewUrl }}" alt="Foto barang urutan {{ $item->urutan }}" loading="lazy">
                                     <span>#{{ str_pad((string) $item->urutan, 2, '0', STR_PAD_LEFT) }}</span>
-                                </a>
+                                </button>
 
                                 <div class="fm-photo-card__body">
                                     <strong>{{ $item->diambil_at->locale('id')->translatedFormat('d M Y, H:i') }} WIB</strong>
@@ -1232,22 +1343,75 @@
                                             <x-filament::icon icon="heroicon-m-arrow-path" /> Ulangi
                                         </button>
                                     @endif
-                                    @if ($activeSession->isActive())
-                                        <button
-                                            type="button"
-                                            class="is-danger"
-                                            wire:click="deletePhoto({{ $item->id }})"
-                                            wire:confirm="Hapus foto ini dari sesi? File tidak dapat dipulihkan."
-                                        >
-                                            <x-filament::icon icon="heroicon-m-trash" />
-                                        </button>
-                                    @endif
+                                    <button
+                                        type="button"
+                                        class="is-danger"
+                                        x-on:click="requestDeleteServerPhoto({{ $item->id }})"
+                                    >
+                                        <x-filament::icon icon="heroicon-m-trash" />
+                                    </button>
                                 </div>
                             </article>
                         @endforeach
                     </div>
                 @endif
             </section>
+
+            <div
+                class="fm-server-viewer"
+                x-show="serverGalleryOpen"
+                x-cloak
+                x-on:keydown.escape.window="if (serverGalleryOpen && ! confirmOpen) closeServerGallery()"
+                x-on:keydown.left.window="if (serverGalleryOpen && ! confirmOpen) showPreviousServerPhoto()"
+                x-on:keydown.right.window="if (serverGalleryOpen && ! confirmOpen) showNextServerPhoto()"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Galeri foto server"
+            >
+                <header class="fm-server-viewer__header">
+                    <button type="button" x-on:click="closeServerGallery()">
+                        <x-filament::icon icon="heroicon-m-arrow-left" /> Kembali
+                    </button>
+                    <div>
+                        <strong x-text="currentServerPhoto() ? '#' + String(currentServerPhoto().sequence).padStart(2, '0') : 'Foto'"></strong>
+                        <span><b x-text="serverPhotoIndex + 1"></b> dari <b x-text="serverPhotos.length"></b></span>
+                    </div>
+                    <button type="button" class="is-danger" x-on:click="requestDeleteServerPhoto(currentServerPhoto()?.id)" aria-label="Hapus foto">
+                        <x-filament::icon icon="heroicon-m-trash" />
+                    </button>
+                </header>
+
+                <main
+                    class="fm-server-viewer__stage"
+                    x-on:touchstart.passive="beginGallerySwipe($event)"
+                    x-on:touchend.passive="endGallerySwipe($event)"
+                >
+                    <button type="button" class="fm-server-viewer__nav is-prev" x-on:click="showPreviousServerPhoto()" x-show="serverPhotos.length > 1" aria-label="Foto sebelumnya">
+                        <x-filament::icon icon="heroicon-m-chevron-left" />
+                    </button>
+                    <template x-if="currentServerPhoto()">
+                        <img x-bind:src="currentServerPhoto().preview" x-bind:alt="'Foto urutan ' + currentServerPhoto().sequence">
+                    </template>
+                    <button type="button" class="fm-server-viewer__nav is-next" x-on:click="showNextServerPhoto()" x-show="serverPhotos.length > 1" aria-label="Foto berikutnya">
+                        <x-filament::icon icon="heroicon-m-chevron-right" />
+                    </button>
+                </main>
+
+                <footer class="fm-server-viewer__footer" x-show="currentServerPhoto()">
+                    <span x-text="currentServerPhoto()?.capturedAt"></span>
+                    <div>
+                        <button
+                            type="button"
+                            x-on:click="sharePhoto(currentServerPhoto().preview, currentServerPhoto().download, currentServerPhoto().fileName)"
+                        >
+                            <x-filament::icon icon="heroicon-m-share" /> Bagikan
+                        </button>
+                        <a x-bind:href="currentServerPhoto()?.download" x-bind:download="currentServerPhoto()?.fileName">
+                            <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
+                        </a>
+                    </div>
+                </footer>
+            </div>
 
             <section
                 class="fm-gallery fm-local-gallery"
@@ -1284,7 +1448,7 @@
                                 <button type="button" x-on:click="downloadLocalCapture(capture.id)">
                                     <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
                                 </button>
-                                <button type="button" class="is-danger" x-on:click="deleteLocalOnlyCapture(capture.id)" aria-label="Hapus foto lokal">
+                                <button type="button" class="is-danger" x-on:click="requestDeleteLocalPhoto(capture.id)" aria-label="Hapus foto lokal">
                                     <x-filament::icon icon="heroicon-m-trash" />
                                 </button>
                             </div>
@@ -1315,6 +1479,9 @@
                         <button type="button" x-on:click="downloadLocalCapture(localPreviewCapture.id)">
                             <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
                         </button>
+                        <button type="button" class="is-danger" x-on:click="requestDeleteLocalPhoto(localPreviewCapture.id)">
+                            <x-filament::icon icon="heroicon-m-trash" /> Hapus
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1325,9 +1492,30 @@
                 <div>
                     <span class="fm-section-kicker">Folder tersimpan</span>
                     <h2>Riwayat sesi foto</h2>
-                    <p>Sesi terbaru ditampilkan bertahap agar halaman tetap ringan.</p>
+                    <p>
+                        @if ($historyDate !== '')
+                            Menampilkan folder tanggal {{ \Carbon\CarbonImmutable::parse($historyDate)->locale('id')->translatedFormat('d F Y') }}.
+                        @else
+                            Menampilkan seluruh tanggal, terbaru lebih dahulu.
+                        @endif
+                    </p>
                 </div>
-                <x-filament::icon icon="heroicon-o-folder" />
+                <button type="button" class="fm-history-filter-button" x-on:click="historyFiltersOpen = ! historyFiltersOpen">
+                    <x-filament::icon icon="heroicon-o-funnel" /> Filter tanggal
+                </button>
+            </div>
+
+            <div class="fm-history-filters" x-show="historyFiltersOpen" x-transition.opacity.duration.150ms x-cloak>
+                <button type="button" wire:click="showTodaySessions" @class(['is-active' => $historyDate === now('Asia/Jakarta')->toDateString()])>
+                    Hari ini
+                </button>
+                <button type="button" wire:click="showAllSessionDates" @class(['is-active' => $historyDate === ''])>
+                    Semua tanggal
+                </button>
+                <label>
+                    <span>Pilih tanggal khusus</span>
+                    <input type="date" wire:model.live="historyDate" max="{{ now('Asia/Jakarta')->toDateString() }}">
+                </label>
             </div>
 
             @if ($sessions->isEmpty())
@@ -1335,32 +1523,78 @@
             @else
                 <div class="fm-session-list">
                     @foreach ($sessions as $session)
-                        <button
-                            type="button"
-                            wire:click="openSession({{ $session->id }})"
-                            @class(['fm-session-row', 'is-current' => $activeSession?->is($session)])
-                        >
-                            <span class="fm-session-row__icon"><x-filament::icon icon="heroicon-o-folder" /></span>
-                            <span class="fm-session-row__main">
-                                <strong>{{ $session->judul }}</strong>
-                                <small>{{ $session->code() }} · {{ $session->dimulai_at->locale('id')->translatedFormat('d M Y, H:i') }} WIB</small>
-                            </span>
-                            <span class="fm-session-row__count">{{ $session->items_count }} foto</span>
-                            <span @class(['fm-status', 'fm-status--done' => ! $session->isActive()])>
-                                {{ $session->isActive() ? 'Aktif' : 'Selesai' }}
-                            </span>
-                            <x-filament::icon icon="heroicon-m-chevron-right" />
-                        </button>
+                        <div class="fm-session-row-wrap">
+                            <button
+                                type="button"
+                                wire:click="openSession({{ $session->id }})"
+                                @class(['fm-session-row', 'is-current' => $activeSession?->is($session)])
+                            >
+                                <span class="fm-session-row__icon"><x-filament::icon icon="heroicon-o-folder" /></span>
+                                <span class="fm-session-row__main">
+                                    <strong>{{ $session->judul }}</strong>
+                                    <small>{{ $session->code() }} · {{ $session->dimulai_at->locale('id')->translatedFormat('d M Y, H:i') }} WIB</small>
+                                </span>
+                                <span class="fm-session-row__count">{{ $session->items_count }} foto</span>
+                                <span @class(['fm-status', 'fm-status--done' => ! $session->isActive()])>
+                                    {{ $session->isActive() ? 'Aktif' : 'Selesai' }}
+                                </span>
+                                <x-filament::icon icon="heroicon-m-chevron-right" />
+                            </button>
+                            @if (! $session->isActive())
+                                <button
+                                    type="button"
+                                    class="fm-session-delete"
+                                    x-on:click="requestDeleteFolder(@js($session->id), @js($session->uuid), @js($session->judul))"
+                                    aria-label="Hapus folder {{ $session->judul }}"
+                                >
+                                    <x-filament::icon icon="heroicon-m-trash" />
+                                </button>
+                            @endif
+                        </div>
                     @endforeach
                 </div>
 
-                @if ($sessions->count() < $this->totalSessions())
-                    <button type="button" class="fm-load-more" wire:click="loadMoreSessions">
-                        Tampilkan 20 sesi berikutnya
-                    </button>
+                @if ($sessions->hasPages())
+                    <div class="fm-pagination">
+                        {{ $sessions->onEachSide(1)->links() }}
+                    </div>
                 @endif
             @endif
         </section>
+
+        <div
+            class="fm-confirm"
+            x-show="confirmOpen"
+            x-cloak
+            x-transition.opacity.duration.160ms
+            x-on:keydown.escape.window="if (confirmOpen && ! confirmBusy) closeConfirm()"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Konfirmasi penghapusan"
+        >
+            <div class="fm-confirm__backdrop" x-on:click="closeConfirm()"></div>
+            <section class="fm-confirm__card" x-show="confirmOpen" x-transition.scale.95.duration.180ms>
+                <div class="fm-confirm__icon"><x-filament::icon icon="heroicon-o-trash" /></div>
+                <h2 x-text="confirmTitle"></h2>
+                <p x-text="confirmMessage"></p>
+                <label x-show="confirmRequiresText" x-cloak>
+                    <span>Ketik <b>hapus</b> untuk mengonfirmasi</span>
+                    <input type="text" x-model="confirmInput" autocomplete="off" placeholder="Ketik hapus">
+                </label>
+                <div class="fm-confirm__actions">
+                    <button type="button" class="is-cancel" x-on:click="closeConfirm()" x-bind:disabled="confirmBusy">Batal</button>
+                    <button
+                        type="button"
+                        class="is-delete"
+                        x-on:click="executeConfirmedDelete()"
+                        x-bind:disabled="confirmBusy || (confirmRequiresText && confirmInput.trim().toLowerCase() !== 'hapus')"
+                    >
+                        <span x-show="! confirmBusy">Hapus Permanen</span>
+                        <span x-show="confirmBusy">Menghapus...</span>
+                    </button>
+                </div>
+            </section>
+        </div>
     </div>
 
     <style>
@@ -1421,10 +1655,7 @@
         .fm-gps strong { font-size:.73rem; }
         .fm-gps span { color:var(--fm-muted); font-size:.64rem; }
         .fm-gps small { display:-webkit-box; overflow:hidden; margin-top:.12rem; color:var(--fm-muted); font-size:.58rem; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
-        .fm-gps button,.fm-location-fallback button { border:0; color:#9a6700; background:transparent; font-size:.67rem; font-weight:800; cursor:pointer; }
-        .fm-location-fallback { display:flex; justify-content:space-between; gap:.75rem; margin-top:.65rem; padding:.7rem .8rem; border-radius:.7rem; background:var(--fm-soft); }
-        .fm-location-fallback p { margin:0; color:var(--fm-muted); font-size:.65rem; line-height:1.45; }
-        .fm-location-fallback button { flex:0 0 auto; }
+        .fm-gps button { border:0; color:#9a6700; background:transparent; font-size:.67rem; font-weight:800; cursor:pointer; }
         .fm-mode-picker { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; margin-top:1rem; }
         .fm-mode-picker>button { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.12rem .65rem; align-items:center; padding:.75rem; border:1px solid var(--fm-line); border-radius:.8rem; color:var(--fm-ink); background:var(--fm-soft); text-align:left; cursor:pointer; transition:border-color .15s,box-shadow .15s,background .15s; }
         .fm-mode-picker>button.is-active { border-color:#f59e0b; background:#fff8e6; box-shadow:0 0 0 3px rgba(245,158,11,.12); }
@@ -1446,21 +1677,8 @@
         .fm-open-camera strong { font-size:.82rem; }
         .fm-open-camera small { color:#fff7d6; font-size:.65rem; }
         .fm-camera-error { margin:.65rem 0 0; padding:.65rem .75rem; border-radius:.65rem; color:#991b1b; background:#fee2e2; font-size:.68rem; }
-        .fm-camera-box { position:relative; overflow:hidden; min-height:12rem; margin-top:1rem; border:1.5px dashed #b7c4d2; border-radius:1rem; background:linear-gradient(145deg,var(--fm-soft),rgba(245,158,11,.06)); }
-        .fm-camera-box>input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
-        .fm-camera-button { display:grid; place-items:center; align-content:center; min-height:12rem; padding:1.2rem; cursor:pointer; text-align:center; }
-        .fm-camera-button>span { display:grid; place-items:center; width:4.2rem; height:4.2rem; margin-bottom:.75rem; border-radius:1.25rem; color:#fff; background:linear-gradient(145deg,#f59e0b,#d97706); box-shadow:0 10px 26px rgba(217,119,6,.28); }
-        .fm-camera-button svg { width:2rem; }
-        .fm-camera-button strong { font-size:.94rem; }
-        .fm-camera-button small { margin-top:.25rem; color:var(--fm-muted); font-size:.67rem; }
-        .fm-processing { position:absolute; inset:0; z-index:4; display:none; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; color:#fff; background:rgba(9,18,30,.9); backdrop-filter:blur(8px); }
-        .fm-processing strong { margin-top:.4rem; font-size:.84rem; }
-        .fm-processing small { color:#cbd5e1; font-size:.65rem; }
         .fm-spinner { width:2.2rem; height:2.2rem; border:3px solid rgba(255,255,255,.25); border-top-color:#fbbf24; border-radius:50%; animation:fm-spin .75s linear infinite; }
         @keyframes fm-spin { to { transform:rotate(360deg); } }
-        .fm-pending-photo { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-top:.8rem; padding:.75rem; border-radius:.75rem; background:#fff7ed; }
-        .dark .fm-pending-photo { background:#30251a; }
-        .fm-pending-photo p { margin:0; color:#9a5c0a; font-size:.7rem; }
         .fm-capture-note { display:flex; gap:.55rem; margin-top:.9rem; color:var(--fm-muted); }
         .fm-capture-note svg { flex:0 0 auto; width:1rem; color:#d68d05; }
         .fm-capture-note p { margin:0; font-size:.67rem; line-height:1.5; }
@@ -1498,7 +1716,7 @@
         .fm-local-preview__panel>img { width:100%; max-height:calc(100dvh - 7rem); border-radius:.65rem; object-fit:contain; background:#000; }
         .fm-local-preview__close { position:absolute; z-index:2; top:1rem; right:1rem; display:grid; place-items:center; width:2.35rem; height:2.35rem; border:0; border-radius:50%; color:#fff; background:rgba(2,6,12,.78); cursor:pointer; }
         .fm-local-preview__close svg { width:1.15rem; }
-        .fm-local-preview__panel>div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
+        .fm-local-preview__panel>div { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.6rem; }
         .fm-local-preview__panel>div button { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:2.5rem; border:1px solid #334155; border-radius:.65rem; color:#fff; background:#172033; font-size:.7rem; font-weight:800; }
         .fm-local-preview__panel>div svg { width:1rem; }
         .fm-empty { display:grid; justify-items:center; gap:.35rem; padding:2.4rem 1rem; border:1px dashed var(--fm-line); border-radius:.9rem; color:var(--fm-muted); text-align:center; }
@@ -1508,7 +1726,7 @@
         .fm-empty--small { padding:1.2rem; }
         .fm-photo-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.9rem; }
         .fm-photo-card { overflow:hidden; border:1px solid var(--fm-line); border-radius:.9rem; background:var(--fm-soft); }
-        .fm-photo-card__image { position:relative; display:block; aspect-ratio:4/5; overflow:hidden; background:#0f172a; }
+        .fm-photo-card__image { position:relative; display:block; width:100%; aspect-ratio:4/5; overflow:hidden; padding:0; border:0; background:#0f172a; cursor:pointer; }
         .fm-photo-card__image img { width:100%; height:100%; object-fit:contain; }
         .fm-photo-card__image>span { position:absolute; top:.55rem; left:.55rem; padding:.3rem .45rem; border-radius:.5rem; color:#1f1708; background:#fbbf24; font-size:.62rem; font-weight:850; }
         .fm-photo-card__body { display:grid; gap:.15rem; padding:.75rem; }
@@ -1526,9 +1744,55 @@
         .dark .fm-photo-card__actions button,.dark .fm-photo-card__actions a { background:#172436; }
         .fm-photo-card__actions svg { width:.85rem; }
         .fm-photo-card__actions .is-danger { flex:0 0 2rem; color:#dc2626; }
+        .fm-server-viewer[x-cloak],.fm-confirm[x-cloak] { display:none!important; }
+        .fm-server-viewer { position:fixed; z-index:10010; inset:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; color:#fff; background:#03060a; }
+        .fm-server-viewer__header { display:grid; grid-template-columns:minmax(5rem,1fr) auto minmax(5rem,1fr); gap:.7rem; align-items:center; padding:calc(.65rem + env(safe-area-inset-top)) .8rem .65rem; background:#0b111a; }
+        .fm-server-viewer__header>button { display:flex; align-items:center; gap:.35rem; width:max-content; min-height:2.4rem; padding:.45rem .65rem; border:1px solid #334155; border-radius:999px; color:#fff; background:#172131; font-size:.68rem; font-weight:800; }
+        .fm-server-viewer__header>button.is-danger { justify-self:end; width:2.4rem; padding:.45rem; color:#fecaca; border-color:#71343c; background:#361820; }
+        .fm-server-viewer__header svg { width:1rem; }
+        .fm-server-viewer__header>div { display:grid; justify-items:center; }
+        .fm-server-viewer__header strong { font-size:.78rem; }
+        .fm-server-viewer__header span { color:#aab7c7; font-size:.61rem; }
+        .fm-server-viewer__stage { position:relative; display:grid; place-items:center; min-height:0; overflow:hidden; padding:.4rem; touch-action:pan-y; }
+        .fm-server-viewer__stage>img { max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; user-select:none; -webkit-user-drag:none; }
+        .fm-server-viewer__nav { position:absolute; z-index:2; top:50%; display:grid; place-items:center; width:2.7rem; height:2.7rem; border:1px solid rgba(255,255,255,.2); border-radius:50%; color:#fff; background:rgba(8,15,24,.72); transform:translateY(-50%); }
+        .fm-server-viewer__nav.is-prev { left:.7rem; }
+        .fm-server-viewer__nav.is-next { right:.7rem; }
+        .fm-server-viewer__nav svg { width:1.2rem; }
+        .fm-server-viewer__footer { display:flex; align-items:center; justify-content:space-between; gap:.8rem; padding:.65rem .8rem calc(.7rem + env(safe-area-inset-bottom)); background:#0b111a; }
+        .fm-server-viewer__footer>span { color:#aab7c7; font-size:.64rem; }
+        .fm-server-viewer__footer>div { display:flex; gap:.5rem; }
+        .fm-server-viewer__footer button,.fm-server-viewer__footer a { display:flex; align-items:center; justify-content:center; gap:.3rem; min-height:2.35rem; padding:.45rem .7rem; border:1px solid #334155; border-radius:.6rem; color:#fff; background:#172131; font-size:.65rem; font-weight:800; text-decoration:none; }
+        .fm-server-viewer__footer svg { width:.95rem; }
+        .fm-confirm { position:fixed; z-index:10050; inset:0; display:grid; place-items:center; padding:1rem; }
+        .fm-confirm__backdrop { position:absolute; inset:0; background:rgba(3,7,13,.64); backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px); }
+        .fm-confirm__card { position:relative; z-index:1; display:grid; justify-items:center; max-width:25rem; width:100%; padding:1.35rem; border:1px solid rgba(255,255,255,.14); border-radius:1.25rem; color:#eef4fb; background:linear-gradient(155deg,rgba(28,39,54,.98),rgba(11,18,28,.98)); box-shadow:0 25px 70px rgba(0,0,0,.45); text-align:center; }
+        .fm-confirm__icon { display:grid; place-items:center; width:3.5rem; height:3.5rem; border-radius:1rem; color:#fecaca; background:linear-gradient(145deg,#7f1d2d,#42151e); box-shadow:0 10px 25px rgba(127,29,45,.28); }
+        .fm-confirm__icon svg { width:1.65rem; }
+        .fm-confirm h2 { margin:.8rem 0 0; font-size:1.08rem; }
+        .fm-confirm p { margin:.4rem 0 0; color:#aebaca; font-size:.72rem; line-height:1.55; }
+        .fm-confirm label { display:grid; gap:.4rem; width:100%; margin-top:1rem; text-align:left; }
+        .fm-confirm label span { color:#cbd5e1; font-size:.67rem; }
+        .fm-confirm label b { color:#fca5a5; }
+        .fm-confirm input { width:100%; padding:.72rem .8rem; border:1px solid #45566b; border-radius:.7rem; color:#fff; background:#0c1420; font-size:.78rem; outline:none; }
+        .fm-confirm input:focus { border-color:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.15); }
+        .fm-confirm__actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; width:100%; margin-top:1.1rem; }
+        .fm-confirm__actions button { min-height:2.6rem; border-radius:.7rem; font-size:.7rem; font-weight:850; }
+        .fm-confirm__actions .is-cancel { border:1px solid #45566b; color:#e2e8f0; background:#172131; }
+        .fm-confirm__actions .is-delete { border:1px solid #ef4444; color:#fff; background:linear-gradient(135deg,#dc2626,#991b1b); }
+        .fm-confirm__actions button:disabled { opacity:.45; cursor:not-allowed; }
+        .fm-history-filter-button { display:flex; align-items:center; gap:.35rem; padding:.55rem .75rem; border:1px solid var(--fm-line); border-radius:.65rem; color:var(--fm-ink); background:var(--fm-soft); font-size:.65rem; font-weight:800; cursor:pointer; }
+        .fm-history-filter-button svg { width:1rem; }
+        .fm-history-filters { display:flex; flex-wrap:wrap; gap:.55rem; align-items:end; padding:.75rem; border:1px solid var(--fm-line); border-radius:.8rem; background:var(--fm-soft); }
+        .fm-history-filters>button { min-height:2.35rem; padding:.5rem .7rem; border:1px solid var(--fm-line); border-radius:.6rem; color:var(--fm-ink); background:var(--fi-body-bg,#fff); font-size:.64rem; font-weight:800; }
+        .fm-history-filters>button.is-active { color:#92400e; border-color:#f59e0b; background:#fef3c7; }
+        .fm-history-filters label { display:grid; gap:.25rem; margin-left:auto; }
+        .fm-history-filters label span { color:var(--fm-muted); font-size:.58rem; font-weight:750; }
+        .fm-history-filters input { min-height:2.35rem; padding:.4rem .6rem; border:1px solid var(--fm-line); border-radius:.6rem; color:var(--fm-ink); background:var(--fi-body-bg,#fff); font-size:.68rem; }
         .fm-session-list { display:grid; overflow:hidden; border:1px solid var(--fm-line); border-radius:.9rem; }
-        .fm-session-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto auto; gap:.75rem; align-items:center; width:100%; padding:.8rem; border:0; border-bottom:1px solid var(--fm-line); color:var(--fm-ink); background:transparent; text-align:left; cursor:pointer; }
-        .fm-session-row:last-child { border-bottom:0; }
+        .fm-session-row-wrap { display:flex; align-items:stretch; border-bottom:1px solid var(--fm-line); }
+        .fm-session-row-wrap:last-child { border-bottom:0; }
+        .fm-session-row { display:grid; flex:1; grid-template-columns:auto minmax(0,1fr) auto auto auto; gap:.75rem; align-items:center; min-width:0; padding:.8rem; border:0; color:var(--fm-ink); background:transparent; text-align:left; cursor:pointer; }
         .fm-session-row:hover,.fm-session-row.is-current { background:var(--fm-soft); }
         .fm-session-row__icon { display:grid; place-items:center; width:2.2rem; height:2.2rem; border-radius:.65rem; color:#b77905; background:#fff3cf; }
         .dark .fm-session-row__icon { color:#fbbf24; background:#30291b; }
@@ -1536,7 +1800,11 @@
         .fm-session-row__main { display:grid; gap:.15rem; min-width:0; }
         .fm-session-row__main strong { overflow:hidden; font-size:.72rem; text-overflow:ellipsis; white-space:nowrap; }
         .fm-session-row__main small,.fm-session-row__count { color:var(--fm-muted); font-size:.61rem; }
-        .fm-load-more { justify-self:center; padding:.65rem 1rem; border:1px solid var(--fm-line); border-radius:.65rem; color:var(--fm-ink); background:var(--fm-soft); font-size:.68rem; font-weight:750; cursor:pointer; }
+        .fm-session-delete { display:grid; place-items:center; flex:0 0 3rem; border:0; border-left:1px solid var(--fm-line); color:#dc2626; background:transparent; cursor:pointer; }
+        .fm-session-delete:hover { background:#fef2f2; }
+        .dark .fm-session-delete:hover { background:#351820; }
+        .fm-session-delete svg { width:1.05rem; }
+        .fm-pagination { overflow-x:auto; padding-top:.15rem; }
         .fm-live-camera[x-cloak] { display:none!important; }
         .fm-live-camera { position:fixed; z-index:9999; inset:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; color:#fff; background:#020408; font-family:"Roboto Condensed","Arial Narrow",Roboto,Arial,sans-serif; }
         .fm-live-camera__header { display:grid; grid-template-columns:2.7rem minmax(0,1fr) 2.7rem; gap:.7rem; align-items:center; padding:calc(.55rem + env(safe-area-inset-top)) .75rem .55rem; background:#080d14; }
@@ -1598,14 +1866,20 @@
             .fm-form__footer { align-items:stretch; flex-direction:column; }
             .fm-gps { grid-template-columns:auto minmax(0,1fr); }
             .fm-gps>button { grid-column:1/-1; justify-self:start; }
-            .fm-location-fallback { align-items:flex-start; flex-direction:column; }
             .fm-mode-picker { grid-template-columns:1fr; }
             .fm-photo-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
             .fm-local-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
+            .fm-history-filters { align-items:stretch; flex-direction:column; }
+            .fm-history-filters label { width:100%; margin-left:0; }
+            .fm-history-filters input { width:100%; }
             .fm-session-row { grid-template-columns:auto minmax(0,1fr) auto; gap:.55rem; }
             .fm-session-row__count { display:none; }
             .fm-session-row .fm-status { grid-column:2; }
             .fm-session-row>svg { grid-column:3; grid-row:1/3; }
+            .fm-server-viewer__nav { display:none; }
+            .fm-server-viewer__footer { align-items:stretch; flex-direction:column; }
+            .fm-server-viewer__footer>div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .fm-local-preview__panel>div { grid-template-columns:1fr; }
         }
         @media(max-width:410px) { .fm-photo-grid,.fm-local-grid { grid-template-columns:1fr; } }
         @media(prefers-reduced-motion:reduce) { .fm-spinner { animation-duration:1.5s; } }

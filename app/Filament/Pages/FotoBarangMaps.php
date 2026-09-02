@@ -13,16 +13,18 @@ use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
+use Livewire\WithPagination;
 use Throwable;
 
 class FotoBarangMaps extends Page
 {
     use WithFileUploads;
+    use WithPagination;
 
     protected static ?string $navigationIcon = 'heroicon-o-camera';
 
@@ -58,7 +60,7 @@ class FotoBarangMaps extends Page
 
     public int $uploadKey = 0;
 
-    public int $sessionLimit = 20;
+    public string $historyDate = '';
 
     public static function canAccess(): bool
     {
@@ -68,6 +70,7 @@ class FotoBarangMaps extends Page
     public function mount(): void
     {
         $this->resetSessionForm();
+        $this->historyDate = now('Asia/Jakarta')->toDateString();
 
         $requestedUuid = trim((string) request()->query('session', ''));
 
@@ -162,7 +165,7 @@ class FotoBarangMaps extends Page
         if ($this->latitude === null || $this->longitude === null) {
             Notification::make()
                 ->title('Lokasi belum tersedia')
-                ->body('Foto sudah dipilih. Aktifkan GPS atau gunakan lokasi default Paiton, lalu tekan Proses Foto.')
+                ->body('Foto sudah dipilih. Aktifkan GPS, lalu tekan Proses Foto.')
                 ->warning()
                 ->persistent()
                 ->send();
@@ -358,20 +361,6 @@ class FotoBarangMaps extends Page
         $this->skipRender();
     }
 
-    public function useDefaultLocation(): void
-    {
-        $this->resolveSessionLocation(
-            (float) config('foto_barang.default_latitude'),
-            (float) config('foto_barang.default_longitude'),
-        );
-
-        Notification::make()
-            ->title('Lokasi default Paiton digunakan')
-            ->body('Pastikan pengambilan foto memang dilakukan di lokasi tersebut.')
-            ->warning()
-            ->send();
-    }
-
     public function finishSession(bool $allowEmptyLocal = false): void
     {
         $session = $this->findVisibleSession((int) $this->activeSessionId);
@@ -418,13 +407,6 @@ class FotoBarangMaps extends Page
     public function deletePhoto(int $photoId): void
     {
         $session = $this->findVisibleSession((int) $this->activeSessionId);
-
-        if (! $session->isActive()) {
-            Notification::make()->title('Foto pada sesi selesai tidak dapat dihapus')->warning()->send();
-
-            return;
-        }
-
         $photo = $session->items()->whereKey($photoId)->firstOrFail();
         Storage::disk('local')->delete($photo->path);
         $photo->delete();
@@ -438,6 +420,55 @@ class FotoBarangMaps extends Page
         );
 
         Notification::make()->title('Foto dihapus')->success()->send();
+    }
+
+    /** @return array{deleted: bool, uuid: string|null} */
+    public function deleteSessionFolder(int $sessionId, string $confirmation): array
+    {
+        if (Str::lower(trim($confirmation)) !== 'hapus') {
+            Notification::make()->title('Ketik hapus untuk melanjutkan')->danger()->send();
+
+            return ['deleted' => false, 'uuid' => null];
+        }
+
+        $session = $this->findVisibleSession($sessionId);
+
+        if ($session->isActive()) {
+            Notification::make()
+                ->title('Sesi aktif tidak dapat dihapus')
+                ->body('Selesaikan sesi terlebih dahulu agar foto yang masih dikirim tetap aman.')
+                ->warning()
+                ->send();
+
+            return ['deleted' => false, 'uuid' => null];
+        }
+
+        $sessionUuid = $session->uuid;
+        $sessionTitle = $session->judul;
+        $photoCount = $session->items()->count();
+
+        app(AuditLogger::class)->activity(
+            'foto_session_delete',
+            "Menghapus folder sesi foto: {$sessionTitle}",
+            auth()->user(),
+            [
+                'session_id' => $session->getKey(),
+                'session_uuid' => $sessionUuid,
+                'photo_count' => $photoCount,
+            ],
+        );
+
+        $session->delete();
+
+        if ($this->activeSessionId === $sessionId) {
+            $this->activeSessionId = null;
+            $this->resetSessionForm();
+        }
+
+        $this->resetPage('fotoSessionsPage');
+        Notification::make()->title('Folder dan seluruh fotonya dihapus')->success()->send();
+
+        return ['deleted' => true, 'uuid' => $sessionUuid];
     }
 
     public function retryPhotoProcessing(int $photoId): void
@@ -504,24 +535,35 @@ class FotoBarangMaps extends Page
             ->find($this->activeSessionId);
     }
 
-    /** @return Collection<int, FotoBarangSession> */
-    public function sessions(): Collection
+    /** @return LengthAwarePaginator<FotoBarangSession> */
+    public function sessions(): LengthAwarePaginator
     {
-        return $this->visibleSessionsQuery()
-            ->withCount('items')
+        $query = $this->visibleSessionsQuery()->withCount('items');
+
+        if ($this->historyDate !== '') {
+            $query->whereDate('dimulai_at', $this->historyDate);
+        }
+
+        return $query
             ->latest('dimulai_at')
-            ->limit(min(200, max(20, $this->sessionLimit)))
-            ->get();
+            ->paginate(10, ['*'], 'fotoSessionsPage');
     }
 
-    public function totalSessions(): int
+    public function updatedHistoryDate(): void
     {
-        return $this->visibleSessionsQuery()->count();
+        $this->resetPage('fotoSessionsPage');
     }
 
-    public function loadMoreSessions(): void
+    public function showTodaySessions(): void
     {
-        $this->sessionLimit = min(200, $this->sessionLimit + 20);
+        $this->historyDate = now('Asia/Jakarta')->toDateString();
+        $this->resetPage('fotoSessionsPage');
+    }
+
+    public function showAllSessionDates(): void
+    {
+        $this->historyDate = '';
+        $this->resetPage('fotoSessionsPage');
     }
 
     public function formatBytes(int $bytes): string

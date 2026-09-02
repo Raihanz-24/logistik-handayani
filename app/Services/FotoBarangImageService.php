@@ -501,10 +501,6 @@ class FotoBarangImageService
 
         $coordinateText = sprintf('Lat %.6f  Long %.6f', $latitude, $longitude);
 
-        if ($accuracy !== null) {
-            $coordinateText .= "  Akurasi +/- {$accuracy} m";
-        }
-
         $coordinateText = $this->fitText(
             $coordinateText,
             $detailSize,
