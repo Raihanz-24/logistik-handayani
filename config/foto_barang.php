@@ -18,6 +18,8 @@ return [
     'max_upload_kb' => 10 * 1024,
     'max_dimension' => 1920,
     'target_file_size' => 1400 * 1024,
+    // Crop ringan atas-bawah agar watermark terbaca pada thumbnail WhatsApp.
+    'vertical_crop_ratio' => 0.045,
 
     // after_response cocok untuk shared hosting; queue cocok bila worker selalu aktif.
     'processing_mode' => env('FOTO_BARANG_PROCESSING_MODE', 'after_response'),

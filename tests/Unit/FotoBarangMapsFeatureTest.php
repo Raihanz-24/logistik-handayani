@@ -42,12 +42,12 @@ class FotoBarangMapsFeatureTest extends TestCase
         try {
             $this->assertSame('image/jpeg', mime_content_type($result['path']));
             $this->assertSame(1200, $result['width']);
-            $this->assertSame(1600, $result['height']);
+            $this->assertSame(1456, $result['height']);
             $this->assertLessThanOrEqual(1400 * 1024, $result['file_size']);
 
             $rendered = imagecreatefromjpeg($result['path']);
             $topPixel = imagecolorsforindex($rendered, imagecolorat($rendered, 30, 30));
-            $bottomPixel = imagecolorsforindex($rendered, imagecolorat($rendered, 100, 1500));
+            $bottomPixel = imagecolorsforindex($rendered, imagecolorat($rendered, 100, 1370));
 
             $this->assertGreaterThan(220, $topPixel['red']);
             $this->assertLessThan(170, $bottomPixel['red']);
@@ -133,7 +133,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('showNextServerPhoto', $view);
         $this->assertStringContainsString('endGallerySwipe', $view);
         $this->assertStringContainsString('requestDeleteFolder', $view);
-        $this->assertStringContainsString('x-teleport="body"', $view);
+        $this->assertStringContainsString('dialog.showModal()', $view);
+        $this->assertStringContainsString('x-ref="confirmDialog"', $view);
         $this->assertStringNotContainsString("this.confirmOpen = true;\n                document.body.style.overflow = 'hidden';", $view);
         $this->assertStringContainsString('confirmInput.trim().toLowerCase()', $view);
         $this->assertStringContainsString('wire:model.live="historyDate"', $view);

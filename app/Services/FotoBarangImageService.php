@@ -295,10 +295,18 @@ class FotoBarangImageService
         $source = $this->orientImage($source, $sourcePath, (string) ($imageInfo['mime'] ?? ''));
         $sourceWidth = imagesx($source);
         $sourceHeight = imagesy($source);
+        $cropRatio = min(0.12, max(0.0, (float) config('foto_barang.vertical_crop_ratio', 0.045)));
+        $cropPerSide = min(
+            (int) floor(($sourceHeight - 1) / 2),
+            (int) round($sourceHeight * $cropRatio),
+        );
+        $sourceY = $cropPerSide;
+        $copyHeight = max(1, $sourceHeight - ($cropPerSide * 2));
+
         $maxDimension = max(800, (int) config('foto_barang.max_dimension', 1920));
-        $scale = min(1, $maxDimension / max($sourceWidth, $sourceHeight));
+        $scale = min(1, $maxDimension / max($sourceWidth, $copyHeight));
         $targetWidth = max(1, (int) round($sourceWidth * $scale));
-        $targetHeight = max(1, (int) round($sourceHeight * $scale));
+        $targetHeight = max(1, (int) round($copyHeight * $scale));
         $canvas = imagecreatetruecolor($targetWidth, $targetHeight);
 
         $white = imagecolorallocate($canvas, 255, 255, 255);
@@ -309,11 +317,11 @@ class FotoBarangImageService
             0,
             0,
             0,
-            0,
+            $sourceY,
             $targetWidth,
             $targetHeight,
             $sourceWidth,
-            $sourceHeight,
+            $copyHeight,
         );
         imagedestroy($source);
 
@@ -368,10 +376,10 @@ class FotoBarangImageService
         $margin = max(18, (int) round($width * 0.024));
         $fontRegular = $this->fontPath(false);
         $fontBold = $this->fontPath(true) ?? $fontRegular;
-        $timeSize = max(36, (int) round($width * 0.064));
-        $dateSize = max(23, (int) round($width * 0.038));
-        $locationSize = max(20, (int) round($width * 0.031));
-        $detailSize = max(15, (int) round($width * 0.020));
+        $timeSize = max(40, (int) round($width * 0.072));
+        $dateSize = max(25, (int) round($width * 0.043));
+        $locationSize = max(22, (int) round($width * 0.035));
+        $detailSize = max(17, (int) round($width * 0.023));
         $contentWidth = $width - ($margin * 4);
         $addressLines = $this->wrapText(
             (string) $session->alamat,
@@ -412,7 +420,7 @@ class FotoBarangImageService
         imagefilledrectangle($image, $overlayLeft, $overlayTop, $overlayRight, $height - $margin, $overlay);
 
         $badgeText = 'HANDAYANI MAP CAMERA';
-        $badgeSize = max(13, (int) round($width * 0.016));
+        $badgeSize = max(14, (int) round($width * 0.018));
         $badgeWidth = $this->textWidth($badgeText, $badgeSize, $fontBold) + ($margin * 2);
         $badgeTop = max($margin, $overlayTop - (int) round($badgeSize * 2.25));
         imagefilledrectangle(

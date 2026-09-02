@@ -20,6 +20,7 @@
             cameraError: '',
             captureBusy: false,
             captureMode: 'server',
+            verticalCropRatio: @js((float) config('foto_barang.vertical_crop_ratio', 0.045)),
             sessionLocation: @js($activeSession?->nama_lokasi ?? ''),
             sessionAddress: @js($activeSession?->alamat ?? ''),
             uploadInProgress: false,
@@ -261,11 +262,11 @@
                 const base = Math.min(width, height * 0.82);
                 const padding = Math.max(18, base * 0.025);
                 const contentX = padding * 1.05;
-                const timeFont = Math.max(42, base * 0.076);
-                const dateFont = Math.max(24, base * 0.039);
-                const locationFont = Math.max(21, base * 0.032);
-                const addressFont = Math.max(17, base * 0.0225);
-                const coordinateFont = Math.max(15, base * 0.019);
+                const timeFont = Math.max(45, base * 0.082);
+                const dateFont = Math.max(26, base * 0.043);
+                const locationFont = Math.max(23, base * 0.035);
+                const addressFont = Math.max(18, base * 0.0245);
+                const coordinateFont = Math.max(16, base * 0.021);
                 context.font = `600 ${addressFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 const addressLines = this.wrapCanvasText(context, this.sessionAddress, width - (contentX * 2), 3);
                 const timeRowHeight = timeFont * 1.12;
@@ -299,7 +300,7 @@
                 context.fillStyle = 'rgba(2, 7, 13, .78)';
                 context.fillRect(padding * 0.45, overlayTop, width - (padding * 0.9), overlayHeight);
 
-                const badgeFont = Math.max(13, base * 0.017);
+                const badgeFont = Math.max(14, base * 0.0185);
                 const badgeText = 'HANDAYANI MAP CAMERA';
                 context.font = `800 ${badgeFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
                 const badgeWidth = context.measureText(badgeText).width + (padding * 1.6);
@@ -508,10 +509,26 @@
                 this.confirmRequiresText = requiresText;
                 this.confirmInput = '';
                 this.confirmOpen = true;
+                this.$nextTick(() => {
+                    const dialog = this.$refs.confirmDialog;
+                    if (! dialog || dialog.open) return;
+
+                    if (typeof dialog.showModal === 'function') {
+                        dialog.showModal();
+                    } else {
+                        dialog.setAttribute('open', '');
+                    }
+                });
             },
             closeConfirm() {
                 if (this.confirmBusy) return;
                 this.confirmOpen = false;
+                const dialog = this.$refs.confirmDialog;
+                if (dialog?.open && typeof dialog.close === 'function') {
+                    dialog.close();
+                } else {
+                    dialog?.removeAttribute('open');
+                }
                 this.confirmType = null;
                 this.confirmTargetId = null;
                 this.confirmTargetUuid = null;
@@ -849,14 +866,28 @@
 
                 try {
                     const maxDimension = 1920;
-                    const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+                    const cropPerSide = this.captureMode === 'local'
+                        ? Math.round(video.videoHeight * this.verticalCropRatio)
+                        : 0;
+                    const sourceHeight = Math.max(1, video.videoHeight - (cropPerSide * 2));
+                    const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, sourceHeight));
                     const canvas = this.$refs.captureCanvas;
                     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-                    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+                    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
                     const context = canvas.getContext('2d', { alpha: false });
                     context.imageSmoothingEnabled = true;
                     context.imageSmoothingQuality = 'high';
-                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    context.drawImage(
+                        video,
+                        0,
+                        cropPerSide,
+                        video.videoWidth,
+                        sourceHeight,
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height,
+                    );
 
                     const createdAt = Date.now();
                     if (this.captureMode === 'local') {
@@ -1214,6 +1245,7 @@
                         <video x-ref="cameraVideo" autoplay playsinline muted></video>
                         <canvas x-ref="captureCanvas" hidden></canvas>
                         <div class="fm-live-camera__shade"></div>
+                        <div class="fm-live-camera__crop-mask" aria-hidden="true"></div>
 
                         <div class="fm-live-camera__watermark" aria-hidden="true">
                             <div class="fm-live-camera__badge"><i></i> HANDAYANI MAP CAMERA</div>
@@ -1567,18 +1599,13 @@
             @endif
         </section>
 
-        <template x-teleport="body">
-            <div
-                class="fm-confirm"
-                x-show="confirmOpen"
-                x-cloak
-                x-transition.opacity.duration.160ms
-                x-on:keydown.escape.window="if (confirmOpen && ! confirmBusy) closeConfirm()"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Konfirmasi penghapusan"
-            >
-                <div class="fm-confirm__backdrop" x-on:click="closeConfirm()"></div>
+        <dialog
+            x-ref="confirmDialog"
+            class="fm-confirm"
+            x-on:cancel.prevent="closeConfirm()"
+            x-on:click.self="closeConfirm()"
+            aria-label="Konfirmasi penghapusan"
+        >
                 <section class="fm-confirm__card" x-on:click.stop>
                     <div class="fm-confirm__icon"><x-filament::icon icon="heroicon-o-trash" /></div>
                     <h2 x-text="confirmTitle"></h2>
@@ -1600,8 +1627,7 @@
                         </button>
                     </div>
                 </section>
-            </div>
-        </template>
+        </dialog>
     </div>
 
     <style>
@@ -1771,8 +1797,9 @@
         .fm-server-viewer__footer>div { display:flex; gap:.5rem; }
         .fm-server-viewer__footer button,.fm-server-viewer__footer a { display:flex; align-items:center; justify-content:center; gap:.3rem; min-height:2.35rem; padding:.45rem .7rem; border:1px solid #334155; border-radius:.6rem; color:#fff; background:#172131; font-size:.65rem; font-weight:800; text-decoration:none; }
         .fm-server-viewer__footer svg { width:.95rem; }
-        .fm-confirm { position:fixed; z-index:2147483000; inset:0; display:grid; place-items:center; padding:1rem; isolation:isolate; }
-        .fm-confirm__backdrop { position:absolute; inset:0; background:rgba(3,7,13,.64); backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px); }
+        .fm-confirm { position:fixed; inset:0; place-items:center; width:100%; max-width:none; height:100dvh; max-height:none; margin:0; padding:1rem; border:0; color:inherit; background:transparent; overflow:hidden; }
+        .fm-confirm[open] { display:grid; }
+        .fm-confirm::backdrop { background:rgba(3,7,13,.64); backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px); }
         .fm-confirm__card { position:relative; z-index:1; display:grid; justify-items:center; max-width:25rem; width:100%; padding:1.35rem; border:1px solid rgba(255,255,255,.14); border-radius:1.25rem; color:#eef4fb; background:linear-gradient(155deg,rgba(28,39,54,.98),rgba(11,18,28,.98)); box-shadow:0 25px 70px rgba(0,0,0,.45); text-align:center; }
         .fm-confirm__icon { display:grid; place-items:center; width:3.5rem; height:3.5rem; border-radius:1rem; color:#fecaca; background:linear-gradient(145deg,#7f1d2d,#42151e); box-shadow:0 10px 25px rgba(127,29,45,.28); }
         .fm-confirm__icon svg { width:1.65rem; }
@@ -1822,12 +1849,13 @@
         .fm-live-camera__header>div { display:grid; min-width:0; text-align:center; }
         .fm-live-camera__header strong { overflow:hidden; font-size:.8rem; text-overflow:ellipsis; white-space:nowrap; }
         .fm-live-camera__header span { color:#aab7c7; font-size:.65rem; }
-        .fm-live-camera__stage { position:relative; min-height:0; overflow:hidden; background:#000; }
+        .fm-live-camera__stage { --fm-vertical-crop:{{ ((float) config('foto_barang.vertical_crop_ratio', 0.045)) * 100 }}%; position:relative; min-height:0; overflow:hidden; background:#000; }
         .fm-live-camera__stage>video { width:100%; height:100%; object-fit:contain; background:#000; }
         .fm-live-camera__shade { position:absolute; inset:0; pointer-events:none; background:linear-gradient(to bottom,rgba(0,0,0,.12),transparent 24%,transparent 58%,rgba(0,0,0,.35)); }
+        .fm-live-camera__crop-mask { position:absolute; z-index:1; inset:0; pointer-events:none; border-top:var(--fm-vertical-crop) solid rgba(0,0,0,.72); border-bottom:var(--fm-vertical-crop) solid rgba(0,0,0,.72); }
         .fm-live-camera__badge { position:absolute; z-index:2; right:0; bottom:calc(100% + .4rem); display:flex; align-items:center; gap:.38rem; padding:.42rem .58rem; border-radius:.15rem; color:#fff; background:rgba(2,7,13,.72); font-size:clamp(.63rem,2.5vw,.9rem); font-weight:800; letter-spacing:.015em; text-shadow:0 1px 2px #000; }
         .fm-live-camera__badge i { width:.52rem; height:.52rem; border-radius:50%; background:#fbbf24; box-shadow:0 0 0 2px rgba(255,255,255,.35); }
-        .fm-live-camera__watermark { position:absolute; z-index:2; right:.55rem; bottom:.35rem; left:.55rem; padding:clamp(.72rem,2.4vw,1.25rem); color:#fff; background:rgba(2,7,13,.76); text-shadow:0 1px 3px rgba(0,0,0,.95); }
+        .fm-live-camera__watermark { position:absolute; z-index:2; right:.55rem; bottom:calc(var(--fm-vertical-crop) + .35rem); left:.55rem; padding:clamp(.72rem,2.4vw,1.25rem); color:#fff; background:rgba(2,7,13,.76); text-shadow:0 1px 3px rgba(0,0,0,.95); }
         .fm-live-camera__datetime { display:grid; grid-template-columns:auto .24rem minmax(0,1fr); gap:clamp(.65rem,3vw,1.15rem); align-items:center; }
         .fm-live-camera__datetime>strong { font-size:clamp(2.05rem,9.2vw,5.7rem); font-weight:800; line-height:.95; letter-spacing:-.04em; white-space:nowrap; }
         .fm-live-camera__datetime>i { width:.24rem; height:clamp(3.15rem,12vw,6rem); background:#f7b500; }
