@@ -10,6 +10,7 @@
             gpsState: 'Mencari lokasi GPS...',
             gpsReady: false,
             locating: false,
+            resolvingAddress: false,
             latitude: @js($latitude),
             longitude: @js($longitude),
             accuracy: @js($accuracy),
@@ -246,12 +247,12 @@
                 const addressFont = Math.max(17, base * 0.0225);
                 const coordinateFont = Math.max(15, base * 0.019);
                 context.font = `600 ${addressFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
-                const addressLines = this.wrapCanvasText(context, this.sessionAddress, width - (contentX * 2), 2);
+                const addressLines = this.wrapCanvasText(context, this.sessionAddress, width - (contentX * 2), 3);
                 const timeRowHeight = timeFont * 1.12;
                 const locationLineHeight = locationFont * 1.18;
                 const addressLineHeight = addressFont * 1.14;
-                const outerBottomSpace = padding * 0.22;
-                const innerBottomSpace = padding * 0.22;
+                const outerBottomSpace = padding * 0.40;
+                const innerBottomSpace = padding * 0.40;
                 const overlayHeight = padding
                     + timeRowHeight
                     + (padding * 0.28)
@@ -522,13 +523,30 @@
                         this.latitude = position.coords.latitude;
                         this.longitude = position.coords.longitude;
                         this.accuracy = Math.max(0, Math.round(position.coords.accuracy));
-                        await $wire.updateCoordinates(this.latitude, this.longitude, this.accuracy);
-                        this.gpsReady = true;
-                        this.locating = false;
-                        this.gpsState = this.accuracy > 100
-                            ? `Akurasi rendah (+/-${this.accuracy} m), tekan refresh`
-                            : `GPS aktif - akurasi +/-${this.accuracy} meter`;
-                        resolve(true);
+                        this.resolvingAddress = true;
+                        this.gpsState = 'GPS ditemukan, mencari alamat otomatis...';
+
+                        try {
+                            const location = await $wire.resolveSessionLocation(
+                                this.latitude,
+                                this.longitude,
+                                this.accuracy,
+                            );
+                            this.sessionLocation = location?.name || `Lokasi GPS ${Number(this.latitude).toFixed(6)}, ${Number(this.longitude).toFixed(6)}`;
+                            this.sessionAddress = location?.address || `Koordinat ${Number(this.latitude).toFixed(6)}, ${Number(this.longitude).toFixed(6)}`;
+                            this.gpsReady = true;
+                            this.gpsState = location?.resolved
+                                ? `GPS & alamat aktif - akurasi +/-${this.accuracy} meter`
+                                : `GPS aktif - alamat otomatis belum tersedia`;
+                            resolve(true);
+                        } catch (error) {
+                            this.gpsReady = false;
+                            this.gpsState = 'Alamat otomatis gagal dimuat, tekan refresh GPS';
+                            resolve(false);
+                        } finally {
+                            this.locating = false;
+                            this.resolvingAddress = false;
+                        }
                     },
                     (error) => {
                         this.gpsReady = false;
@@ -542,14 +560,26 @@
                 ));
             },
             async useDefaultGps() {
-                if (! this.cameraOpen) {
-                    await $wire.useDefaultLocation();
-                }
                 this.latitude = @js((float) config('foto_barang.default_latitude'));
                 this.longitude = @js((float) config('foto_barang.default_longitude'));
                 this.accuracy = null;
-                this.gpsReady = true;
-                this.gpsState = 'Menggunakan lokasi default Paiton';
+                this.gpsReady = false;
+                this.resolvingAddress = true;
+                this.gpsState = 'Mencari alamat lokasi default Paiton...';
+
+                try {
+                    const location = await $wire.resolveSessionLocation(this.latitude, this.longitude, null);
+                    this.sessionLocation = location?.name || 'Lokasi GPS Paiton';
+                    this.sessionAddress = location?.address || `Koordinat ${Number(this.latitude).toFixed(6)}, ${Number(this.longitude).toFixed(6)}`;
+                    this.gpsReady = true;
+                    this.gpsState = location?.resolved
+                        ? 'Lokasi default Paiton & alamat otomatis aktif'
+                        : 'Lokasi default aktif - alamat otomatis belum tersedia';
+                } catch (error) {
+                    this.gpsState = 'Alamat lokasi default gagal dimuat';
+                } finally {
+                    this.resolvingAddress = false;
+                }
             },
             async openCamera(sessionUuid = this.sessionUuid, sessionLocation = this.sessionLocation, sessionAddress = this.sessionAddress) {
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
@@ -848,7 +878,7 @@
                     <div>
                         <span class="fm-section-kicker">Folder baru</span>
                         <h2>Mulai sesi foto barang</h2>
-                        <p>Nama lokasi dan alamat cukup diisi sekali, lalu dipakai pada seluruh foto dalam sesi ini.</p>
+                        <p>Cukup beri nama sesi. Lokasi, alamat lengkap, dan kode pos diambil otomatis dari GPS saat kamera dibuka.</p>
                     </div>
                     <x-filament::icon icon="heroicon-o-folder-plus" />
                 </div>
@@ -860,20 +890,8 @@
                         @error('judul') <small>{{ $message }}</small> @enderror
                     </label>
 
-                    <label class="fm-field fm-field--full">
-                        <span>Nama lokasi pada foto</span>
-                        <input type="text" wire:model="namaLokasi" maxlength="255">
-                        @error('namaLokasi') <small>{{ $message }}</small> @enderror
-                    </label>
-
-                    <label class="fm-field fm-field--full">
-                        <span>Alamat lengkap pada foto</span>
-                        <textarea wire:model="alamat" rows="3" maxlength="1000"></textarea>
-                        @error('alamat') <small>{{ $message }}</small> @enderror
-                    </label>
-
                     <div class="fm-form__footer">
-                        <p><x-filament::icon icon="heroicon-o-shield-check" /> Tidak berhubungan dengan stok atau mutasi barang.</p>
+                        <p><x-filament::icon icon="heroicon-o-map-pin" /> Alamat otomatis dari GPS · © OpenStreetMap contributors.</p>
                         <x-filament::button type="submit" icon="heroicon-m-camera" wire:loading.attr="disabled">
                             Mulai Sesi Foto
                         </x-filament::button>
@@ -891,7 +909,7 @@
                     </div>
                     <h2>{{ $activeSession->judul }}</h2>
                     <p>
-                        {{ $activeSession->nama_lokasi }} · {{ $activeSession->items_count }} foto server
+                        <span x-text="sessionLocation || @js($activeSession->nama_lokasi)"></span> · {{ $activeSession->items_count }} foto server
                         <span x-show="localGalleryFor === @js($activeSession->uuid) && localCapturedCount > 0" x-cloak>
                             · <b x-text="localCapturedCount"></b> foto lokal HP
                         </span>
@@ -951,15 +969,10 @@
                             </div>
                             <div>
                                 <strong x-text="gpsState">Mencari lokasi GPS...</strong>
-                                <span>
-                                    @if ($latitude !== null && $longitude !== null)
-                                        {{ number_format($latitude, 6) }}, {{ number_format($longitude, 6) }}
-                                    @else
-                                        Koordinat akan dicetak pada foto
-                                    @endif
-                                </span>
+                                <span x-text="latitude !== null && longitude !== null ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : 'Koordinat akan dicetak pada foto'"></span>
+                                <small x-show="sessionAddress" x-text="sessionAddress" x-cloak></small>
                             </div>
-                            <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating">Refresh GPS</button>
+                            <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating || resolvingAddress">Refresh GPS</button>
                         </div>
 
                         <div class="fm-location-fallback">
@@ -1058,8 +1071,8 @@
                             <div class="fm-template-overlay">
                                 <small>HANDAYANI MAP CAMERA</small>
                                 <div><strong>{{ now('Asia/Jakarta')->format('H:i') }} WIB</strong><i></i><b>{{ now('Asia/Jakarta')->locale('id')->translatedFormat('d M Y') }}<br>{{ now('Asia/Jakarta')->locale('id')->translatedFormat('l') }}</b></div>
-                                <h3>{{ $activeSession->nama_lokasi }} 🇮🇩</h3>
-                                <p>{{ $activeSession->alamat }}</p>
+                                <h3><span x-text="sessionLocation || @js($activeSession->nama_lokasi)"></span> 🇮🇩</h3>
+                                <p x-text="sessionAddress || @js($activeSession->alamat)"></p>
                                 <span>Lat {{ number_format($latitude ?? config('foto_barang.default_latitude'), 6) }} · Long {{ number_format($longitude ?? config('foto_barang.default_longitude'), 6) }}</span>
                             </div>
                         </div>
@@ -1105,8 +1118,8 @@
                                 <i></i>
                                 <b><span x-text="liveDate"></span><br><span x-text="liveDay"></span></b>
                             </div>
-                            <h3>{{ $activeSession->nama_lokasi }} <span>🇮🇩</span></h3>
-                            <p>{{ $activeSession->alamat }}</p>
+                            <h3><b x-text="sessionLocation || @js($activeSession->nama_lokasi)"></b> <span>🇮🇩</span></h3>
+                            <p x-text="sessionAddress || @js($activeSession->alamat)"></p>
                             <small>
                                 Lat <span x-text="latitude === null ? '-' : Number(latitude).toFixed(6)"></span>
                                 &nbsp; Long <span x-text="longitude === null ? '-' : Number(longitude).toFixed(6)"></span>
@@ -1407,6 +1420,7 @@
         .fm-gps>div:nth-child(2) { display:grid; gap:.15rem; }
         .fm-gps strong { font-size:.73rem; }
         .fm-gps span { color:var(--fm-muted); font-size:.64rem; }
+        .fm-gps small { display:-webkit-box; overflow:hidden; margin-top:.12rem; color:var(--fm-muted); font-size:.58rem; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
         .fm-gps button,.fm-location-fallback button { border:0; color:#9a6700; background:transparent; font-size:.67rem; font-weight:800; cursor:pointer; }
         .fm-location-fallback { display:flex; justify-content:space-between; gap:.75rem; margin-top:.65rem; padding:.7rem .8rem; border-radius:.7rem; background:var(--fm-soft); }
         .fm-location-fallback p { margin:0; color:var(--fm-muted); font-size:.65rem; line-height:1.45; }
@@ -1461,7 +1475,7 @@
         .fm-template-overlay i { width:3px; height:2.5rem; background:#f59e0b; }
         .fm-template-overlay b { font-size:.73rem; line-height:1.45; }
         .fm-template-overlay h3 { margin:.55rem 0 .18rem; font-size:.73rem; }
-        .fm-template-overlay p { display:-webkit-box; overflow:hidden; margin:0; color:#d8e0e9; font-size:.52rem; line-height:1.4; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+        .fm-template-overlay p { display:-webkit-box; overflow:hidden; margin:0; color:#d8e0e9; font-size:.52rem; line-height:1.4; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
         .fm-template-overlay>span { display:block; margin-top:.3rem; color:#cbd5e1; font-size:.5rem; }
         .fm-gallery,.fm-history { display:grid; gap:1rem; }
         .fm-local-gallery { border-color:#f6d88d; background:linear-gradient(145deg,var(--fi-body-bg,#fff),#fffbeb); }
@@ -1545,7 +1559,7 @@
         .fm-live-camera__datetime>b { font-size:clamp(1.15rem,5vw,3rem); font-weight:800; line-height:1.02; }
         .fm-live-camera__watermark h3 { display:flex; align-items:center; gap:.35rem; overflow:hidden; margin:clamp(.45rem,1.7vw,.8rem) 0 .12rem; font-size:clamp(1rem,4.5vw,2.6rem); font-weight:800; line-height:1.05; text-overflow:ellipsis; white-space:nowrap; }
         .fm-live-camera__watermark h3 span { font-size:.85em; }
-        .fm-live-camera__watermark p { display:-webkit-box; overflow:hidden; margin:0; color:#f3f5f8; font-size:clamp(.77rem,3.15vw,1.65rem); font-weight:600; line-height:1.18; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+        .fm-live-camera__watermark p { display:-webkit-box; overflow:hidden; margin:0; color:#f3f5f8; font-size:clamp(.77rem,3.15vw,1.65rem); font-weight:600; line-height:1.18; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
         .fm-live-camera__watermark>small { display:block; overflow:hidden; margin-top:.22rem; color:#e6ebf1; font-size:clamp(.68rem,2.75vw,1.4rem); font-weight:600; line-height:1.1; text-overflow:ellipsis; white-space:nowrap; }
         .fm-live-camera__flash { position:absolute; z-index:5; inset:0; pointer-events:none; background:#fff; opacity:0; transition:opacity .14s ease-out; }
         .fm-live-camera__flash.is-visible { opacity:.72; transition:none; }

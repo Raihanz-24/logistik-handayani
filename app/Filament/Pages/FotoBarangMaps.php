@@ -8,6 +8,7 @@ use App\Models\FotoBarangSession;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\FotoBarangImageService;
+use App\Services\ReverseGeocodingService;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -95,12 +96,8 @@ class FotoBarangMaps extends Page
     {
         $data = $this->validate([
             'judul' => ['required', 'string', 'max:150'],
-            'namaLokasi' => ['required', 'string', 'max:255'],
-            'alamat' => ['required', 'string', 'max:1000'],
         ], [
             'judul.required' => 'Nama sesi wajib diisi.',
-            'namaLokasi.required' => 'Nama lokasi wajib diisi.',
-            'alamat.required' => 'Alamat untuk watermark wajib diisi.',
         ]);
 
         $existing = FotoBarangSession::query()
@@ -125,8 +122,8 @@ class FotoBarangMaps extends Page
             'uuid' => (string) Str::uuid(),
             'user_id' => auth()->id(),
             'judul' => $data['judul'],
-            'nama_lokasi' => $data['namaLokasi'],
-            'alamat' => $data['alamat'],
+            'nama_lokasi' => 'Menunggu lokasi GPS',
+            'alamat' => 'Alamat akan diambil otomatis saat kamera dibuka',
             'status' => FotoBarangSession::STATUS_AKTIF,
             'dimulai_at' => now('Asia/Jakarta'),
         ]);
@@ -279,6 +276,58 @@ class FotoBarangMaps extends Page
         $this->skipRender();
     }
 
+    /** @return array{name: string, address: string, resolved: bool} */
+    public function resolveSessionLocation(
+        float $latitude,
+        float $longitude,
+        ?float $accuracy = null,
+    ): array {
+        if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
+            return [
+                'name' => 'Lokasi GPS tidak valid',
+                'address' => 'Koordinat lokasi tidak valid',
+                'resolved' => false,
+            ];
+        }
+
+        $this->latitude = round($latitude, 7);
+        $this->longitude = round($longitude, 7);
+        $this->accuracy = $accuracy === null ? null : max(0, (int) round($accuracy));
+        $location = app(ReverseGeocodingService::class)->lookup($this->latitude, $this->longitude);
+        $location['name'] = Str::limit(trim($location['name']), 255, '');
+        $location['address'] = Str::limit(trim($location['address']), 1000, '');
+        $session = $this->findVisibleSession((int) $this->activeSessionId);
+
+        if ($session->isActive()) {
+            $changed = $session->nama_lokasi !== $location['name'] || $session->alamat !== $location['address'];
+
+            if ($changed) {
+                $session->update([
+                    'nama_lokasi' => $location['name'],
+                    'alamat' => $location['address'],
+                ]);
+
+                app(AuditLogger::class)->activity(
+                    'foto_session_location_update',
+                    "Memperbarui lokasi otomatis sesi foto: {$session->judul}",
+                    auth()->user(),
+                    [
+                        'session_id' => $session->getKey(),
+                        'latitude' => $this->latitude,
+                        'longitude' => $this->longitude,
+                        'resolved' => $location['resolved'],
+                    ],
+                );
+            }
+        }
+
+        $this->namaLokasi = $location['name'];
+        $this->alamat = $location['address'];
+        $this->skipRender();
+
+        return $location;
+    }
+
     public function updateCaptureMetadata(
         float $latitude,
         float $longitude,
@@ -311,9 +360,10 @@ class FotoBarangMaps extends Page
 
     public function useDefaultLocation(): void
     {
-        $this->latitude = (float) config('foto_barang.default_latitude');
-        $this->longitude = (float) config('foto_barang.default_longitude');
-        $this->accuracy = null;
+        $this->resolveSessionLocation(
+            (float) config('foto_barang.default_latitude'),
+            (float) config('foto_barang.default_longitude'),
+        );
 
         Notification::make()
             ->title('Lokasi default Paiton digunakan')
@@ -500,8 +550,8 @@ class FotoBarangMaps extends Page
     private function resetSessionForm(): void
     {
         $this->judul = 'Barang Datang - '.now('Asia/Jakarta')->locale('id')->translatedFormat('d M Y H.i');
-        $this->namaLokasi = (string) config('foto_barang.default_location_name');
-        $this->alamat = (string) config('foto_barang.default_address');
+        $this->namaLokasi = '';
+        $this->alamat = '';
     }
 
     private function captureTime(): CarbonImmutable

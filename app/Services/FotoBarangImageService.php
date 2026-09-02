@@ -378,13 +378,13 @@ class FotoBarangImageService
             $detailSize,
             $fontRegular,
             $contentWidth,
-            2,
+            3,
         );
         $timeRowHeight = max($timeSize, (int) round($dateSize * 2.05));
         $locationLineHeight = max(37, (int) round($locationSize * 1.45));
         $detailGap = max(28, (int) round($detailSize * 1.55));
         $detailLineHeight = max(21, (int) round($detailSize * 1.35));
-        $bottomPadding = max(8, (int) round($detailSize * 0.45));
+        $bottomPadding = max(16, (int) round($detailSize * 0.80));
         $coordinateOffset = $margin
             + $timeRowHeight
             + $locationLineHeight

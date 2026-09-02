@@ -90,6 +90,7 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function finishSession', $page);
         $this->assertStringContainsString('public function savePhoto', $page);
         $this->assertStringContainsString('public function updateCaptureMetadata', $page);
+        $this->assertStringContainsString('public function resolveSessionLocation', $page);
         $this->assertStringContainsString('$this->skipRender()', $page);
         $this->assertStringContainsString('capture="environment"', $view);
         $this->assertStringContainsString('navigator.mediaDevices.getUserMedia', $view);
@@ -108,6 +109,9 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('shareLocalCapture(captureId)', $view);
         $this->assertStringContainsString('deleteLocalOnlyCapture(captureId)', $view);
         $this->assertStringContainsString('Mode Lokal HP', $view);
+        $this->assertStringContainsString('Alamat otomatis dari GPS', $view);
+        $this->assertStringNotContainsString('wire:model="namaLokasi"', $view);
+        $this->assertStringNotContainsString('wire:model="alamat"', $view);
         $this->assertStringContainsString('saveLocalCapture(capture)', $view);
         $this->assertStringContainsString('processUploadQueue()', $view);
         $this->assertStringContainsString('Foto tetap aman di perangkat', $view);

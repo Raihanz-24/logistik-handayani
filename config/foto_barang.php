@@ -22,4 +22,13 @@ return [
     // after_response cocok untuk shared hosting; queue cocok bila worker selalu aktif.
     'processing_mode' => env('FOTO_BARANG_PROCESSING_MODE', 'after_response'),
     'processing_queue' => env('FOTO_BARANG_PROCESSING_QUEUE', 'default'),
+
+    // Satu permintaan per lokasi lalu disimpan di cache agar pemotretan berikutnya tetap cepat.
+    'reverse_geocoding' => [
+        'enabled' => env('FOTO_BARANG_REVERSE_GEOCODING', true),
+        'url' => env('FOTO_BARANG_GEOCODER_URL', 'https://nominatim.openstreetmap.org/reverse'),
+        'timeout' => (int) env('FOTO_BARANG_GEOCODER_TIMEOUT', 5),
+        'cache_days' => (int) env('FOTO_BARANG_GEOCODER_CACHE_DAYS', 30),
+        'user_agent' => env('FOTO_BARANG_GEOCODER_USER_AGENT'),
+    ],
 ];
