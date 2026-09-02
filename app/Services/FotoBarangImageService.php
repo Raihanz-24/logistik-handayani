@@ -386,7 +386,7 @@ class FotoBarangImageService
             $detailSize,
             $fontRegular,
             $contentWidth,
-            3,
+            4,
         );
         $timeRowHeight = max($timeSize, (int) round($dateSize * 2.05));
         $locationLineHeight = max(37, (int) round($locationSize * 1.45));

@@ -17,7 +17,7 @@ class ReverseGeocodingService
             return $fallback;
         }
 
-        $cacheKey = sprintf('foto-maps:reverse-geocode:%.4f:%.4f', $latitude, $longitude);
+        $cacheKey = sprintf('foto-maps:reverse-geocode:v2:%.4f:%.4f', $latitude, $longitude);
         $cached = Cache::get($cacheKey);
 
         if (is_array($cached) && isset($cached['name'], $cached['address'], $cached['resolved'])) {
@@ -75,12 +75,16 @@ class ReverseGeocodingService
     {
         $parts = is_array($payload['address'] ?? null) ? $payload['address'] : [];
         $road = trim(implode(' ', array_filter([
-            (string) ($parts['road'] ?? $parts['pedestrian'] ?? ''),
+            $this->firstFilled($parts, ['road', 'pedestrian', 'residential', 'service', 'path', 'footway']),
             (string) ($parts['house_number'] ?? ''),
         ])));
+        $hamlet = $this->withPrefix(trim((string) ($parts['hamlet'] ?? '')), 'Dusun');
+        $microLocality = $hamlet !== ''
+            ? $hamlet
+            : $this->firstFilled($parts, ['neighbourhood', 'quarter']);
         $addressParts = array_values(array_unique(array_filter([
             $road,
-            $this->firstFilled($parts, ['hamlet', 'neighbourhood', 'quarter']),
+            $microLocality,
             trim((string) ($parts['village'] ?? '')),
             trim((string) ($parts['suburb'] ?? '')),
             $this->firstFilled($parts, ['city_district', 'district']),
@@ -136,6 +140,15 @@ class ReverseGeocodingService
         }
 
         return '';
+    }
+
+    private function withPrefix(string $value, string $prefix): string
+    {
+        if ($value === '' || str_starts_with(strtolower($value), strtolower($prefix).' ')) {
+            return $value;
+        }
+
+        return $prefix.' '.$value;
     }
 
     /** @return array{name: string, address: string, resolved: bool} */

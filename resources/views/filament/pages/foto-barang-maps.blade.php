@@ -52,6 +52,7 @@
             confirmBusy: false,
             refreshTimer: null,
             serverRefreshPending: false,
+            refreshInProgress: false,
             historyFiltersOpen: false,
             currentUploadId: null,
             captureDbPromise: null,
@@ -272,7 +273,7 @@
                 const addressFont = Math.max(18, base * 0.0245);
                 const coordinateFont = Math.max(16, base * 0.021);
                 context.font = `600 ${addressFont}px 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif`;
-                const addressLines = this.wrapCanvasText(context, this.sessionAddress, width - (contentX * 2), 3);
+                const addressLines = this.wrapCanvasText(context, this.sessionAddress, width - (contentX * 2), 4);
                 const timeRowHeight = timeFont * 1.12;
                 const locationLineHeight = locationFont * 1.18;
                 const addressLineHeight = addressFont * 1.14;
@@ -547,6 +548,11 @@
             openConfirm({ type, targetId, targetUuid = null, title, message, requiresText = false }) {
                 if (targetId === null || targetId === undefined) return;
                 window.clearTimeout(this.refreshTimer);
+                const dialog = this.$refs.confirmDialog;
+                if (! dialog) return;
+                dialog.dataset.deleteType = String(type);
+                dialog.dataset.deleteTargetId = String(targetId);
+                dialog.dataset.deleteTargetUuid = targetUuid === null ? '' : String(targetUuid);
                 this.confirmType = type;
                 this.confirmTargetId = targetId;
                 this.confirmTargetUuid = targetUuid;
@@ -556,11 +562,6 @@
                 this.confirmInput = '';
                 this.confirmOpen = true;
                 this.$nextTick(() => {
-                    const dialog = this.$refs.confirmDialog;
-                    if (! dialog) return;
-                    dialog.dataset.deleteType = String(type);
-                    dialog.dataset.deleteTargetId = String(targetId);
-                    dialog.dataset.deleteTargetUuid = targetUuid === null ? '' : String(targetUuid);
                     if (dialog.open) return;
 
                     if (typeof dialog.showModal === 'function') {
@@ -679,12 +680,19 @@
                     this.serverRefreshPending = true;
                     return;
                 }
-                this.refreshTimer = window.setTimeout(() => {
+                this.refreshTimer = window.setTimeout(async () => {
                     if (this.serverGalleryOpen || this.confirmOpen || this.localPreviewUrl) {
                         this.serverRefreshPending = true;
                     } else if (! this.cameraOpen && ! this.uploadInProgress && this.captureQueue.length === 0) {
                         this.serverRefreshPending = false;
-                        $wire.$refresh();
+                        this.refreshInProgress = true;
+
+                        try {
+                            await $wire.$refresh();
+                        } finally {
+                            this.refreshInProgress = false;
+                            this.refreshTimer = null;
+                        }
                     }
                 }, delay);
             },
@@ -836,6 +844,17 @@
                 ));
             },
             async openCamera(sessionUuid = this.sessionUuid, sessionLocation = this.sessionLocation, sessionAddress = this.sessionAddress) {
+                if (this.refreshInProgress) {
+                    this.backgroundState = 'Tunggu pembaruan daftar foto selesai, lalu buka kamera kembali.';
+                    return;
+                }
+
+                if (this.refreshTimer) {
+                    window.clearTimeout(this.refreshTimer);
+                    this.refreshTimer = null;
+                    this.serverRefreshPending = true;
+                }
+
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
                     this.cameraError = 'Kamera membutuhkan akses HTTPS.';
                     return;
@@ -1272,6 +1291,7 @@
                             type="button"
                             class="fm-open-camera"
                             x-on:click="openCamera(@js($activeSession->uuid), @js($activeSession->nama_lokasi), @js($activeSession->alamat))"
+                            x-bind:disabled="refreshInProgress"
                         >
                             <span><x-filament::icon icon="heroicon-o-camera" /></span>
                             <span>
@@ -1819,6 +1839,7 @@
         .fm-local-warning svg { flex:0 0 auto; width:1rem; }
         .fm-local-warning p { margin:0; font-size:.62rem; line-height:1.45; }
         .fm-open-camera { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.8rem; align-items:center; width:100%; margin-top:1rem; padding:.9rem; border:0; border-radius:.9rem; color:#fff; background:linear-gradient(135deg,#d97706,#f59e0b); box-shadow:0 12px 24px rgba(217,119,6,.22); text-align:left; cursor:pointer; }
+        .fm-open-camera:disabled { opacity:.55; cursor:wait; }
         .fm-open-camera>span:first-child { display:grid; place-items:center; width:2.7rem; height:2.7rem; border-radius:.75rem; background:rgba(255,255,255,.18); }
         .fm-open-camera>span:nth-child(2) { display:grid; gap:.1rem; }
         .fm-open-camera svg { width:1.3rem; }
@@ -1842,7 +1863,7 @@
         .fm-template-overlay i { width:3px; height:2.5rem; background:#f59e0b; }
         .fm-template-overlay b { font-size:.73rem; line-height:1.45; }
         .fm-template-overlay h3 { margin:.55rem 0 .18rem; font-size:.73rem; }
-        .fm-template-overlay p { display:-webkit-box; overflow:hidden; margin:0; color:#d8e0e9; font-size:.52rem; line-height:1.4; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+        .fm-template-overlay p { display:-webkit-box; overflow:hidden; margin:0; color:#d8e0e9; font-size:.52rem; line-height:1.4; -webkit-line-clamp:4; -webkit-box-orient:vertical; }
         .fm-template-overlay>span { display:block; margin-top:.3rem; color:#cbd5e1; font-size:.5rem; }
         .fm-gallery,.fm-history { display:grid; gap:1rem; }
         .fm-local-gallery { border-color:#f6d88d; background:linear-gradient(145deg,var(--fi-body-bg,#fff),#fffbeb); }
@@ -1983,7 +2004,7 @@
         .fm-live-camera__datetime>b { font-size:clamp(1.15rem,5vw,3rem); font-weight:800; line-height:1.02; }
         .fm-live-camera__watermark h3 { display:flex; align-items:center; gap:.35rem; overflow:hidden; margin:clamp(.45rem,1.7vw,.8rem) 0 .12rem; font-size:clamp(1rem,4.5vw,2.6rem); font-weight:800; line-height:1.05; text-overflow:ellipsis; white-space:nowrap; }
         .fm-live-camera__watermark h3 span { font-size:.85em; }
-        .fm-live-camera__watermark p { display:-webkit-box; overflow:hidden; margin:0; color:#f3f5f8; font-size:clamp(.77rem,3.15vw,1.65rem); font-weight:600; line-height:1.18; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+        .fm-live-camera__watermark p { display:-webkit-box; overflow:hidden; margin:0; color:#f3f5f8; font-size:clamp(.77rem,3.15vw,1.65rem); font-weight:600; line-height:1.18; -webkit-box-orient:vertical; -webkit-line-clamp:4; }
         .fm-live-camera__watermark>small { display:block; overflow:hidden; margin-top:.22rem; color:#e6ebf1; font-size:clamp(.68rem,2.75vw,1.4rem); font-weight:600; line-height:1.1; text-overflow:ellipsis; white-space:nowrap; }
         .fm-live-camera__flash { position:absolute; z-index:5; inset:0; pointer-events:none; background:#fff; opacity:0; transition:opacity .14s ease-out; }
         .fm-live-camera__flash.is-visible { opacity:.72; transition:none; }

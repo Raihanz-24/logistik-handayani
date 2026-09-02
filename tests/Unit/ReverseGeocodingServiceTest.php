@@ -22,6 +22,8 @@ class ReverseGeocodingServiceTest extends TestCase
                 'display_name' => 'Jalan Raya Paiton, Sumberejo, Probolinggo, Jawa Timur, Indonesia',
                 'address' => [
                     'road' => 'Jalan Raya Paiton',
+                    'house_number' => 'KM 137',
+                    'hamlet' => 'Matikan',
                     'village' => 'Sumberejo',
                     'county' => 'Kabupaten Probolinggo',
                     'state' => 'Jawa Timur',
@@ -37,7 +39,7 @@ class ReverseGeocodingServiceTest extends TestCase
 
         $this->assertTrue($first['resolved']);
         $this->assertSame('Sumberejo, Jawa Timur, Indonesia', $first['name']);
-        $this->assertStringStartsWith('Jalan Raya Paiton, Sumberejo', $first['address']);
+        $this->assertStringStartsWith('Jalan Raya Paiton KM 137, Dusun Matikan, Sumberejo', $first['address']);
         $this->assertStringContainsString('Jawa Timur', $first['address']);
         $this->assertStringContainsString('67291', $first['address']);
         $this->assertSame($first, $second);

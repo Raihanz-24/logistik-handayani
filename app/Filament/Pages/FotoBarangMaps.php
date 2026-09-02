@@ -149,6 +149,12 @@ class FotoBarangMaps extends Page
 
     public function updatedPhoto(): void
     {
+        $isLiveCapture = filled($this->capturedAt) || filled($this->clientCaptureId);
+
+        if ($isLiveCapture) {
+            $this->skipRender();
+        }
+
         $this->validateOnly('photo', [
             'photo' => [
                 'required',
@@ -178,7 +184,12 @@ class FotoBarangMaps extends Page
 
     public function savePhoto(): void
     {
-        $isLiveCapture = filled($this->capturedAt);
+        $isLiveCapture = filled($this->capturedAt) || filled($this->clientCaptureId);
+
+        if ($isLiveCapture) {
+            // Respons upload kamera tidak boleh me-render ulang DOM karena akan memutus MediaStream.
+            $this->skipRender();
+        }
 
         $this->validate([
             'activeSessionId' => ['required', 'integer'],
@@ -246,9 +257,6 @@ class FotoBarangMaps extends Page
                 ->success()
                 ->send();
 
-            if ($isLiveCapture) {
-                $this->skipRender();
-            }
         } catch (Throwable $exception) {
             report($exception);
 
@@ -261,9 +269,6 @@ class FotoBarangMaps extends Page
                 ->persistent()
                 ->send();
 
-            if ($isLiveCapture) {
-                $this->skipRender();
-            }
         }
     }
 

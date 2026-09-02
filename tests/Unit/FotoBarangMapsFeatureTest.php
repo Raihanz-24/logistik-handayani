@@ -89,6 +89,7 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function startSession', $page);
         $this->assertStringContainsString('public function finishSession', $page);
         $this->assertStringContainsString('public function savePhoto', $page);
+        $this->assertStringContainsString('filled($this->capturedAt) || filled($this->clientCaptureId)', $page);
         $this->assertStringContainsString('public function updateCaptureMetadata', $page);
         $this->assertStringContainsString('public function resolveSessionLocation', $page);
         $this->assertStringContainsString('$this->skipRender()', $page);
@@ -104,11 +105,13 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('waitForCameraReady', $view);
         $this->assertStringContainsString('cameraReady', $view);
         $this->assertStringContainsString('closeCameraAndRefresh', $view);
+        $this->assertStringContainsString('refreshInProgress', $view);
+        $this->assertStringContainsString('x-bind:disabled="refreshInProgress"', $view);
         $this->assertStringContainsString('scheduleServerRefresh', $view);
         $this->assertStringContainsString("indexedDB.open('handayani-foto-maps'", $view);
         $this->assertStringContainsString("captureMode: 'server'", $view);
         $this->assertStringContainsString("captureMode === 'local'", $view);
-        $this->assertStringContainsString("mode: this.captureMode", $view);
+        $this->assertStringContainsString('mode: this.captureMode', $view);
         $this->assertStringContainsString("readLocalCaptures(sessionUuid, mode = 'server')", $view);
         $this->assertStringContainsString("this.readLocalCaptures(sessionUuid, 'server')", $view);
         $this->assertStringContainsString("this.readLocalCaptures(sessionUuid, 'local')", $view);
@@ -135,7 +138,7 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('serverRefreshPending', $view);
         $this->assertStringContainsString('dialog.dataset.deleteType', $view);
         $this->assertStringContainsString('x-ref="confirmTextInput"', $view);
-        $this->assertStringNotContainsString("confirmBusy || (confirmRequiresText", $view);
+        $this->assertStringNotContainsString('confirmBusy || (confirmRequiresText', $view);
         $this->assertStringContainsString('showNextServerPhoto', $view);
         $this->assertStringContainsString('endGallerySwipe', $view);
         $this->assertStringContainsString('requestDeleteFolder', $view);
