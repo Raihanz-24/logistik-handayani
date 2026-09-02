@@ -17,7 +17,7 @@ class ReverseGeocodingService
             return $fallback;
         }
 
-        $cacheKey = sprintf('foto-maps:reverse-geocode:v2:%.4f:%.4f', $latitude, $longitude);
+        $cacheKey = sprintf('foto-maps:reverse-geocode:v3:%.4f:%.4f', $latitude, $longitude);
         $cached = Cache::get($cacheKey);
 
         if (is_array($cached) && isset($cached['name'], $cached['address'], $cached['resolved'])) {
@@ -43,6 +43,8 @@ class ReverseGeocodingService
                             'lon' => $longitude,
                             'zoom' => 18,
                             'addressdetails' => 1,
+                            'extratags' => 1,
+                            'namedetails' => 1,
                             'layer' => 'address',
                             'accept-language' => 'id',
                         ]);
@@ -74,30 +76,74 @@ class ReverseGeocodingService
     private function formatResult(array $payload, float $latitude, float $longitude): array
     {
         $parts = is_array($payload['address'] ?? null) ? $payload['address'] : [];
-        $road = trim(implode(' ', array_filter([
-            $this->firstFilled($parts, ['road', 'pedestrian', 'residential', 'service', 'path', 'footway']),
-            (string) ($parts['house_number'] ?? ''),
-        ])));
-        $hamlet = $this->withPrefix(trim((string) ($parts['hamlet'] ?? '')), 'Dusun');
+        $extraTags = is_array($payload['extratags'] ?? null) ? $payload['extratags'] : [];
+        $displayName = trim((string) ($payload['display_name'] ?? ''));
+        $roadName = $this->firstFilled($parts, [
+            'road',
+            'pedestrian',
+            'service',
+            'path',
+            'footway',
+            'cycleway',
+            'highway',
+            'route',
+        ]);
+
+        if ($roadName === '') {
+            $roadName = $this->extractRoad($displayName);
+        }
+
+        $house = $this->firstFilled($parts, ['house_number', 'house_name']);
+        $milestone = $this->firstFilled($parts, ['addr:milestone', 'milestone', 'kilometer', 'km']);
+
+        if ($milestone === '') {
+            $milestone = $this->firstFilled($extraTags, ['addr:milestone', 'milestone', 'kilometer', 'km']);
+        }
+
+        if ($milestone === '') {
+            $milestone = $this->extractMilestone($displayName);
+        }
+
+        $road = trim(implode(' ', array_filter([$roadName, $house])));
+        $formattedMilestone = $this->formatMilestone($milestone);
+
+        if ($formattedMilestone !== '' && ! str_contains($this->normalize($road), $this->normalize($formattedMilestone))) {
+            $road = trim($road.' '.$formattedMilestone);
+        }
+
+        $hamletName = $this->firstFilled($parts, ['hamlet', 'croft', 'isolated_dwelling']);
+
+        if ($hamletName === '') {
+            $hamletName = $this->extractHamlet($displayName);
+        }
+
+        $hamlet = $this->withPrefix($hamletName, 'Dusun');
         $microLocality = $hamlet !== ''
             ? $hamlet
-            : $this->firstFilled($parts, ['neighbourhood', 'quarter']);
-        $addressParts = array_values(array_unique(array_filter([
+            : $this->firstFilled($parts, ['neighbourhood', 'quarter', 'subdivision', 'residential']);
+        $postcode = $this->firstFilled($parts, ['postcode', 'postal_code']);
+
+        if ($postcode === '') {
+            $postcode = $this->extractPostcode($displayName, (string) ($parts['country_code'] ?? ''));
+        }
+
+        $addressParts = $this->uniqueParts([
             $road,
             $microLocality,
             trim((string) ($parts['village'] ?? '')),
             trim((string) ($parts['suburb'] ?? '')),
-            $this->firstFilled($parts, ['city_district', 'district']),
+            $this->firstFilled($parts, ['city_district', 'district', 'borough']),
             $this->firstFilled($parts, ['town', 'city', 'municipality']),
             trim((string) ($parts['county'] ?? '')),
+            trim((string) ($parts['state_district'] ?? '')),
             trim((string) ($parts['state'] ?? '')),
-            trim((string) ($parts['postcode'] ?? '')),
+            $postcode,
             trim((string) ($parts['country'] ?? '')),
-        ])));
+        ]);
         $address = implode(', ', $addressParts);
 
         if ($address === '') {
-            $address = trim((string) ($payload['display_name'] ?? ''));
+            $address = $displayName;
         }
 
         if ($address === '') {
@@ -116,11 +162,11 @@ class ReverseGeocodingService
             'municipality',
             'county',
         ]);
-        $nameParts = array_values(array_unique(array_filter([
+        $nameParts = $this->uniqueParts([
             $locality,
             trim((string) ($parts['state'] ?? '')),
             trim((string) ($parts['country'] ?? 'Indonesia')),
-        ])));
+        ]);
 
         return [
             'name' => implode(', ', $nameParts) ?: 'Lokasi GPS',
@@ -149,6 +195,90 @@ class ReverseGeocodingService
         }
 
         return $prefix.' '.$value;
+    }
+
+    /** @param array<int, string> $parts */
+    private function uniqueParts(array $parts): array
+    {
+        $result = [];
+        $seen = [];
+
+        foreach ($parts as $part) {
+            $part = trim($part);
+            $normalized = $this->normalize($part);
+
+            if ($part === '' || isset($seen[$normalized])) {
+                continue;
+            }
+
+            $seen[$normalized] = true;
+            $result[] = $part;
+        }
+
+        return $result;
+    }
+
+    private function normalize(string $value): string
+    {
+        return strtolower((string) preg_replace('/[^\pL\pN]+/u', '', $value));
+    }
+
+    private function extractRoad(string $displayName): string
+    {
+        foreach (array_map('trim', explode(',', $displayName)) as $segment) {
+            if (preg_match('/^(?:jalan|jln?\.?|gang|gg\.?|lorong)\s+/iu', $segment) === 1) {
+                return $segment;
+            }
+        }
+
+        return '';
+    }
+
+    private function extractHamlet(string $displayName): string
+    {
+        foreach (array_map('trim', explode(',', $displayName)) as $segment) {
+            if (preg_match('/^(?:dusun|dsn\.?)\s+(.+)$/iu', $segment, $matches) === 1) {
+                return trim($matches[1]);
+            }
+        }
+
+        return '';
+    }
+
+    private function extractMilestone(string $displayName): string
+    {
+        if (preg_match('/\b(?:km|kilometer)\s*\.?\s*(\d+(?:[.,]\d+)?)\b/iu', $displayName, $matches) === 1) {
+            return $matches[1];
+        }
+
+        return '';
+    }
+
+    private function formatMilestone(string $milestone): string
+    {
+        $milestone = trim($milestone);
+
+        if ($milestone === '') {
+            return '';
+        }
+
+        if (preg_match('/(?:km|kilometer)\s*\.?\s*(\d+(?:[.,]\d+)?)/iu', $milestone, $matches) === 1) {
+            return 'KM '.$matches[1];
+        }
+
+        return preg_match('/^\d+(?:[.,]\d+)?$/', $milestone) === 1
+            ? 'KM '.$milestone
+            : $milestone;
+    }
+
+    private function extractPostcode(string $displayName, string $countryCode): string
+    {
+        if (($countryCode === '' || strtolower($countryCode) === 'id')
+            && preg_match('/(?:^|,|\s)(\d{5})(?=,|\s|$)/', $displayName, $matches) === 1) {
+            return $matches[1];
+        }
+
+        return '';
     }
 
     /** @return array{name: string, address: string, resolved: bool} */

@@ -44,7 +44,40 @@ class ReverseGeocodingServiceTest extends TestCase
         $this->assertStringContainsString('67291', $first['address']);
         $this->assertSame($first, $second);
         Http::assertSentCount(1);
-        Http::assertSent(fn (Request $request): bool => $request->hasHeader('User-Agent', 'LogistikHandayaniTest/1.0'));
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('User-Agent', 'LogistikHandayaniTest/1.0')
+            && $request['extratags'] === 1
+            && $request['namedetails'] === 1);
+    }
+
+    public function test_it_reads_road_hamlet_milestone_and_postcode_from_alternative_fields(): void
+    {
+        Cache::flush();
+        config()->set('foto_barang.reverse_geocoding.enabled', true);
+        config()->set('foto_barang.reverse_geocoding.url', 'https://nominatim.example/reverse');
+
+        Http::fake([
+            'nominatim.example/*' => Http::response([
+                'display_name' => 'Jalan Raya Paiton KM. 137, Dusun Matikan, Sumberejo, Paiton, Probolinggo, Jawa Timur, 67291, Indonesia',
+                'address' => [
+                    'highway' => 'Jalan Raya Paiton',
+                    'neighbourhood' => 'Matikan',
+                    'village' => 'Sumberejo',
+                    'municipality' => 'Paiton',
+                    'state_district' => 'Probolinggo',
+                    'state' => 'Jawa Timur',
+                    'country' => 'Indonesia',
+                    'country_code' => 'id',
+                ],
+                'extratags' => ['addr:milestone' => '137'],
+            ]),
+        ]);
+
+        $result = app(ReverseGeocodingService::class)->lookup(-7.7181, 113.5378);
+
+        $this->assertTrue($result['resolved']);
+        $this->assertStringContainsString('Jalan Raya Paiton KM 137', $result['address']);
+        $this->assertStringContainsString('Dusun Matikan', $result['address']);
+        $this->assertStringContainsString('67291', $result['address']);
     }
 
     public function test_it_returns_coordinate_fallback_when_the_service_is_unavailable(): void
