@@ -19,6 +19,7 @@ class FotoBarangItem extends Model
 
     protected $fillable = [
         'foto_barang_session_id',
+        'client_capture_id',
         'urutan',
         'path',
         'processing_status',

@@ -23,6 +23,7 @@ class FotoBarangImageService
         float $longitude,
         ?int $accuracy = null,
         ?CarbonInterface $capturedAt = null,
+        ?string $clientCaptureId = null,
     ): FotoBarangItem {
         return $this->process($this->stage(
             $session,
@@ -31,6 +32,7 @@ class FotoBarangImageService
             $longitude,
             $accuracy,
             $capturedAt,
+            $clientCaptureId,
         ));
     }
 
@@ -41,6 +43,7 @@ class FotoBarangImageService
         float $longitude,
         ?int $accuracy = null,
         ?CarbonInterface $capturedAt = null,
+        ?string $clientCaptureId = null,
     ): FotoBarangItem {
         $capturedAt ??= now('Asia/Jakarta');
         $sourcePath = $file->getRealPath();
@@ -75,6 +78,7 @@ class FotoBarangImageService
                 $extension,
                 $width,
                 $height,
+                $clientCaptureId,
                 &$storedPath,
             ): FotoBarangItem {
                 $lockedSession = FotoBarangSession::query()
@@ -83,6 +87,16 @@ class FotoBarangImageService
 
                 if (! $lockedSession->isActive()) {
                     throw new RuntimeException('Sesi foto sudah selesai dan tidak dapat ditambah foto baru.');
+                }
+
+                if (filled($clientCaptureId)) {
+                    $existing = $lockedSession->items()
+                        ->where('client_capture_id', $clientCaptureId)
+                        ->first();
+
+                    if ($existing) {
+                        return $existing;
+                    }
                 }
 
                 $sequence = ((int) $lockedSession->items()->max('urutan')) + 1;
@@ -108,6 +122,7 @@ class FotoBarangImageService
                 }
 
                 return $lockedSession->items()->create([
+                    'client_capture_id' => $clientCaptureId,
                     'urutan' => $sequence,
                     'path' => $storedPath,
                     'processing_status' => FotoBarangItem::PROCESSING_PENDING,

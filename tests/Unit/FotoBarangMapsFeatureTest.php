@@ -68,6 +68,9 @@ class FotoBarangMapsFeatureTest extends TestCase
         $processingMigration = (string) file_get_contents(
             $root.'/database/migrations/2026_09_02_010000_add_processing_status_to_foto_barang_items.php',
         );
+        $captureIdMigration = (string) file_get_contents(
+            $root.'/database/migrations/2026_09_02_020000_add_client_capture_id_to_foto_barang_items.php',
+        );
         $page = (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangMaps.php');
         $view = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-maps.blade.php');
         $job = (string) file_get_contents($root.'/app/Jobs/ProcessFotoBarangImage.php');
@@ -81,6 +84,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString("Schema::table('foto_barang_items'", $processingMigration);
         $this->assertStringContainsString("->default('completed')", $processingMigration);
         $this->assertStringNotContainsString("Schema::dropIfExists('foto_barang_items')", $processingMigration);
+        $this->assertStringContainsString("'client_capture_id'", $captureIdMigration);
+        $this->assertStringContainsString('foto_barang_session_client_capture_unique', $captureIdMigration);
         $this->assertStringContainsString('public function startSession', $page);
         $this->assertStringContainsString('public function finishSession', $page);
         $this->assertStringContainsString('public function savePhoto', $page);
@@ -91,8 +96,10 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('waitForCameraReady', $view);
         $this->assertStringContainsString('cameraReady', $view);
         $this->assertStringContainsString('closeCameraAndRefresh', $view);
-        $this->assertStringContainsString('Mengamankan foto sumber', $view);
-        $this->assertStringContainsString('kompresi dilanjutkan di latar belakang', $view);
+        $this->assertStringContainsString("indexedDB.open('handayani-foto-maps'", $view);
+        $this->assertStringContainsString('saveLocalCapture(capture)', $view);
+        $this->assertStringContainsString('processUploadQueue()', $view);
+        $this->assertStringContainsString('Foto tetap aman di perangkat', $view);
         $this->assertStringContainsString('x-ref="cameraVideo"', $view);
         $this->assertStringContainsString('wire:ignore', $view);
         $this->assertStringContainsString('$wire.upload(', $view);

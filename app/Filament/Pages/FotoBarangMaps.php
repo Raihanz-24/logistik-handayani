@@ -53,6 +53,8 @@ class FotoBarangMaps extends Page
 
     public ?string $capturedAt = null;
 
+    public ?string $clientCaptureId = null;
+
     public int $uploadKey = 0;
 
     public int $sessionLimit = 20;
@@ -189,6 +191,7 @@ class FotoBarangMaps extends Page
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'clientCaptureId' => ['nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9._:-]+$/'],
         ], [
             'latitude.required' => 'Koordinat GPS belum tersedia.',
             'longitude.required' => 'Koordinat GPS belum tersedia.',
@@ -215,22 +218,25 @@ class FotoBarangMaps extends Page
                 (float) $this->longitude,
                 $this->accuracy,
                 $this->captureTime(),
+                $this->clientCaptureId,
             );
 
-            app(AuditLogger::class)->activity(
-                'foto_barang_create',
-                "Menambahkan foto ke sesi: {$session->judul}",
-                auth()->user(),
-                [
-                    'session_id' => $session->getKey(),
-                    'photo_id' => $item->getKey(),
-                    'sequence' => $item->urutan,
-                ],
-            );
+            if ($item->wasRecentlyCreated) {
+                app(AuditLogger::class)->activity(
+                    'foto_barang_create',
+                    "Menambahkan foto ke sesi: {$session->judul}",
+                    auth()->user(),
+                    [
+                        'session_id' => $session->getKey(),
+                        'photo_id' => $item->getKey(),
+                        'sequence' => $item->urutan,
+                    ],
+                );
 
-            $this->dispatchPhotoProcessing($item);
+                $this->dispatchPhotoProcessing($item);
+            }
 
-            $this->reset('photo', 'capturedAt');
+            $this->reset('photo', 'capturedAt', 'clientCaptureId');
             $this->uploadKey++;
             $this->dispatch('foto-barang-saved');
 
@@ -278,6 +284,7 @@ class FotoBarangMaps extends Page
         float $longitude,
         ?float $accuracy,
         string $capturedAt,
+        ?string $clientCaptureId = null,
     ): void {
         $this->updateCoordinates($latitude, $longitude, $accuracy);
 
@@ -293,6 +300,11 @@ class FotoBarangMaps extends Page
         } catch (Throwable) {
             $this->capturedAt = CarbonImmutable::now('Asia/Jakarta')->toIso8601String();
         }
+
+        $clientCaptureId = trim((string) $clientCaptureId);
+        $this->clientCaptureId = preg_match('/^[A-Za-z0-9._:-]{10,100}$/', $clientCaptureId)
+            ? $clientCaptureId
+            : null;
 
         $this->skipRender();
     }
@@ -419,7 +431,7 @@ class FotoBarangMaps extends Page
         }
 
         $this->activeSessionId = null;
-        $this->reset('photo', 'latitude', 'longitude', 'accuracy', 'capturedAt');
+        $this->reset('photo', 'latitude', 'longitude', 'accuracy', 'capturedAt', 'clientCaptureId');
         $this->uploadKey++;
         $this->resetSessionForm();
     }

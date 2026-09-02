@@ -18,8 +18,20 @@
             cameraReady: false,
             cameraError: '',
             captureBusy: false,
+            uploadInProgress: false,
             uploadProgress: 0,
+            queuedCount: 0,
             capturedCount: @js((int) ($activeSession?->items_count ?? 0)),
+            serverCapturedCount: @js((int) ($activeSession?->items_count ?? 0)),
+            sessionUuid: @js($activeSession?->uuid),
+            captureQueue: [],
+            currentUploadId: null,
+            captureDbPromise: null,
+            queueInitializedFor: null,
+            queueRetryTimer: null,
+            backgroundState: '',
+            finishRequested: false,
+            finishingSession: false,
             liveTime: '',
             liveDate: '',
             liveDay: '',
@@ -28,6 +40,7 @@
                 this.gpsState = 'GPS akan diambil saat kamera dibuka';
                 this.gpsReady = this.latitude !== null && this.longitude !== null;
                 this.updateClock();
+                this.initializeCaptureQueue();
             },
             destroy() {
                 this.closeCamera();
@@ -44,6 +57,207 @@
                 this.liveDay = new Intl.DateTimeFormat('id-ID', {
                     timeZone, weekday: 'long',
                 }).format(now);
+            },
+            openCaptureDb() {
+                if (this.captureDbPromise) return this.captureDbPromise;
+
+                this.captureDbPromise = new Promise((resolve, reject) => {
+                    if (! window.indexedDB) {
+                        reject(new Error('Penyimpanan aman perangkat tidak didukung browser ini.'));
+                        return;
+                    }
+
+                    const request = window.indexedDB.open('handayani-foto-maps', 1);
+                    request.onupgradeneeded = () => {
+                        const database = request.result;
+                        if (! database.objectStoreNames.contains('captures')) {
+                            const store = database.createObjectStore('captures', { keyPath: 'id' });
+                            store.createIndex('sessionUuid', 'sessionUuid', { unique: false });
+                        }
+                    };
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error || new Error('Penyimpanan perangkat gagal dibuka.'));
+                });
+
+                return this.captureDbPromise;
+            },
+            async saveLocalCapture(capture) {
+                const database = await this.openCaptureDb();
+                await new Promise((resolve, reject) => {
+                    let transaction;
+
+                    try {
+                        transaction = database.transaction('captures', 'readwrite', { durability: 'strict' });
+                    } catch (error) {
+                        transaction = database.transaction('captures', 'readwrite');
+                    }
+
+                    transaction.objectStore('captures').put(capture);
+                    transaction.oncomplete = () => resolve();
+                    transaction.onerror = () => reject(transaction.error || new Error('Foto gagal diamankan di perangkat.'));
+                    transaction.onabort = () => reject(transaction.error || new Error('Penyimpanan foto dibatalkan perangkat.'));
+                });
+            },
+            async deleteLocalCapture(captureId) {
+                const database = await this.openCaptureDb();
+                await new Promise((resolve, reject) => {
+                    const transaction = database.transaction('captures', 'readwrite');
+                    transaction.objectStore('captures').delete(captureId);
+                    transaction.oncomplete = () => resolve();
+                    transaction.onerror = () => reject(transaction.error || new Error('Antrean lokal gagal dibersihkan.'));
+                });
+            },
+            async readLocalCaptures(sessionUuid) {
+                if (! sessionUuid) return [];
+                const database = await this.openCaptureDb();
+
+                return await new Promise((resolve, reject) => {
+                    const transaction = database.transaction('captures', 'readonly');
+                    const captures = [];
+                    const request = transaction.objectStore('captures').index('sessionUuid').openCursor(
+                        IDBKeyRange.only(sessionUuid),
+                    );
+                    request.onsuccess = () => {
+                        const cursor = request.result;
+                        if (! cursor) {
+                            resolve(captures.sort((first, second) => first.createdAt - second.createdAt));
+                            return;
+                        }
+
+                        const { blob, ...metadata } = cursor.value;
+                        captures.push(metadata);
+                        cursor.continue();
+                    };
+                    request.onerror = () => reject(request.error || new Error('Antrean foto tidak dapat dibaca.'));
+                });
+            },
+            async getLocalCapture(captureId) {
+                const database = await this.openCaptureDb();
+
+                return await new Promise((resolve, reject) => {
+                    const transaction = database.transaction('captures', 'readonly');
+                    const request = transaction.objectStore('captures').get(captureId);
+                    request.onsuccess = () => resolve(request.result || null);
+                    request.onerror = () => reject(request.error || new Error('Foto lokal tidak dapat dibaca.'));
+                });
+            },
+            async initializeCaptureQueue(sessionUuid = this.sessionUuid) {
+                if (! sessionUuid) return;
+                if (this.queueInitializedFor === sessionUuid) return;
+
+                this.queueInitializedFor = sessionUuid;
+                this.sessionUuid = sessionUuid;
+
+                navigator.storage?.persist?.().catch(() => false);
+
+                try {
+                    const storedCaptures = await this.readLocalCaptures(sessionUuid);
+                    const knownIds = new Set(this.captureQueue.map((capture) => capture.id));
+                    this.captureQueue.push(...storedCaptures.filter((capture) => ! knownIds.has(capture.id)));
+                    this.captureQueue.sort((first, second) => first.createdAt - second.createdAt);
+                    this.queuedCount = this.captureQueue.length;
+                    this.capturedCount = Math.max(
+                        this.capturedCount,
+                        this.serverCapturedCount + this.queuedCount,
+                    );
+
+                    if (this.queuedCount > 0) {
+                        this.backgroundState = `${this.queuedCount} foto aman di perangkat, menunggu dikirim`;
+                        this.processUploadQueue();
+                    }
+                } catch (error) {
+                    this.queueInitializedFor = null;
+                    this.backgroundState = error?.message || 'Antrean lokal tidak dapat dipulihkan.';
+                }
+            },
+            createCaptureId() {
+                if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+
+                return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+            },
+            async processUploadQueue() {
+                if (this.uploadInProgress || this.captureQueue.length === 0) {
+                    await this.completeFinishIfReady();
+                    return;
+                }
+
+                const queueItem = this.captureQueue[0];
+                this.uploadInProgress = true;
+                this.currentUploadId = queueItem.id;
+                this.uploadProgress = 0;
+                this.backgroundState = `Mengirim ${this.queuedCount} foto di latar belakang`;
+
+                try {
+                    const capture = await this.getLocalCapture(queueItem.id);
+
+                    if (! capture?.blob) {
+                        this.captureQueue.shift();
+                        this.queuedCount = this.captureQueue.length;
+                        this.uploadInProgress = false;
+                        this.currentUploadId = null;
+                        this.processUploadQueue();
+                        return;
+                    }
+
+                    await $wire.updateCaptureMetadata(
+                        capture.latitude,
+                        capture.longitude,
+                        capture.accuracy,
+                        capture.capturedAt,
+                        capture.id,
+                    );
+                    const file = new File([capture.blob], `${capture.id}.jpg`, {
+                        type: capture.blob.type || 'image/jpeg',
+                        lastModified: capture.createdAt,
+                    });
+
+                    $wire.upload(
+                        'photo',
+                        file,
+                        () => {},
+                        () => this.handleBackgroundUploadError('Upload gagal. Foto tetap aman di perangkat.'),
+                        (event) => this.uploadProgress = event.detail?.progress ?? 0,
+                    );
+                } catch (error) {
+                    this.handleBackgroundUploadError(error?.message || 'Upload latar belakang gagal.');
+                }
+            },
+            async handleBackgroundUploadError(message) {
+                const capture = this.captureQueue.find((item) => item.id === this.currentUploadId);
+                this.uploadInProgress = false;
+                this.currentUploadId = null;
+                this.backgroundState = message;
+
+                if (! capture) return;
+                capture.attempts = (capture.attempts || 0) + 1;
+
+                if (capture.attempts <= 3 && navigator.onLine) {
+                    window.clearTimeout(this.queueRetryTimer);
+                    this.queueRetryTimer = window.setTimeout(
+                        () => this.processUploadQueue(),
+                        Math.min(15000, capture.attempts * 3000),
+                    );
+                }
+            },
+            retryPendingUploads() {
+                window.clearTimeout(this.queueRetryTimer);
+                this.captureQueue.forEach((capture) => capture.attempts = 0);
+                this.uploadInProgress = false;
+                this.currentUploadId = null;
+                this.processUploadQueue();
+            },
+            async completeFinishIfReady() {
+                if (
+                    ! this.finishRequested
+                    || this.finishingSession
+                    || this.uploadInProgress
+                    || this.captureQueue.length > 0
+                ) return;
+
+                this.finishingSession = true;
+                this.finishRequested = false;
+                await $wire.finishSession();
+                this.finishingSession = false;
             },
             async refreshGps() {
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
@@ -95,7 +309,7 @@
                 this.gpsReady = true;
                 this.gpsState = 'Menggunakan lokasi default Paiton';
             },
-            async openCamera() {
+            async openCamera(sessionUuid = this.sessionUuid) {
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
                     this.cameraError = 'Kamera membutuhkan akses HTTPS.';
                     return;
@@ -108,6 +322,8 @@
 
                 this.cameraError = '';
                 this.cameraReady = false;
+                this.sessionUuid = sessionUuid;
+                this.initializeCaptureQueue(sessionUuid);
                 this.cameraOpen = true;
                 document.body.style.overflow = 'hidden';
                 this.updateClock();
@@ -187,7 +403,9 @@
             },
             async closeCameraAndRefresh() {
                 this.closeCamera();
-                await $wire.$refresh();
+                if (! this.uploadInProgress && this.captureQueue.length === 0) {
+                    await $wire.$refresh();
+                }
             },
             async restartCamera() {
                 this.closeCamera(false);
@@ -209,7 +427,6 @@
                 }
 
                 this.captureBusy = true;
-                this.uploadProgress = 0;
                 this.cameraError = '';
 
                 try {
@@ -223,49 +440,93 @@
                     context.imageSmoothingQuality = 'high';
                     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    const capturedAt = new Date().toISOString();
-                    await $wire.updateCaptureMetadata(this.latitude, this.longitude, this.accuracy, capturedAt);
-
                     const blob = await new Promise((resolve, reject) => canvas.toBlob(
                         (result) => result ? resolve(result) : reject(new Error('Foto gagal dibuat.')),
                         'image/jpeg',
                         0.9,
                     ));
-                    const file = new File([blob], `foto-barang-${Date.now()}.jpg`, {
-                        type: 'image/jpeg', lastModified: Date.now(),
-                    });
+                    const createdAt = Date.now();
+                    const capture = {
+                        id: this.createCaptureId(),
+                        sessionUuid: this.sessionUuid,
+                        createdAt,
+                        capturedAt: new Date(createdAt).toISOString(),
+                        latitude: this.latitude,
+                        longitude: this.longitude,
+                        accuracy: this.accuracy,
+                        attempts: 0,
+                        blob,
+                    };
 
-                    $wire.upload(
-                        'photo',
-                        file,
-                        () => {},
-                        () => {
-                            this.captureBusy = false;
-                            this.cameraError = 'Foto gagal diunggah. Periksa koneksi lalu coba lagi.';
-                        },
-                        (event) => this.uploadProgress = event.detail?.progress ?? 0,
-                    );
+                    await this.saveLocalCapture(capture);
+                    const captureMetadata = { ...capture };
+                    delete captureMetadata.blob;
+                    this.captureQueue.push(captureMetadata);
+                    this.captureQueue.sort((first, second) => first.createdAt - second.createdAt);
+                    this.queuedCount = this.captureQueue.length;
+                    this.capturedCount++;
+                    this.backgroundState = `${this.queuedCount} foto aman di perangkat`;
+                    this.$refs.cameraFlash?.classList.add('is-visible');
+                    window.setTimeout(() => this.$refs.cameraFlash?.classList.remove('is-visible'), 140);
+                    this.captureBusy = false;
+                    this.processUploadQueue();
                 } catch (error) {
                     this.captureBusy = false;
-                    this.cameraError = error?.message || 'Foto gagal diproses.';
+                    this.cameraError = error?.message || 'Foto gagal diamankan. Silakan potret ulang.';
                 }
             },
-            handlePhotoSaved() {
-                this.captureBusy = false;
+            async handlePhotoSaved() {
                 this.uploadProgress = 100;
-                this.capturedCount++;
-                this.$refs.cameraFlash?.classList.add('is-visible');
-                window.setTimeout(() => this.$refs.cameraFlash?.classList.remove('is-visible'), 140);
+                const uploadedId = this.currentUploadId;
+
+                if (! uploadedId) {
+                    this.serverCapturedCount++;
+                    this.capturedCount++;
+                    return;
+                }
+
+                try {
+                    await this.deleteLocalCapture(uploadedId);
+                } catch (error) {
+                    // ID capture pada server mencegah duplikasi bila pembersihan lokal gagal.
+                }
+
+                this.captureQueue = this.captureQueue.filter((capture) => capture.id !== uploadedId);
+                this.serverCapturedCount++;
+                this.queuedCount = this.captureQueue.length;
+                this.currentUploadId = null;
+                this.uploadInProgress = false;
+                this.backgroundState = this.queuedCount > 0
+                    ? `${this.queuedCount} foto aman, melanjutkan upload`
+                    : 'Semua foto sudah aman di server';
+
+                if (this.queuedCount > 0) {
+                    this.processUploadQueue();
+                } else {
+                    await this.completeFinishIfReady();
+
+                    if (! this.cameraOpen && ! this.finishRequested) {
+                        window.setTimeout(() => $wire.$refresh(), 900);
+                    }
+                }
             },
             handlePhotoFailed() {
-                this.captureBusy = false;
-                this.cameraError = 'Foto gagal diproses server. Silakan ambil ulang.';
+                if (this.currentUploadId) {
+                    this.handleBackgroundUploadError('Server belum menerima foto. Salinan lokal tetap aman.');
+                    return;
+                }
+
+                this.cameraError = 'Foto gagal disimpan server. Silakan potret ulang.';
             },
             async finishCaptureSession() {
                 if (this.captureBusy) return;
                 if (! window.confirm('Selesaikan sesi foto ini? Kamera akan ditutup.')) return;
                 this.closeCamera();
-                await $wire.finishSession();
+                this.finishRequested = true;
+                this.backgroundState = this.captureQueue.length > 0 || this.uploadInProgress
+                    ? 'Menunggu semua foto aman di server sebelum menyelesaikan sesi'
+                    : this.backgroundState;
+                await this.completeFinishIfReady();
             },
             async sharePhoto(previewUrl, downloadUrl, fileName) {
                 try {
@@ -292,6 +553,7 @@
         x-on:foto-barang-saved.window="handlePhotoSaved()"
         x-on:foto-barang-failed.window="handlePhotoFailed()"
         x-on:foto-barang-deleted.window="capturedCount = Math.max(0, capturedCount - 1)"
+        x-on:online.window="retryPendingUploads()"
     >
         <section class="fm-hero">
             <div class="fm-hero__copy">
@@ -392,6 +654,13 @@
                 </div>
             </section>
 
+            <div class="fm-background-queue" x-show="queuedCount > 0 || uploadInProgress" x-cloak>
+                <x-filament::icon icon="heroicon-m-cloud-arrow-up" />
+                <span x-text="backgroundState"></span>
+                <b x-show="uploadInProgress"><span x-text="uploadProgress"></span>%</b>
+                <button type="button" x-show="! uploadInProgress" x-on:click="retryPendingUploads()">Kirim ulang</button>
+            </div>
+
             @if ($activeSession->isActive())
                 <div class="fm-workspace">
                     <section class="fm-capture-card">
@@ -425,7 +694,7 @@
                             <button type="button" x-on:click="useDefaultGps()">Gunakan lokasi default Paiton</button>
                         </div>
 
-                        <button type="button" class="fm-open-camera" x-on:click="openCamera()">
+                        <button type="button" class="fm-open-camera" x-on:click="openCamera(@js($activeSession->uuid))">
                             <span><x-filament::icon icon="heroicon-o-camera" /></span>
                             <span>
                                 <strong>Buka Kamera Berkelanjutan</strong>
@@ -540,12 +809,6 @@
                         </div>
 
                         <div class="fm-live-camera__flash" x-ref="cameraFlash"></div>
-
-                        <div class="fm-live-camera__busy" x-show="captureBusy" x-cloak>
-                            <span class="fm-spinner"></span>
-                            <strong>Mengamankan foto sumber...</strong>
-                            <small><span x-text="uploadProgress"></span>% - kompresi dilanjutkan di latar belakang</small>
-                        </div>
                     </main>
 
                     <footer class="fm-live-camera__controls">
@@ -553,6 +816,13 @@
                             <x-filament::icon icon="heroicon-m-map-pin" />
                             <span x-text="gpsState"></span>
                             <button type="button" x-show="! gpsReady" x-on:click="useDefaultGps()">Pakai default</button>
+                        </div>
+
+                        <div class="fm-live-camera__queue" x-show="queuedCount > 0 || uploadInProgress" x-cloak>
+                            <x-filament::icon icon="heroicon-m-cloud-arrow-up" />
+                            <span x-text="backgroundState"></span>
+                            <b x-show="uploadInProgress"><span x-text="uploadProgress"></span>%</b>
+                            <button type="button" x-show="! uploadInProgress" x-on:click="retryPendingUploads()">Kirim ulang</button>
                         </div>
 
                         <div class="fm-live-camera__actions">
@@ -739,6 +1009,11 @@
         .dark .fm-status { color:#86efac; background:#153625; }
         .dark .fm-status--done { color:#cbd5e1; background:#2a394b; }
         .fm-session-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.55rem; }
+        .fm-background-queue { display:flex; align-items:center; gap:.5rem; padding:.68rem .8rem; border:1px solid #bfdbfe; border-radius:.75rem; color:#1e3a8a; background:#eff6ff; font-size:.68rem; font-weight:700; }
+        .dark .fm-background-queue { border-color:#28496d; color:#bfdbfe; background:#142439; }
+        .fm-background-queue svg { flex:0 0 auto; width:1rem; }
+        .fm-background-queue b { margin-left:auto; }
+        .fm-background-queue button { padding:.27rem .5rem; border:1px solid currentColor; border-radius:999px; color:inherit; background:transparent; font-size:.6rem; font-weight:800; }
         .fm-workspace { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(19rem,.95fr); gap:1.15rem; }
         .fm-counter { display:grid; place-items:center; min-width:2.3rem; height:2.3rem; border-radius:.75rem; color:#92400e; background:#fef3c7; font-size:.84rem; font-weight:850; }
         .fm-gps { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.75rem; align-items:center; margin-top:1rem; padding:.8rem; border:1px solid #f7c7c7; border-radius:.85rem; background:#fff7f7; }
@@ -857,14 +1132,15 @@
         .fm-live-camera__watermark>small { display:block; overflow:hidden; margin-top:.22rem; color:#e6ebf1; font-size:clamp(.68rem,2.75vw,1.4rem); font-weight:600; line-height:1.1; text-overflow:ellipsis; white-space:nowrap; }
         .fm-live-camera__flash { position:absolute; z-index:5; inset:0; pointer-events:none; background:#fff; opacity:0; transition:opacity .14s ease-out; }
         .fm-live-camera__flash.is-visible { opacity:.72; transition:none; }
-        .fm-live-camera__busy { position:absolute; z-index:6; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; background:rgba(0,0,0,.58); backdrop-filter:blur(2px); }
-        .fm-live-camera__busy strong { margin-top:.35rem; font-size:.84rem; }
-        .fm-live-camera__busy small { color:#d3dbe5; font-size:.67rem; }
         .fm-live-camera__controls { display:grid; gap:.55rem; padding:.55rem .8rem calc(.65rem + env(safe-area-inset-bottom)); background:#080d14; }
         .fm-live-camera__gps { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:1.4rem; color:#fbbf24; font-size:.64rem; font-weight:700; text-align:center; }
         .fm-live-camera__gps.is-ready { color:#86efac; }
         .fm-live-camera__gps svg { flex:0 0 auto; width:.85rem; }
         .fm-live-camera__gps button { margin-left:.2rem; padding:.22rem .45rem; border:1px solid rgba(255,255,255,.25); border-radius:999px; color:#fff; background:transparent; font-size:.58rem; font-weight:800; }
+        .fm-live-camera__queue { display:flex; align-items:center; justify-content:center; gap:.4rem; min-height:1.35rem; color:#bfdbfe; font-size:.61rem; font-weight:700; text-align:center; }
+        .fm-live-camera__queue svg { flex:0 0 auto; width:.9rem; }
+        .fm-live-camera__queue b { color:#fff; font-size:.59rem; }
+        .fm-live-camera__queue button { padding:.2rem .42rem; border:1px solid #52657b; border-radius:999px; color:#fff; background:#1b2635; font-size:.56rem; font-weight:800; }
         .fm-live-camera__actions { display:grid; grid-template-columns:minmax(4.5rem,1fr) 5rem minmax(4.5rem,1fr); gap:1rem; align-items:center; max-width:30rem; width:100%; margin:auto; }
         .fm-live-camera__finish { justify-self:start; padding:.52rem .72rem; border:1px solid #465466; border-radius:999px; color:#fff; background:#1b2635; font-size:.68rem; font-weight:800; }
         .fm-live-camera__shutter { display:grid; place-items:center; width:4.8rem; height:4.8rem; padding:.3rem; border:3px solid #fff; border-radius:50%; background:transparent; cursor:pointer; }
