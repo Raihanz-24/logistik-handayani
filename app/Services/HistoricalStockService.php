@@ -10,41 +10,28 @@ use App\Models\MutasiRak;
 use App\Models\PosisiRak;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
-use RuntimeException;
 
 class HistoricalStockService
 {
-    public function applyCurrentSnapshotToQuery(Builder $query): Builder
+    /** @return array<string, array<string, int|null>> */
+    public function snapshotState(mixed $asOfDate): array
     {
-        return $query
-            ->select('barang_lokasi.*')
-            ->selectRaw('barang_lokasi.posisi_rak_id AS posisi_rak_tampil_id')
-            ->selectRaw('barang_lokasi.stok AS stok_tampil')
-            ->selectRaw('barang_lokasi.stok_baik AS stok_baik_tampil')
-            ->selectRaw('barang_lokasi.stok_rusak AS stok_rusak_tampil')
-            ->selectRaw('barang_lokasi.stok_hilang AS stok_hilang_tampil');
-    }
+        $date = $this->parseAsOfDate($asOfDate);
+        $warehouseIds = Lokasi::query()
+            ->gudang()
+            ->pluck('id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->all();
 
-    public function applyTableSnapshotToQuery(Builder $query, mixed $asOfDate): Builder
-    {
-        $date = $this->parseAsOfDate($asOfDate)->format('Y-m-d');
-        $effects = $this->historicalEffectsQuery($date);
-
-        return $query
-            ->leftJoinSub($effects, 'history_stock_effects', function ($join): void {
-                $join->on('history_stock_effects.barang_id', '=', 'barang_lokasi.barang_id')
-                    ->on('history_stock_effects.lokasi_id', '=', 'barang_lokasi.lokasi_id');
-            })
-            ->select('barang_lokasi.*')
-            ->selectRaw('barang_lokasi.posisi_rak_id AS posisi_rak_tampil_id')
-            ->selectRaw('barang_lokasi.stok - COALESCE(history_stock_effects.effect_total, 0) AS stok_tampil')
-            ->selectRaw('barang_lokasi.stok_baik - COALESCE(history_stock_effects.effect_baik, 0) AS stok_baik_tampil')
-            ->selectRaw('barang_lokasi.stok_rusak - COALESCE(history_stock_effects.effect_rusak, 0) AS stok_rusak_tampil')
-            ->selectRaw('barang_lokasi.stok_hilang - COALESCE(history_stock_effects.effect_hilang, 0) AS stok_hilang_tampil');
+        return $this->rewindState(
+            $this->currentState($warehouseIds),
+            $this->futureMutations($date, $warehouseIds),
+            $this->futureRackMutations($date, $warehouseIds),
+            $warehouseIds,
+        );
     }
 
     /**
@@ -204,14 +191,9 @@ class HistoricalStockService
             $state[$key]['posisi_rak_id'] = $sourcePositionId;
         }
 
-        foreach ($state as $key => &$stock) {
+        foreach ($state as &$stock) {
             foreach (['stok_baik', 'stok_rusak', 'stok_hilang'] as $column) {
-                if ((int) $stock[$column] < 0) {
-                    throw new RuntimeException(
-                        'Riwayat stok tidak konsisten untuk barang/lokasi '.$key
-                        .'. Periksa mutasi approved atau perubahan stok manual.',
-                    );
-                }
+                $stock[$column] = max(0, (int) $stock[$column]);
             }
 
             $stock['stok'] = (int) $stock['stok_baik']
@@ -242,63 +224,6 @@ class HistoricalStockService
         }
 
         return $date;
-    }
-
-    private function historicalEffectsQuery(string $date): \Illuminate\Database\Query\Builder
-    {
-        $sourceEffects = DB::table('mutasis')
-            ->select(['barang_id', 'lokasi_id'])
-            ->selectRaw("CASE
-                WHEN jenis_mutasi = 'masuk' THEN jumlah
-                WHEN jenis_mutasi = 'keluar' THEN -jumlah
-                ELSE 0
-            END AS effect_total")
-            ->selectRaw($this->conditionEffectCase('baik').' AS effect_baik')
-            ->selectRaw($this->conditionEffectCase('rusak').' AS effect_rusak')
-            ->selectRaw($this->conditionEffectCase('hilang').' AS effect_hilang')
-            ->where('status', 'approved')
-            ->whereDate('tanggal', '>', $date);
-
-        $destinationEffects = DB::table('mutasis')
-            ->selectRaw('barang_id, lokasi_tujuan_id AS lokasi_id')
-            ->selectRaw('jumlah AS effect_total')
-            ->selectRaw($this->destinationConditionEffectCase('baik').' AS effect_baik')
-            ->selectRaw($this->destinationConditionEffectCase('rusak').' AS effect_rusak')
-            ->selectRaw($this->destinationConditionEffectCase('hilang').' AS effect_hilang')
-            ->where('status', 'approved')
-            ->where('jenis_mutasi', 'keluar')
-            ->whereNotNull('lokasi_tujuan_id')
-            ->whereDate('tanggal', '>', $date);
-
-        $events = $sourceEffects->unionAll($destinationEffects);
-
-        return DB::query()
-            ->fromSub($events, 'history_stock_events')
-            ->select(['barang_id', 'lokasi_id'])
-            ->selectRaw('SUM(effect_total) AS effect_total')
-            ->selectRaw('SUM(effect_baik) AS effect_baik')
-            ->selectRaw('SUM(effect_rusak) AS effect_rusak')
-            ->selectRaw('SUM(effect_hilang) AS effect_hilang')
-            ->groupBy(['barang_id', 'lokasi_id']);
-    }
-
-    private function conditionEffectCase(string $condition): string
-    {
-        return "CASE
-            WHEN jenis_mutasi = 'masuk' AND COALESCE(kondisi_tujuan, 'baik') = '{$condition}' THEN jumlah
-            WHEN jenis_mutasi = 'keluar' AND COALESCE(kondisi_asal, 'baik') = '{$condition}' THEN -jumlah
-            WHEN jenis_mutasi = 'perubahan_kondisi' AND COALESCE(kondisi_asal, 'baik') = '{$condition}' THEN -jumlah
-            WHEN jenis_mutasi = 'perubahan_kondisi' AND COALESCE(kondisi_tujuan, 'baik') = '{$condition}' THEN jumlah
-            ELSE 0
-        END";
-    }
-
-    private function destinationConditionEffectCase(string $condition): string
-    {
-        return "CASE
-            WHEN COALESCE(kondisi_asal, 'baik') = '{$condition}' THEN jumlah
-            ELSE 0
-        END";
     }
 
     /** @param array<int, int> $warehouseIds */
@@ -358,7 +283,7 @@ class HistoricalStockService
     /** @param array<int, int> $warehouseIds */
     private function futureRackMutations(CarbonInterface $asOfDate, array $warehouseIds): iterable
     {
-        if ($warehouseIds === []) {
+        if ($warehouseIds === [] || ! Schema::hasTable('mutasi_raks')) {
             return [];
         }
 
@@ -409,7 +334,13 @@ class HistoricalStockService
 
     private function conditionColumn(mixed $condition): string
     {
-        return BarangLokasi::conditionColumn((string) $condition);
+        $condition = strtolower(trim((string) $condition));
+
+        if (! in_array($condition, ['baik', 'rusak', 'hilang'], true)) {
+            $condition = 'baik';
+        }
+
+        return BarangLokasi::conditionColumn($condition);
     }
 
     private function nullableInteger(mixed $value): ?int

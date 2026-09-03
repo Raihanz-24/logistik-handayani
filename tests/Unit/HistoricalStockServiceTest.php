@@ -68,4 +68,28 @@ class HistoricalStockServiceTest extends TestCase
         $this->assertSame(10, $result['10:1']['stok']);
         $this->assertArrayNotHasKey('10:99', $result);
     }
+
+    public function test_it_tolerates_legacy_conditions_and_incomplete_stock_history(): void
+    {
+        $current = [
+            '10:1' => [
+                'barang_id' => 10, 'lokasi_id' => 1, 'posisi_rak_id' => null,
+                'stok' => 0, 'stok_baik' => 0, 'stok_rusak' => 0, 'stok_hilang' => 0,
+            ],
+        ];
+
+        $result = (new HistoricalStockService)->rewindState($current, [
+            [
+                'jenis_mutasi' => 'masuk', 'barang_id' => 10, 'lokasi_id' => 1,
+                'jumlah' => 3, 'kondisi_tujuan' => '',
+            ],
+            [
+                'jenis_mutasi' => 'keluar', 'barang_id' => 10, 'lokasi_id' => 1,
+                'jumlah' => 2, 'kondisi_asal' => 'BAIK',
+            ],
+        ], [], [1]);
+
+        $this->assertSame(0, $result['10:1']['stok_baik']);
+        $this->assertSame(0, $result['10:1']['stok']);
+    }
 }

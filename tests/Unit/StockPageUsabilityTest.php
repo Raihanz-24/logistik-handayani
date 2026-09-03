@@ -48,9 +48,10 @@ class StockPageUsabilityTest extends TestCase
         $this->assertStringContainsString("->label('Total Stok')", $resource);
         $this->assertSame(6, substr_count($resource, '->toggleable()'));
         $this->assertSame(5, substr_count($resource, '->toggleable(isToggledHiddenByDefault: true)'));
-        $this->assertStringContainsString("TextColumn::make('stok_baik_tampil')", $resource);
-        $this->assertStringContainsString("TextColumn::make('stok_rusak_tampil')", $resource);
-        $this->assertStringContainsString("TextColumn::make('stok_hilang_tampil')", $resource);
+        $this->assertStringContainsString("TextColumn::make('stok_baik')", $resource);
+        $this->assertStringContainsString("TextColumn::make('stok_rusak')", $resource);
+        $this->assertStringContainsString("TextColumn::make('stok_hilang')", $resource);
+        $this->assertStringContainsString('stockValueForTable', $resource);
     }
 
     public function test_stock_table_can_preview_the_historical_stock_date_used_by_export(): void
@@ -68,11 +69,13 @@ class StockPageUsabilityTest extends TestCase
 
         $this->assertStringContainsString("Filter::make('tanggal_stok')", $resource);
         $this->assertStringContainsString("DatePicker::make('tanggal')", $resource);
-        $this->assertStringContainsString('applyTableSnapshotToQuery', $resource);
+        $this->assertStringNotContainsString('applyTableSnapshotToQuery', $resource);
+        $this->assertStringContainsString('public function stockValueForTable', $page);
+        $this->assertStringContainsString('public function snapshotState', $service);
         $this->assertStringContainsString('public function stockAsOfDate', $page);
         $this->assertStringContainsString("'as_of_date' => \$this->stockAsOfDate()", $page);
         $this->assertStringContainsString("->where('status', 'approved')", $service);
-        $this->assertStringContainsString("->whereDate('tanggal', '>', \$date)", $service);
-        $this->assertStringContainsString("->fromSub(\$events, 'history_stock_events')", $service);
+        $this->assertStringContainsString("->whereDate('tanggal', '>', \$asOfDate->format('Y-m-d'))", $service);
+        $this->assertStringNotContainsString('leftJoinSub', $service);
     }
 }

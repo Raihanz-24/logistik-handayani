@@ -10,6 +10,7 @@ use App\Services\StockExcelExportService;
 use App\Services\StockPdfExportService;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Actions\Action;
@@ -31,11 +32,8 @@ class BarangLokasiResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()
+        return parent::getEloquentQuery()
             ->whereHas('lokasi', fn (Builder $query): Builder => $query->gudang());
-
-        return app(HistoricalStockService::class)
-            ->applyCurrentSnapshotToQuery($query);
     }
 
     public static function form(Form $form): Form
@@ -115,15 +113,16 @@ class BarangLokasiResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('posisiRakTampil.kode')
+                Tables\Columns\TextColumn::make('posisiRak.kode')
                     ->label('Posisi Rak')
                     ->placeholder('Tanpa rak')
                     ->badge()
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('stok_tampil')
+                Tables\Columns\TextColumn::make('stok')
                     ->label('Total Stok')
+                    ->getStateUsing(fn (BarangLokasi $record, $livewire): int => $livewire
+                        ->stockValueForTable($record, 'stok'))
                     ->numeric()
-                    ->sortable()
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('barang.satuan')
                     ->label('Satuan')
@@ -131,23 +130,26 @@ class BarangLokasiResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('stok_baik_tampil')
+                Tables\Columns\TextColumn::make('stok_baik')
                     ->label('Baik')
+                    ->getStateUsing(fn (BarangLokasi $record, $livewire): int => $livewire
+                        ->stockValueForTable($record, 'stok_baik'))
                     ->numeric()
                     ->color('success')
-                    ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('stok_rusak_tampil')
+                Tables\Columns\TextColumn::make('stok_rusak')
                     ->label('Rusak')
+                    ->getStateUsing(fn (BarangLokasi $record, $livewire): int => $livewire
+                        ->stockValueForTable($record, 'stok_rusak'))
                     ->numeric()
                     ->color('danger')
-                    ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('stok_hilang_tampil')
+                Tables\Columns\TextColumn::make('stok_hilang')
                     ->label('Hilang')
+                    ->getStateUsing(fn (BarangLokasi $record, $livewire): int => $livewire
+                        ->stockValueForTable($record, 'stok_hilang'))
                     ->numeric()
                     ->color('warning')
-                    ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
@@ -168,14 +170,6 @@ class BarangLokasiResource extends Resource
                             ->maxDate(now('Asia/Jakarta')->toDateString())
                             ->native(false),
                     ])
-                    ->baseQuery(function (Builder $query, array $data): Builder {
-                        if (blank($data['tanggal'] ?? null)) {
-                            return $query;
-                        }
-
-                        return app(HistoricalStockService::class)
-                            ->applyTableSnapshotToQuery($query, $data['tanggal']);
-                    })
                     ->indicateUsing(function (array $data): ?string {
                         if (blank($data['tanggal'] ?? null)) {
                             return null;
@@ -204,11 +198,25 @@ class BarangLokasiResource extends Resource
                     ])
                     ->modalHeading('Export Rekap Stok ke Excel')
                     ->modalSubmitActionLabel('Unduh Excel')
-                    ->action(fn (array $data, $livewire) => app(StockExcelExportService::class)
-                        ->download([
-                            ...$livewire->stockExportContext(),
-                            'as_of_date' => $data['as_of_date'],
-                        ])),
+                    ->action(function (array $data, $livewire) {
+                        try {
+                            return app(StockExcelExportService::class)
+                                ->download([
+                                    ...$livewire->stockExportContext(),
+                                    'as_of_date' => $data['as_of_date'],
+                                ]);
+                        } catch (\Throwable $exception) {
+                            report($exception);
+
+                            Notification::make()
+                                ->title('Export Excel gagal diproses')
+                                ->body('Silakan muat ulang halaman dan coba kembali. Detail teknis telah dicatat di log server.')
+                                ->danger()
+                                ->send();
+
+                            return null;
+                        }
+                    }),
                 Action::make('export-pdf')
                     ->label('Export PDF')
                     ->icon('heroicon-o-document-arrow-down')

@@ -18,6 +18,9 @@ class ListBarangLokasis extends ListRecords
     #[Url(as: 'gudang')]
     public array $gudangAktif = [];
 
+    /** @var array<string, array<string, array<string, int|null>>> */
+    private array $historicalTableSnapshots = [];
+
     /** @var array<string, array{label: string, keyword: string}> */
     private const GUDANG_CEPAT = [
         'dapur' => ['label' => 'Gudang Dapur', 'keyword' => 'dapur'],
@@ -116,6 +119,34 @@ class ListBarangLokasis extends ListRecords
     public function stockAsOfDate(): string
     {
         return $this->activeStockDate() ?? now('Asia/Jakarta')->toDateString();
+    }
+
+    public function stockValueForTable(BarangLokasi $record, string $column): int
+    {
+        if (! in_array($column, ['stok', 'stok_baik', 'stok_rusak', 'stok_hilang'], true)) {
+            return 0;
+        }
+
+        $date = $this->activeStockDate();
+
+        if ($date === null) {
+            return (int) $record->getAttribute($column);
+        }
+
+        if (! array_key_exists($date, $this->historicalTableSnapshots)) {
+            try {
+                $this->historicalTableSnapshots[$date] = app(HistoricalStockService::class)
+                    ->snapshotState($date);
+            } catch (\Throwable $exception) {
+                report($exception);
+
+                return (int) $record->getAttribute($column);
+            }
+        }
+
+        $key = (int) $record->barang_id.':'.(int) $record->lokasi_id;
+
+        return (int) ($this->historicalTableSnapshots[$date][$key][$column] ?? 0);
     }
 
     /** @deprecated Gunakan stockExportContext() untuk seluruh format export. */
