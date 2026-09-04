@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 
 class FotoBarangItem extends Model
 {
@@ -36,6 +38,17 @@ class FotoBarangItem extends Model
         'tinggi',
     ];
 
+    protected static function booted(): void
+    {
+        static::deleting(function (FotoBarangItem $photo): void {
+            if (! Schema::hasTable('foto_barang_edits')) {
+                return;
+            }
+
+            $photo->edits()->get()->each->delete();
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -55,6 +68,11 @@ class FotoBarangItem extends Model
     public function session(): BelongsTo
     {
         return $this->belongsTo(FotoBarangSession::class, 'foto_barang_session_id');
+    }
+
+    public function edits(): HasMany
+    {
+        return $this->hasMany(FotoBarangEdit::class, 'foto_barang_item_id')->latest();
     }
 
     public function fileName(): string

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessFotoBarangImage;
+use App\Models\FotoBarangEdit;
 use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
 use App\Models\User;
@@ -143,6 +144,32 @@ class FotoBarangMediaController extends Controller
         ]);
     }
 
+    public function previewEdit(
+        Request $request,
+        FotoBarangSession $session,
+        FotoBarangEdit $edit,
+    ): StreamedResponse {
+        $this->authorizeEditAccess($request, $session, $edit);
+
+        return $this->disk()->response($edit->path, $edit->fileName(), [
+            'Cache-Control' => 'private, max-age=86400, stale-while-revalidate=3600',
+            'X-Content-Type-Options' => 'nosniff',
+        ], 'inline');
+    }
+
+    public function downloadEdit(
+        Request $request,
+        FotoBarangSession $session,
+        FotoBarangEdit $edit,
+    ): StreamedResponse {
+        $this->authorizeEditAccess($request, $session, $edit);
+
+        return $this->disk()->download($edit->path, $edit->fileName(), [
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function archive(Request $request, FotoBarangSession $session): BinaryFileResponse
     {
         $this->authorizeAccess($request, $session);
@@ -203,6 +230,20 @@ class FotoBarangMediaController extends Controller
         }
 
         abort_unless($photo === null || $this->disk()->exists($photo->path), 404);
+    }
+
+    private function authorizeEditAccess(
+        Request $request,
+        FotoBarangSession $session,
+        FotoBarangEdit $edit,
+    ): void {
+        $edit->loadMissing('photo');
+        $photo = $edit->photo;
+
+        abort_unless($photo instanceof FotoBarangItem, 404);
+        abort_unless($photo->foto_barang_session_id === $session->getKey(), 404);
+        $this->authorizeAccess($request, $session);
+        abort_unless($this->disk()->exists($edit->path), 404);
     }
 
     private function disk(): FilesystemAdapter

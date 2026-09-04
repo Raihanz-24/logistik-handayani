@@ -245,6 +245,71 @@ class FotoBarangImageService
         }
     }
 
+    /**
+     * Membuat salinan foto dengan tanggal/jam baru. Foto sumber tidak pernah
+     * ditulis ulang; hanya pita waktu pada salinan yang digambar kembali.
+     *
+     * @return array{path: string, file_size: int, width: int, height: int}
+     */
+    public function renderTimeRevision(FotoBarangItem $item, CarbonInterface $revisedAt): array
+    {
+        if (! function_exists('imagecreatetruecolor') || ! function_exists('imagejpeg')) {
+            throw new RuntimeException('Ekstensi GD dengan dukungan JPEG wajib diaktifkan pada server.');
+        }
+
+        $disk = Storage::disk('local');
+
+        if (! $item->processingCompleted() || ! $disk->exists($item->path)) {
+            throw new RuntimeException('Foto asli belum selesai diproses atau tidak ditemukan.');
+        }
+
+        $sourcePath = $disk->path($item->path);
+        $imageInfo = @getimagesize($sourcePath);
+
+        if ($imageInfo === false) {
+            throw new RuntimeException('Foto asli tidak dapat dibaca.');
+        }
+
+        $image = $this->createImage($sourcePath, (string) ($imageInfo['mime'] ?? ''));
+        $temporaryPath = tempnam(sys_get_temp_dir(), 'foto-edit-');
+
+        if ($temporaryPath === false) {
+            imagedestroy($image);
+
+            throw new RuntimeException('Gagal menyiapkan file sementara untuk hasil edit.');
+        }
+
+        try {
+            $this->replaceDateTimeBand($image, $item->session, $revisedAt);
+            $this->writeCompressedJpeg($image, $temporaryPath);
+            clearstatcache(true, $temporaryPath);
+            $resultInfo = @getimagesize($temporaryPath);
+
+            if (
+                $resultInfo === false
+                || ($resultInfo['mime'] ?? null) !== 'image/jpeg'
+                || filesize($temporaryPath) < 1024
+            ) {
+                throw new RuntimeException('Hasil edit foto tidak valid. Foto asli tetap aman.');
+            }
+
+            return [
+                'path' => $temporaryPath,
+                'file_size' => (int) filesize($temporaryPath),
+                'width' => (int) $resultInfo[0],
+                'height' => (int) $resultInfo[1],
+            ];
+        } catch (Throwable $exception) {
+            if (is_file($temporaryPath)) {
+                unlink($temporaryPath);
+            }
+
+            throw $exception;
+        } finally {
+            imagedestroy($image);
+        }
+    }
+
     /** @param array{file_size: int, width: int, height: int} $rendered */
     private function validateProcessedFile(string $path, array $rendered): void
     {
@@ -524,6 +589,100 @@ class FotoBarangImageService
             $coordinateBaseline,
             $softWhite,
             $fontRegular,
+        );
+    }
+
+    private function replaceDateTimeBand(
+        GdImage $image,
+        FotoBarangSession $session,
+        CarbonInterface $revisedAt,
+    ): void {
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $margin = max(18, (int) round($width * 0.024));
+        $fontRegular = $this->fontPath(false);
+        $fontBold = $this->fontPath(true) ?? $fontRegular;
+        $timeSize = max(40, (int) round($width * 0.072));
+        $dateSize = max(25, (int) round($width * 0.043));
+        $locationSize = max(22, (int) round($width * 0.035));
+        $detailSize = max(17, (int) round($width * 0.023));
+        $addressLines = $this->wrapText(
+            (string) $session->alamat,
+            $detailSize,
+            $fontRegular,
+            $width - ($margin * 4),
+            4,
+        );
+        $timeRowHeight = max($timeSize, (int) round($dateSize * 2.05));
+        $locationLineHeight = max(37, (int) round($locationSize * 1.45));
+        $detailGap = max(28, (int) round($detailSize * 1.55));
+        $detailLineHeight = max(21, (int) round($detailSize * 1.35));
+        $bottomPadding = max(16, (int) round($detailSize * 0.80));
+        $overlayHeight = min(
+            $height - ($margin * 2),
+            $margin
+                + $timeRowHeight
+                + $locationLineHeight
+                + $detailGap
+                + (count($addressLines) * $detailLineHeight)
+                + 4
+                + $bottomPadding,
+        );
+        $overlayTop = $height - $overlayHeight - $margin;
+        $overlayLeft = $margin;
+        $overlayRight = $width - $margin;
+        $contentLeft = $overlayLeft + $margin;
+        $contentTop = $overlayTop + $margin;
+        $dark = imagecolorallocate($image, 5, 10, 18);
+        $white = imagecolorallocate($image, 255, 255, 255);
+        $amber = imagecolorallocate($image, 245, 158, 11);
+
+        imagefilledrectangle(
+            $image,
+            $overlayLeft,
+            $overlayTop,
+            $overlayRight,
+            min($height - $margin, $contentTop + $timeRowHeight + 8),
+            $dark,
+        );
+
+        $firstLineBaseline = $contentTop + (int) round(($timeRowHeight + $timeSize) / 2);
+        $timeText = $revisedAt->setTimezone('Asia/Jakarta')->format('H:i').' WIB';
+        $timeWidth = $this->textWidth($timeText, $timeSize, $fontBold);
+        $this->drawText($image, $timeText, $timeSize, $contentLeft, $firstLineBaseline, $white, $fontBold);
+
+        $separatorX = min(
+            $overlayRight - 260,
+            $contentLeft + $timeWidth + max(18, (int) round($width * 0.018)),
+        );
+        imagefilledrectangle(
+            $image,
+            $separatorX,
+            $contentTop,
+            $separatorX + max(4, (int) round($width * 0.004)),
+            $contentTop + $timeRowHeight,
+            $amber,
+        );
+
+        $dateX = $separatorX + max(18, (int) round($width * 0.018));
+        $dateBaseline = $contentTop + $dateSize;
+        $this->drawText(
+            $image,
+            $revisedAt->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('d M Y'),
+            $dateSize,
+            $dateX,
+            $dateBaseline,
+            $white,
+            $fontBold,
+        );
+        $this->drawText(
+            $image,
+            $revisedAt->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('l'),
+            $dateSize,
+            $dateX,
+            $dateBaseline + (int) round($dateSize * 1.05),
+            $white,
+            $fontBold,
         );
     }
 

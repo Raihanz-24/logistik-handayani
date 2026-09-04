@@ -26,6 +26,11 @@ Route::middleware('auth')->prefix('foto-barang-media')->group(function (): void 
         ->name('foto-barang.thumbnail');
     Route::get('/{session}/foto/{photo}/download', [FotoBarangMediaController::class, 'download'])
         ->name('foto-barang.download');
+    Route::get('/{session}/hasil-edit/{edit}/preview', [FotoBarangMediaController::class, 'previewEdit'])
+        ->withoutMiddleware(AuditUserActivity::class)
+        ->name('foto-barang.edit-preview');
+    Route::get('/{session}/hasil-edit/{edit}/download', [FotoBarangMediaController::class, 'downloadEdit'])
+        ->name('foto-barang.edit-download');
     Route::get('/{session}/unduh-semua', [FotoBarangMediaController::class, 'archive'])
         ->name('foto-barang.archive');
 });
