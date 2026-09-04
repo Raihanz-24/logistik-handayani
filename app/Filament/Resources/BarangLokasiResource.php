@@ -175,8 +175,12 @@ class BarangLokasiResource extends Resource
                             return null;
                         }
 
-                        $date = app(HistoricalStockService::class)
-                            ->parseAsOfDate($data['tanggal']);
+                        try {
+                            $date = app(HistoricalStockService::class)
+                                ->parseAsOfDate($data['tanggal']);
+                        } catch (\Throwable) {
+                            return null;
+                        }
 
                         return 'Posisi stok: '.$date->locale('id')->translatedFormat('d F Y');
                     }),

@@ -24,7 +24,15 @@ class StockExcelExportService
     public function download(array $context = []): StreamedResponse
     {
         $report = $this->historicalStockService->reportData($context);
-        $path = $this->buildFromReport($report);
+
+        try {
+            $path = $this->buildFromReport($report);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return $this->downloadCsvFromReport($report);
+        }
+
         $date = (string) $report['context']['as_of_date'];
         $fileName = 'rekap_stok_'.$date.'_'.now('Asia/Jakarta')->format('His').'.xlsx';
 
@@ -43,6 +51,57 @@ class StockExcelExportService
             }
         }, $fileName, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * Fallback ringan yang tetap dapat dibuka langsung oleh Excel. Dipakai
+     * otomatis bila server tidak mampu membuat XLSX (izin folder, ZIP, atau memori).
+     *
+     * @param array{
+     *     rows: array<int, array<string, int|string>>,
+     *     context: array<string, int|string>
+     * } $report
+     */
+    public function downloadCsvFromReport(array $report): StreamedResponse
+    {
+        $date = (string) $report['context']['as_of_date'];
+        $fileName = 'rekap_stok_'.$date.'_'.now('Asia/Jakarta')->format('His').'.csv';
+
+        return response()->streamDownload(function () use ($report): void {
+            $stream = fopen('php://output', 'wb');
+
+            if ($stream === false) {
+                throw new RuntimeException('Aliran unduhan laporan stok tidak tersedia.');
+            }
+
+            fwrite($stream, "\xEF\xBB\xBF");
+            fputcsv($stream, ['REKAP STOK BARANG'], ';');
+            fputcsv($stream, ['Posisi stok per', $report['context']['as_of_label']], ';');
+            fputcsv($stream, ['Filter', $report['context']['filter_description']], ';');
+            fputcsv($stream, [], ';');
+            fputcsv($stream, self::HEADERS, ';');
+
+            foreach ($report['rows'] as $row) {
+                fputcsv($stream, [
+                    $row['sequence'],
+                    $row['kode_barang'],
+                    $row['nama_barang'],
+                    $row['gudang'],
+                    $row['rak'],
+                    $row['stok_baik'],
+                    $row['stok_rusak'],
+                    $row['stok_hilang'],
+                    $row['stok'],
+                    $row['satuan'],
+                ], ';');
+            }
+
+            fclose($stream);
+        }, $fileName, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
             'Cache-Control' => 'no-store, no-cache, must-revalidate',
             'X-Content-Type-Options' => 'nosniff',
         ]);

@@ -68,4 +68,36 @@ class StockExcelExportServiceTest extends TestCase
         $this->assertStringNotContainsString('->delete(', $history);
         $this->assertStringNotContainsString('->insert(', $history);
     }
+
+    public function test_it_has_a_lightweight_excel_compatible_fallback(): void
+    {
+        $service = new StockExcelExportService(new HistoricalStockService);
+        $response = $service->downloadCsvFromReport([
+            'rows' => [[
+                'sequence' => 1,
+                'kode_barang' => 'BRG-001',
+                'nama_barang' => 'Barang Uji',
+                'gudang' => 'Gudang Utama',
+                'rak' => 'RK1-01',
+                'stok_baik' => 8,
+                'stok_rusak' => 1,
+                'stok_hilang' => 0,
+                'stok' => 9,
+                'satuan' => 'pcs',
+            ]],
+            'context' => [
+                'filter_description' => 'Gudang Utama',
+                'as_of_date' => '2026-08-31',
+                'as_of_label' => '31 Agustus 2026',
+            ],
+        ]);
+
+        ob_start();
+        $response->sendContent();
+        $contents = (string) ob_get_clean();
+
+        $this->assertStringContainsString('attachment; filename=rekap_stok_2026-08-31_', (string) $response->headers->get('content-disposition'));
+        $this->assertStringContainsString('BRG-001;"Barang Uji";"Gudang Utama"', $contents);
+        $this->assertStringStartsWith("\xEF\xBB\xBF", $contents);
+    }
 }
