@@ -120,12 +120,12 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('filled($this->capturedAt) || filled($this->clientCaptureId)', $page);
         $this->assertStringContainsString('public function updateCaptureMetadata', $page);
         $this->assertStringContainsString('public function resolveSessionLocation', $page);
+        $this->assertStringContainsString('public function applyHandayaniTemplateLocation', $page);
         $this->assertStringContainsString('$this->skipRender()', $page);
         $this->assertStringNotContainsString('capture="environment"', $view);
         $this->assertStringNotContainsString('Kamera / Galeri Alternatif', $view);
         $this->assertStringNotContainsString('useDefaultGps', $view);
         $this->assertStringNotContainsString('useDefaultLocation', $page);
-        $this->assertStringNotContainsString('lokasi default', strtolower($view.$page));
         $this->assertStringNotContainsString('window.confirm', $view);
         $this->assertStringNotContainsString('wire:confirm', $view);
         $this->assertStringNotContainsString('target="_blank"', $view);
@@ -161,7 +161,21 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString("route('foto-barang.upload'", $view);
         $this->assertStringNotContainsString('$wire.upload(', $view);
         $this->assertStringNotContainsString('$wire.updateCaptureMetadata(', $view);
-        $this->assertStringContainsString('refreshGps()', $view);
+        $this->assertStringContainsString('async refreshGps(force = true)', $view);
+        $this->assertStringContainsString('useHandayaniTemplateLocation()', $view);
+        $this->assertStringContainsString("this.locationMode === 'template'", $view);
+        $this->assertStringContainsString('Template Handayani', $view);
+        $this->assertStringContainsString('await this.refreshGps(false)', $view);
+        $this->assertStringContainsString("config('foto_barang.handayani_location.latitude'", $page);
+        $this->assertStringContainsString("'foto_barang.handayani_location.address'", $page);
+
+        preg_match(
+            '/async useHandayaniTemplateLocation\(\) \{(.*?)\n\s*\},\n\s*async refreshGps/s',
+            $view,
+            $templateLocationMethod,
+        );
+        $this->assertArrayHasKey(1, $templateLocationMethod);
+        $this->assertStringNotContainsString('navigator.geolocation', $templateLocationMethod[1]);
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
         $this->assertStringContainsString('openServerGallery', $view);

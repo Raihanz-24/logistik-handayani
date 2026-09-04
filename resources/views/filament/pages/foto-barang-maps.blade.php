@@ -11,6 +11,9 @@
             gpsReady: false,
             locating: false,
             resolvingAddress: false,
+            templateApplying: false,
+            locationMode: 'gps',
+            gpsRequestId: 0,
             latitude: @js($latitude),
             longitude: @js($longitude),
             accuracy: @js($accuracy),
@@ -804,7 +807,44 @@
                 this.finishingSession = false;
                 this.finishAllowsEmptyLocal = false;
             },
-            async refreshGps() {
+            async useHandayaniTemplateLocation() {
+                if (this.templateApplying) return false;
+
+                this.gpsRequestId++;
+                this.locating = false;
+                this.resolvingAddress = false;
+                this.templateApplying = true;
+                this.cameraError = '';
+                this.gpsState = 'Mengaktifkan lokasi template Handayani...';
+
+                try {
+                    const location = await $wire.applyHandayaniTemplateLocation();
+                    this.latitude = Number(location.latitude);
+                    this.longitude = Number(location.longitude);
+                    this.accuracy = null;
+                    this.sessionLocation = location.name;
+                    this.sessionAddress = location.address;
+                    this.locationMode = 'template';
+                    this.gpsReady = true;
+                    this.gpsState = 'Lokasi template Handayani aktif';
+
+                    return true;
+                } catch (error) {
+                    this.gpsState = 'Lokasi template Handayani gagal diaktifkan';
+
+                    return false;
+                } finally {
+                    this.templateApplying = false;
+                }
+            },
+            async refreshGps(force = true) {
+                if (! force && this.locationMode === 'template' && this.gpsReady) {
+                    return true;
+                }
+
+                this.locationMode = 'gps';
+                const requestId = ++this.gpsRequestId;
+
                 if (! window.isSecureContext && ! ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
                     this.gpsState = 'GPS membutuhkan koneksi HTTPS';
                     this.gpsReady = false;
@@ -822,6 +862,11 @@
 
                 return await new Promise((resolve) => navigator.geolocation.getCurrentPosition(
                     async (position) => {
+                        if (requestId !== this.gpsRequestId) {
+                            resolve(this.gpsReady);
+                            return;
+                        }
+
                         this.latitude = position.coords.latitude;
                         this.longitude = position.coords.longitude;
                         this.accuracy = Math.max(0, Math.round(position.coords.accuracy));
@@ -834,6 +879,12 @@
                                 this.longitude,
                                 this.accuracy,
                             );
+
+                            if (requestId !== this.gpsRequestId || this.locationMode !== 'gps') {
+                                resolve(this.gpsReady);
+                                return;
+                            }
+
                             this.sessionLocation = location?.name || `Lokasi GPS ${Number(this.latitude).toFixed(6)}, ${Number(this.longitude).toFixed(6)}`;
                             this.sessionAddress = location?.address || `Koordinat ${Number(this.latitude).toFixed(6)}, ${Number(this.longitude).toFixed(6)}`;
                             this.gpsReady = true;
@@ -846,11 +897,18 @@
                             this.gpsState = 'Alamat otomatis gagal dimuat, tekan refresh GPS';
                             resolve(false);
                         } finally {
-                            this.locating = false;
-                            this.resolvingAddress = false;
+                            if (requestId === this.gpsRequestId) {
+                                this.locating = false;
+                                this.resolvingAddress = false;
+                            }
                         }
                     },
                     (error) => {
+                        if (requestId !== this.gpsRequestId) {
+                            resolve(this.gpsReady);
+                            return;
+                        }
+
                         this.gpsReady = false;
                         this.locating = false;
                         this.gpsState = error.code === 1
@@ -886,8 +944,10 @@
                 this.cameraError = '';
                 this.cameraReady = false;
                 this.sessionUuid = sessionUuid;
-                this.sessionLocation = sessionLocation || '';
-                this.sessionAddress = sessionAddress || '';
+                if (this.locationMode !== 'template') {
+                    this.sessionLocation = sessionLocation || '';
+                    this.sessionAddress = sessionAddress || '';
+                }
                 this.initializeCaptureQueue(sessionUuid);
                 await this.loadLocalGallery(sessionUuid);
                 this.cameraOpen = true;
@@ -924,7 +984,7 @@
                         this.cameraReady = false;
                         this.cameraError = 'Stream kamera terputus. Tekan muat ulang kamera.';
                     });
-                    await this.refreshGps();
+                    await this.refreshGps(false);
                 } catch (error) {
                     this.cameraError = 'Kamera tidak dapat dibuka. Periksa izin kamera pada browser.';
                     this.closeCamera(false);
@@ -1276,7 +1336,16 @@
                                 <span x-text="latitude !== null && longitude !== null ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : 'Koordinat akan dicetak pada foto'"></span>
                                 <small x-show="sessionAddress" x-text="sessionAddress" x-cloak></small>
                             </div>
-                            <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating || resolvingAddress">Refresh GPS</button>
+                            <div class="fm-gps__actions">
+                                <button type="button" x-on:click="refreshGps(true)" x-bind:disabled="locating || resolvingAddress || templateApplying">Refresh GPS</button>
+                                <button
+                                    type="button"
+                                    class="fm-gps__template"
+                                    x-on:click="useHandayaniTemplateLocation()"
+                                    x-bind:disabled="templateApplying"
+                                    x-bind:class="locationMode === 'template' && 'is-active'"
+                                >Template Handayani</button>
+                            </div>
                         </div>
 
                         <div class="fm-mode-picker" role="group" aria-label="Pilih penyimpanan foto">
@@ -1370,7 +1439,7 @@
                                 foto tersimpan · <b x-text="captureMode === 'local' ? 'Lokal HP' : 'Server'"></b>
                             </span>
                         </div>
-                        <button type="button" x-on:click="refreshGps()" x-bind:disabled="locating || captureBusy" aria-label="Refresh GPS">
+                        <button type="button" x-on:click="refreshGps(true)" x-bind:disabled="locating || captureBusy || templateApplying" aria-label="Refresh GPS">
                             <x-filament::icon icon="heroicon-m-arrow-path" x-bind:class="locating && 'is-spinning'" />
                         </button>
                     </header>
@@ -1403,6 +1472,20 @@
                         <div class="fm-live-camera__gps" x-bind:class="gpsReady ? 'is-ready' : 'is-warning'">
                             <x-filament::icon icon="heroicon-m-map-pin" />
                             <span x-text="gpsState"></span>
+                            <button
+                                type="button"
+                                x-show="locationMode !== 'template'"
+                                x-on:click="useHandayaniTemplateLocation()"
+                                x-bind:disabled="templateApplying || captureBusy"
+                                x-cloak
+                            >Pakai Template</button>
+                            <button
+                                type="button"
+                                x-show="locationMode === 'template'"
+                                x-on:click="refreshGps(true)"
+                                x-bind:disabled="locating || captureBusy"
+                                x-cloak
+                            >Pakai GPS</button>
                         </div>
 
                         <div class="fm-live-camera__queue" x-show="captureMode === 'server' && (queuedCount > 0 || uploadInProgress)" x-cloak>
@@ -1860,7 +1943,13 @@
         .fm-gps strong { font-size:.73rem; }
         .fm-gps span { color:var(--fm-muted); font-size:.64rem; }
         .fm-gps small { display:-webkit-box; overflow:hidden; margin-top:.12rem; color:var(--fm-muted); font-size:.58rem; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
-        .fm-gps button { border:0; color:#9a6700; background:transparent; font-size:.67rem; font-weight:800; cursor:pointer; }
+        .fm-gps__actions { display:flex !important; flex-wrap:wrap; justify-content:flex-end; gap:.25rem !important; }
+        .fm-gps button { padding:.34rem .48rem; border:0; border-radius:.55rem; color:#9a6700; background:transparent; font-size:.67rem; font-weight:800; cursor:pointer; }
+        .fm-gps button:disabled { opacity:.55; cursor:wait; }
+        .fm-gps .fm-gps__template { color:#9f1239; background:rgba(244,63,94,.08); }
+        .fm-gps .fm-gps__template.is-active { color:#fff; background:#be123c; }
+        .dark .fm-gps .fm-gps__template { color:#fda4af; background:rgba(244,63,94,.15); }
+        .dark .fm-gps .fm-gps__template.is-active { color:#fff; background:#be123c; }
         .fm-mode-picker { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; margin-top:1rem; }
         .fm-mode-picker>button { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.12rem .65rem; align-items:center; padding:.75rem; border:1px solid var(--fm-line); border-radius:.8rem; color:var(--fm-ink); background:var(--fm-soft); text-align:left; cursor:pointer; transition:border-color .15s,box-shadow .15s,background .15s; }
         .fm-mode-picker>button.is-active { border-color:#f59e0b; background:#fff8e6; box-shadow:0 0 0 3px rgba(245,158,11,.12); }
@@ -2090,7 +2179,7 @@
             .fm-form { grid-template-columns:1fr; }
             .fm-form__footer { align-items:stretch; flex-direction:column; }
             .fm-gps { grid-template-columns:auto minmax(0,1fr); }
-            .fm-gps>button { grid-column:1/-1; justify-self:start; }
+            .fm-gps__actions { grid-column:1/-1; justify-content:flex-start; }
             .fm-mode-picker { grid-template-columns:1fr; }
             .fm-photo-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
             .fm-local-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }

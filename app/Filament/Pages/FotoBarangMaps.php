@@ -336,6 +336,61 @@ class FotoBarangMaps extends Page
         return $location;
     }
 
+    /** @return array{name: string, address: string, latitude: float, longitude: float, resolved: bool, mode: string} */
+    public function applyHandayaniTemplateLocation(): array
+    {
+        $latitude = round((float) config('foto_barang.handayani_location.latitude', -7.717710), 7);
+        $longitude = round((float) config('foto_barang.handayani_location.longitude', 113.537297), 7);
+        $location = [
+            'name' => Str::limit(trim((string) config(
+                'foto_barang.handayani_location.name',
+                'Kecamatan Paiton, Jawa Timur, Indonesia',
+            )), 255, ''),
+            'address' => Str::limit(trim((string) config(
+                'foto_barang.handayani_location.address',
+                'Jl. Raya Paiton No. KM 137, Dusun Matikan, Sumberejo, Kec. Paiton, Kabupaten Probolinggo, Jawa Timur 67291, Indonesia',
+            )), 1000, ''),
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'resolved' => true,
+            'mode' => 'template_handayani',
+        ];
+
+        $this->latitude = $latitude;
+        $this->longitude = $longitude;
+        $this->accuracy = null;
+        $this->namaLokasi = $location['name'];
+        $this->alamat = $location['address'];
+
+        $session = $this->findVisibleSession((int) $this->activeSessionId);
+
+        if ($session->isActive()) {
+            $changed = $session->nama_lokasi !== $location['name'] || $session->alamat !== $location['address'];
+
+            if ($changed) {
+                $session->update([
+                    'nama_lokasi' => $location['name'],
+                    'alamat' => $location['address'],
+                ]);
+
+                app(AuditLogger::class)->activity(
+                    'foto_session_location_template',
+                    "Menggunakan lokasi template Handayani untuk sesi foto: {$session->judul}",
+                    auth()->user(),
+                    [
+                        'session_id' => $session->getKey(),
+                        'latitude' => $latitude,
+                        'longitude' => $longitude,
+                    ],
+                );
+            }
+        }
+
+        $this->skipRender();
+
+        return $location;
+    }
+
     public function updateCaptureMetadata(
         float $latitude,
         float $longitude,
