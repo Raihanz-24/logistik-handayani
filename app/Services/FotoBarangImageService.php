@@ -280,7 +280,7 @@ class FotoBarangImageService
         }
 
         try {
-            $this->replaceDateTimeBand($image, $item->session, $revisedAt);
+            $this->replaceDateTimeBand($image, $item, $item->session, $revisedAt);
             $this->writeCompressedJpeg($image, $temporaryPath);
             clearstatcache(true, $temporaryPath);
             $resultInfo = @getimagesize($temporaryPath);
@@ -594,6 +594,7 @@ class FotoBarangImageService
 
     private function replaceDateTimeBand(
         GdImage $image,
+        FotoBarangItem $item,
         FotoBarangSession $session,
         CarbonInterface $revisedAt,
     ): void {
@@ -606,11 +607,12 @@ class FotoBarangImageService
         $dateSize = max(25, (int) round($width * 0.043));
         $locationSize = max(22, (int) round($width * 0.035));
         $detailSize = max(17, (int) round($width * 0.023));
+        $contentWidth = $width - ($margin * 4);
         $addressLines = $this->wrapText(
             (string) $session->alamat,
             $detailSize,
             $fontRegular,
-            $width - ($margin * 4),
+            $contentWidth,
             4,
         );
         $timeRowHeight = max($timeSize, (int) round($dateSize * 2.05));
@@ -618,37 +620,68 @@ class FotoBarangImageService
         $detailGap = max(28, (int) round($detailSize * 1.55));
         $detailLineHeight = max(21, (int) round($detailSize * 1.35));
         $bottomPadding = max(16, (int) round($detailSize * 0.80));
+        $coordinateOffset = $margin
+            + $timeRowHeight
+            + $locationLineHeight
+            + $detailGap
+            + (count($addressLines) * $detailLineHeight)
+            + 4;
         $overlayHeight = min(
             $height - ($margin * 2),
-            $margin
-                + $timeRowHeight
-                + $locationLineHeight
-                + $detailGap
-                + (count($addressLines) * $detailLineHeight)
-                + 4
-                + $bottomPadding,
+            $coordinateOffset + $bottomPadding,
         );
         $overlayTop = $height - $overlayHeight - $margin;
         $overlayLeft = $margin;
         $overlayRight = $width - $margin;
         $contentLeft = $overlayLeft + $margin;
         $contentTop = $overlayTop + $margin;
-        $dark = imagecolorallocate($image, 5, 10, 18);
-        $white = imagecolorallocate($image, 255, 255, 255);
-        $amber = imagecolorallocate($image, 245, 158, 11);
 
+        imagealphablending($image, true);
+
+        $dark = imagecolorallocate($image, 5, 10, 18);
+        $badge = imagecolorallocate($image, 5, 10, 18); // Use solid color for badge too to avoid alpha issues on top of dark
+        $white = imagecolorallocate($image, 255, 255, 255);
+        $softWhite = imagecolorallocate($image, 226, 232, 240);
+        $amber = imagecolorallocate($image, 245, 158, 11);
+        $red = imagecolorallocate($image, 220, 38, 38);
+
+        // Fill the ENTIRE overlay area with solid dark color to erase old text
+        imagefilledrectangle($image, $overlayLeft, $overlayTop, $overlayRight, $height - $margin, $dark);
+
+        $badgeText = 'HANDAYANI MAP CAMERA';
+        $badgeSize = max(14, (int) round($width * 0.018));
+        $badgeWidth = $this->textWidth($badgeText, $badgeSize, $fontBold) + ($margin * 2);
+        $badgeTop = max($margin, $overlayTop - (int) round($badgeSize * 2.25));
         imagefilledrectangle(
             $image,
-            $overlayLeft,
-            $overlayTop,
+            $overlayRight - $badgeWidth,
+            $badgeTop,
             $overlayRight,
-            min($height - $margin, $contentTop + $timeRowHeight + 8),
-            $dark,
+            $overlayTop - 7,
+            $badge,
+        );
+        imagefilledellipse(
+            $image,
+            (int) ($overlayRight - $badgeWidth + ($margin * 0.62)),
+            (int) ($badgeTop + (($overlayTop - 7 - $badgeTop) / 2)),
+            max(8, (int) ($badgeSize * 0.7)),
+            max(8, (int) ($badgeSize * 0.7)),
+            $amber,
+        );
+        $this->drawText(
+            $image,
+            $badgeText,
+            $badgeSize,
+            (int) ($overlayRight - $badgeWidth + $margin),
+            (int) ($overlayTop - 15),
+            $white,
+            $fontBold,
         );
 
         $firstLineBaseline = $contentTop + (int) round(($timeRowHeight + $timeSize) / 2);
         $timeText = $revisedAt->setTimezone('Asia/Jakarta')->format('H:i').' WIB';
         $timeWidth = $this->textWidth($timeText, $timeSize, $fontBold);
+
         $this->drawText($image, $timeText, $timeSize, $contentLeft, $firstLineBaseline, $white, $fontBold);
 
         $separatorX = min(
@@ -665,24 +698,61 @@ class FotoBarangImageService
         );
 
         $dateX = $separatorX + max(18, (int) round($width * 0.018));
+        $dateText = $revisedAt->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('d M Y');
+        $dayText = $revisedAt->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('l');
         $dateBaseline = $contentTop + $dateSize;
+        $this->drawText($image, $dateText, $dateSize, $dateX, $dateBaseline, $white, $fontBold);
         $this->drawText(
             $image,
-            $revisedAt->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('d M Y'),
-            $dateSize,
-            $dateX,
-            $dateBaseline,
-            $white,
-            $fontBold,
-        );
-        $this->drawText(
-            $image,
-            $revisedAt->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('l'),
+            $dayText,
             $dateSize,
             $dateX,
             $dateBaseline + (int) round($dateSize * 1.05),
             $white,
             $fontBold,
+        );
+
+        $locationBaseline = $contentTop + $timeRowHeight + $locationLineHeight;
+        $location = $this->fitText(
+            (string) $session->nama_lokasi,
+            $locationSize,
+            $fontBold,
+            ($overlayRight - $contentLeft) - 50,
+        );
+        $this->drawText($image, $location, $locationSize, $contentLeft, $locationBaseline, $white, $fontBold);
+
+        $flagX = min(
+            $overlayRight - 34,
+            $contentLeft + $this->textWidth($location, $locationSize, $fontBold) + 12,
+        );
+        $flagTop = $locationBaseline - $locationSize;
+        imagefilledrectangle($image, $flagX, $flagTop, $flagX + 28, $flagTop + 10, $red);
+        imagefilledrectangle($image, $flagX, $flagTop + 10, $flagX + 28, $flagTop + 20, $white);
+
+        $detailBaseline = $locationBaseline + $detailGap;
+
+        foreach ($addressLines as $line) {
+            $this->drawText($image, $line, $detailSize, $contentLeft, $detailBaseline, $softWhite, $fontRegular);
+            $detailBaseline += $detailLineHeight;
+        }
+
+        $coordinateText = sprintf('Lat %.6f  Long %.6f', (float) $item->latitude, (float) $item->longitude);
+
+        $coordinateText = $this->fitText(
+            $coordinateText,
+            $detailSize,
+            $fontRegular,
+            ($overlayRight - $contentLeft) - $margin,
+        );
+        $coordinateBaseline = min($height - $margin - $bottomPadding, $detailBaseline + 4);
+        $this->drawText(
+            $image,
+            $coordinateText,
+            $detailSize,
+            $contentLeft,
+            $coordinateBaseline,
+            $softWhite,
+            $fontRegular,
         );
     }
 
