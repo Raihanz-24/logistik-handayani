@@ -19,8 +19,12 @@
             accuracy: @js($accuracy),
             cameraOpen: false,
             cameraStream: null,
+            cameraVideoTrack: null,
             cameraReady: false,
             cameraError: '',
+            torchSupported: false,
+            torchEnabled: false,
+            torchBusy: false,
             captureBusy: false,
             captureMode: 'server',
             verticalCropRatio: @js((float) config('foto_barang.vertical_crop_ratio', 0.045)),
@@ -1126,7 +1130,11 @@
                     await Promise.all([video.play(), this.waitForCameraReady(video)]);
                     this.cameraReady = true;
                     this.persistSessionRecovery(true);
-                    const videoTrack = this.cameraStream.getVideoTracks()[0];
+                    const videoTrack = this.cameraStream.getVideoTracks()[0] || null;
+                    this.cameraVideoTrack = videoTrack;
+                    const videoCapabilities = videoTrack?.getCapabilities?.() || {};
+                    this.torchSupported = Boolean(videoCapabilities.torch && videoTrack?.applyConstraints);
+                    this.torchEnabled = false;
                     videoTrack?.addEventListener('mute', () => {
                         if (! this.cameraOpen) return;
                         this.cameraReady = false;
@@ -1176,7 +1184,11 @@
             closeCamera(clearError = true) {
                 this.cameraStream?.getTracks().forEach((track) => track.stop());
                 this.cameraStream = null;
+                this.cameraVideoTrack = null;
                 this.cameraReady = false;
+                this.torchSupported = false;
+                this.torchEnabled = false;
+                this.torchBusy = false;
                 if (this.$refs.cameraVideo) this.$refs.cameraVideo.srcObject = null;
                 if (this.clockTimer) window.clearInterval(this.clockTimer);
                 this.clockTimer = null;
@@ -1185,13 +1197,33 @@
                 document.body.style.overflow = '';
                 if (clearError) this.cameraError = '';
             },
+            async toggleTorch() {
+                if (this.torchBusy || ! this.torchSupported || ! this.cameraVideoTrack) return;
+
+                this.torchBusy = true;
+                const enable = ! this.torchEnabled;
+
+                try {
+                    await this.cameraVideoTrack.applyConstraints({
+                        advanced: [{ torch: enable }],
+                    });
+                    this.torchEnabled = enable;
+                    this.cameraError = '';
+                } catch (error) {
+                    this.torchEnabled = false;
+                    this.torchSupported = false;
+                    this.cameraError = 'Flash tidak tersedia pada kamera atau browser ini.';
+                } finally {
+                    this.torchBusy = false;
+                }
+            },
             async closeCameraAndRefresh() {
                 this.persistSessionRecovery(false);
                 this.closeCamera();
                 if (! this.uploadInProgress && this.captureQueue.length === 0) {
                     this.scheduleServerRefresh(100);
                 } else {
-                    this.backgroundState = 'Menyelesaikan pengiriman foto ke server...';
+                    this.backgroundState = 'Melanjutkan pengiriman foto ke server...';
                 }
             },
             async restartCamera() {
@@ -1336,17 +1368,6 @@
                 }
 
                 this.cameraError = 'Foto gagal disimpan server. Silakan potret ulang.';
-            },
-            async finishCaptureSession() {
-                if (this.captureBusy) return;
-                this.persistSessionRecovery(false);
-                this.closeCamera();
-                this.finishRequested = true;
-                this.finishAllowsEmptyLocal = this.captureMode === 'local';
-                this.backgroundState = this.captureQueue.length > 0 || this.uploadInProgress
-                    ? 'Menunggu semua foto aman di server sebelum menyelesaikan sesi'
-                    : this.backgroundState;
-                await this.completeFinishIfReady();
             },
             async finishSessionFromPage() {
                 this.persistSessionRecovery(false);
@@ -1822,6 +1843,17 @@
                                 <x-filament::icon icon="heroicon-m-speaker-x-mark" x-show="! beepEnabled" />
                                 <span x-text="beepEnabled ? 'Beep Aktif' : 'Beep Nonaktif'"></span>
                             </button>
+                            <button
+                                type="button"
+                                x-on:click="toggleTorch()"
+                                x-bind:class="torchEnabled && 'is-active'"
+                                x-bind:aria-pressed="torchEnabled"
+                                x-bind:disabled="! torchSupported || torchBusy"
+                                x-bind:title="torchSupported ? 'Hidupkan atau matikan flash kamera' : 'Flash tidak didukung perangkat ini'"
+                            >
+                                <x-filament::icon icon="heroicon-m-bolt" />
+                                <span x-text="torchBusy ? 'Mengatur Flash...' : (torchSupported ? (torchEnabled ? 'Flash Aktif' : 'Flash Nonaktif') : 'Flash Tidak Tersedia')"></span>
+                            </button>
                         </div>
 
                         <div class="fm-live-camera__gps" x-bind:class="gpsReady ? 'is-ready' : 'is-warning'">
@@ -1856,8 +1888,8 @@
                         </div>
 
                         <div class="fm-live-camera__actions">
-                            <button type="button" class="fm-live-camera__finish" x-on:click="finishCaptureSession()" x-bind:disabled="captureBusy">
-                                Selesai
+                            <button type="button" class="fm-live-camera__finish" x-on:click="closeCameraAndRefresh()" x-bind:disabled="captureBusy">
+                                Keluar Kamera
                             </button>
                             <button
                                 type="button"
@@ -2521,9 +2553,10 @@
         .fm-live-camera__flash { position:absolute; z-index:5; inset:0; pointer-events:none; background:#fff; opacity:0; transition:opacity .14s ease-out; }
         .fm-live-camera__flash.is-visible { opacity:.72; transition:none; }
         .fm-live-camera__controls { display:grid; gap:.55rem; padding:.55rem .8rem calc(.65rem + env(safe-area-inset-bottom)); background:#080d14; }
-        .fm-live-camera__preferences { display:flex; justify-content:center; }
+        .fm-live-camera__preferences { display:flex; flex-wrap:wrap; justify-content:center; gap:.4rem; }
         .fm-live-camera__preferences button { display:flex; align-items:center; gap:.3rem; min-height:1.75rem; padding:.28rem .55rem; border:1px solid #475569; border-radius:999px; color:#cbd5e1; background:#111c2a; font-size:.58rem; font-weight:800; }
         .fm-live-camera__preferences button.is-active { border-color:#d69a24; color:#fcd34d; background:#2a2112; }
+        .fm-live-camera__preferences button:disabled { opacity:.48; cursor:not-allowed; }
         .fm-live-camera__preferences svg { width:.85rem; }
         .fm-live-camera__gps { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:1.4rem; color:#fbbf24; font-size:.64rem; font-weight:700; text-align:center; }
         .fm-live-camera__gps.is-ready { color:#86efac; }

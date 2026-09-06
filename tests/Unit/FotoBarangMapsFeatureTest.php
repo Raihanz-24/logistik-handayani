@@ -138,6 +138,13 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('toggleShutterBeep()', $view);
         $this->assertStringContainsString("localStorage.getItem('handayani-foto-maps-beep')", $view);
         $this->assertStringContainsString("beepEnabled ? 'Beep Aktif' : 'Beep Nonaktif'", $view);
+        $this->assertStringContainsString('async toggleTorch()', $view);
+        $this->assertStringContainsString('getCapabilities?.()', $view);
+        $this->assertStringContainsString('advanced: [{ torch: enable }]', $view);
+        $this->assertStringContainsString("torchEnabled ? 'Flash Aktif' : 'Flash Nonaktif'", $view);
+        $this->assertStringContainsString('x-on:click="closeCameraAndRefresh()"', $view);
+        $this->assertStringContainsString('Keluar Kamera', $view);
+        $this->assertStringNotContainsString('finishCaptureSession()', $view);
         $this->assertStringContainsString('closeCameraAndRefresh', $view);
         $this->assertStringContainsString('refreshInProgress', $view);
         $this->assertStringContainsString('x-bind:disabled="refreshInProgress"', $view);
