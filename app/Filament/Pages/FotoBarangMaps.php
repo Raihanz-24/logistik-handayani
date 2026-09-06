@@ -7,6 +7,7 @@ use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\FotoBarangDeletionService;
 use App\Services\FotoBarangImageService;
 use App\Services\ReverseGeocodingService;
 use Carbon\CarbonImmutable;
@@ -491,6 +492,73 @@ class FotoBarangMaps extends Page
         $this->skipRender();
 
         return ['deleted' => true, 'photo_id' => $photoId];
+    }
+
+    /** @return array{deleted: bool, photo_ids: array<int, int>, message?: string} */
+    public function deleteSelectedPhotos(
+        FotoBarangDeletionService $deletionService,
+        array $photoIds,
+        string $confirmation,
+    ): array {
+        $this->skipRender();
+
+        if (Str::lower(trim($confirmation)) !== 'hapus') {
+            return [
+                'deleted' => false,
+                'photo_ids' => [],
+                'message' => 'Ketik hapus untuk mengonfirmasi penghapusan foto terpilih.',
+            ];
+        }
+
+        try {
+            $normalizedIds = collect($photoIds)
+                ->filter(fn (mixed $id): bool => is_int($id) || (is_string($id) && ctype_digit($id)))
+                ->map(fn (int|string $id): int => (int) $id)
+                ->filter(fn (int $id): bool => $id > 0)
+                ->unique()
+                ->values();
+
+            if ($normalizedIds->isEmpty() || $normalizedIds->count() > 100) {
+                throw new \RuntimeException('Pilih antara 1 sampai 100 foto untuk dihapus.');
+            }
+
+            $session = $this->findVisibleSession((int) $this->activeSessionId);
+            $deletedIds = $deletionService->deleteMany($session, $normalizedIds->all());
+
+            app(AuditLogger::class)->activity(
+                'foto_barang_bulk_delete',
+                'Menghapus '.count($deletedIds)." foto dari sesi: {$session->judul}",
+                auth()->user(),
+                [
+                    'session_id' => $session->getKey(),
+                    'photo_ids' => $deletedIds,
+                    'photo_count' => count($deletedIds),
+                ],
+            );
+
+            Notification::make()
+                ->title(count($deletedIds).' foto berhasil dihapus')
+                ->success()
+                ->send();
+
+            return ['deleted' => true, 'photo_ids' => $deletedIds];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            Notification::make()
+                ->title('Foto terpilih gagal dihapus')
+                ->body('File telah dipulihkan jika proses database tidak berhasil. Silakan coba kembali.')
+                ->danger()
+                ->send();
+
+            return [
+                'deleted' => false,
+                'photo_ids' => [],
+                'message' => $exception instanceof \RuntimeException
+                    ? $exception->getMessage()
+                    : 'Penghapusan foto terpilih gagal.',
+            ];
+        }
     }
 
     /** @return array{deleted: bool, uuid: string|null} */

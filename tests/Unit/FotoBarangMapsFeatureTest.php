@@ -103,6 +103,9 @@ class FotoBarangMapsFeatureTest extends TestCase
         $view = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-maps.blade.php');
         $job = (string) file_get_contents($root.'/app/Jobs/ProcessFotoBarangImage.php');
         $imageService = (string) file_get_contents($root.'/app/Services/FotoBarangImageService.php');
+        $deletionService = (string) file_get_contents($root.'/app/Services/FotoBarangDeletionService.php');
+        $controller = (string) file_get_contents($root.'/app/Http/Controllers/FotoBarangMediaController.php');
+        $routes = (string) file_get_contents($root.'/routes/web.php');
 
         $this->assertStringContainsString("Schema::create('foto_barang_sessions'", $migration);
         $this->assertStringContainsString("Schema::create('foto_barang_items'", $migration);
@@ -117,6 +120,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function startSession', $page);
         $this->assertStringContainsString('public function finishSession', $page);
         $this->assertStringContainsString('public function savePhoto', $page);
+        $this->assertStringContainsString('public function deleteSelectedPhotos', $page);
+        $this->assertStringContainsString('foto_barang_bulk_delete', $page);
         $this->assertStringContainsString('filled($this->capturedAt) || filled($this->clientCaptureId)', $page);
         $this->assertStringContainsString('public function updateCaptureMetadata', $page);
         $this->assertStringContainsString('public function resolveSessionLocation', $page);
@@ -202,7 +207,14 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('openServerGallery', $view);
         $this->assertStringContainsString('fm-image-skeleton', $view);
         $this->assertStringContainsString("route('foto-barang.thumbnail'", $view);
-        $this->assertStringContainsString('x-on:click="openServerGallery({{ $loop->index }})"', $view);
+        $this->assertStringContainsString('handleServerPhotoClick({{ $item->id }}, {{ $loop->index }})', $view);
+        $this->assertStringContainsString('startServerPhotoLongPress', $view);
+        $this->assertStringContainsString('selectedServerPhotoIds', $view);
+        $this->assertStringContainsString('Pilih Semua', $view);
+        $this->assertStringContainsString('Unduh Terpilih', $view);
+        $this->assertStringContainsString('Hapus Terpilih', $view);
+        $this->assertStringContainsString('$wire.deleteSelectedPhotos', $view);
+        $this->assertStringContainsString("route('foto-barang.selected-archive'", $view);
         $this->assertStringNotContainsString('x-data="{ imageReady:', $view);
         $this->assertStringNotContainsString('x-on:pointerdown.passive', $view);
         $this->assertStringContainsString('syncServerPhotosFromDom', $view);
@@ -228,6 +240,13 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function stage(', $imageService);
         $this->assertStringContainsString('validateProcessedFile', $imageService);
         $this->assertStringContainsString('foto sumber tetap dipertahankan', $imageService);
+        $this->assertStringContainsString('public function deleteMany', $deletionService);
+        $this->assertStringContainsString("'foto-barang-trash/'", $deletionService);
+        $this->assertStringContainsString('$disk->move($path, $trashPath)', $deletionService);
+        $this->assertStringContainsString('$disk->move($trashPath, $originalPath)', $deletionService);
+        $this->assertStringContainsString('DB::transaction', $deletionService);
+        $this->assertStringContainsString('public function archiveSelected', $controller);
+        $this->assertStringContainsString("->name('foto-barang.selected-archive')", $routes);
 
         preg_match('/x-data="(\{.*?\})"\s*x-init=/s', $view, $alpineData);
         $this->assertArrayHasKey(1, $alpineData, 'Atribut x-data kamera harus tetap utuh.');
@@ -250,5 +269,6 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString("->name('foto-barang.preview')", $routes);
         $this->assertStringContainsString("->name('foto-barang.thumbnail')", $routes);
         $this->assertStringContainsString("->name('foto-barang.archive')", $routes);
+        $this->assertStringContainsString("->name('foto-barang.selected-archive')", $routes);
     }
 }

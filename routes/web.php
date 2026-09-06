@@ -33,4 +33,6 @@ Route::middleware('auth')->prefix('foto-barang-media')->group(function (): void 
         ->name('foto-barang.edit-download');
     Route::get('/{session}/unduh-semua', [FotoBarangMediaController::class, 'archive'])
         ->name('foto-barang.archive');
+    Route::get('/{session}/unduh-terpilih', [FotoBarangMediaController::class, 'archiveSelected'])
+        ->name('foto-barang.selected-archive');
 });

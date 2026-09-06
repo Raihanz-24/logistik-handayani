@@ -215,6 +215,78 @@ class FotoBarangMediaController extends Controller
             ->deleteFileAfterSend(true);
     }
 
+    public function archiveSelected(Request $request, FotoBarangSession $session): BinaryFileResponse
+    {
+        $this->authorizeAccess($request, $session);
+        $validated = $request->validate([
+            'photos' => ['required', 'string', 'max:1200', 'regex:/^\d+(,\d+)*$/'],
+        ], [
+            'photos.required' => 'Pilih minimal satu foto untuk diunduh.',
+            'photos.regex' => 'Daftar foto terpilih tidak valid.',
+        ]);
+        $photoIds = collect(explode(',', $validated['photos']))
+            ->map(fn (string $id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+
+        abort_if($photoIds->isEmpty() || $photoIds->count() > 100, 422, 'Pilih antara 1 sampai 100 foto.');
+
+        $photos = $session->items()
+            ->whereKey($photoIds->all())
+            ->orderBy('urutan')
+            ->get();
+
+        abort_unless($photos->count() === $photoIds->count(), 404, 'Salah satu foto tidak ditemukan pada folder ini.');
+
+        if (! class_exists(ZipArchive::class)) {
+            throw new RuntimeException('Ekstensi ZIP belum aktif pada server.');
+        }
+
+        $directory = storage_path('app/temp-exports');
+
+        if (! is_dir($directory) && ! mkdir($directory, 0775, true) && ! is_dir($directory)) {
+            throw new RuntimeException('Folder sementara unduhan tidak dapat dibuat.');
+        }
+
+        $zipPath = $directory.'/foto-barang-terpilih-'.bin2hex(random_bytes(8)).'.zip';
+        $zip = new ZipArchive;
+
+        if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            throw new RuntimeException('Arsip foto terpilih tidak dapat dibuat.');
+        }
+
+        $addedFiles = 0;
+
+        try {
+            foreach ($photos as $photo) {
+                if ($this->disk()->exists($photo->path)) {
+                    if ($zip->addFile($this->disk()->path($photo->path), $photo->fileName())) {
+                        $addedFiles++;
+                    }
+                }
+            }
+        } finally {
+            $zip->close();
+        }
+
+        if ($addedFiles !== $photos->count()) {
+            @unlink($zipPath);
+
+            throw new RuntimeException('Salah satu file foto tidak tersedia. Tidak ada arsip yang diunduh.');
+        }
+
+        $fileName = Str::slug($session->judul ?: $session->code()).'-foto-terpilih.zip';
+
+        return response()
+            ->download($zipPath, $fileName, [
+                'Content-Type' => 'application/zip',
+                'Cache-Control' => 'no-store, no-cache, must-revalidate',
+                'X-Content-Type-Options' => 'nosniff',
+            ])
+            ->deleteFileAfterSend(true);
+    }
+
     private function authorizeAccess(
         Request $request,
         FotoBarangSession $session,

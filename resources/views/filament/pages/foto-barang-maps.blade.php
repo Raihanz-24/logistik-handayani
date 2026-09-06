@@ -50,6 +50,13 @@
             serverImageLoading: false,
             serverImageError: false,
             galleryTouchStartX: null,
+            serverSelectionMode: false,
+            selectedServerPhotoIds: [],
+            serverPhotoLongPressTimer: null,
+            serverPhotoLongPressTriggered: false,
+            suppressServerPhotoClickUntil: 0,
+            selectedDownloadBusy: false,
+            selectedArchiveUrlTemplate: @js(route('foto-barang.selected-archive', ['session' => '__SESSION_UUID__'], absolute: false)),
             confirmOpen: false,
             confirmType: null,
             confirmTargetId: null,
@@ -107,6 +114,7 @@
             destroy() {
                 window.clearTimeout(this.refreshTimer);
                 window.clearTimeout(this.queueRetryTimer);
+                window.clearTimeout(this.serverPhotoLongPressTimer);
                 this.serverRefreshPending = false;
                 this.serverGalleryOpen = false;
                 this.confirmOpen = false;
@@ -600,6 +608,9 @@
             },
             syncServerPhotos(photos) {
                 this.serverPhotos = Array.isArray(photos) ? photos : [];
+                const availableIds = new Set(this.serverPhotos.map((photo) => Number(photo.id)));
+                this.selectedServerPhotoIds = this.selectedServerPhotoIds.filter((id) => availableIds.has(id));
+                this.serverSelectionMode = this.selectedServerPhotoIds.length > 0;
                 if (this.serverPhotos.length === 0) this.closeServerGallery();
                 if (this.serverPhotoIndex >= this.serverPhotos.length) {
                     this.serverPhotoIndex = Math.max(0, this.serverPhotos.length - 1);
@@ -618,6 +629,103 @@
                     this.syncServerPhotos([]);
                     this.backgroundState = 'Daftar foto perlu dimuat ulang.';
                 }
+            },
+            isServerPhotoSelected(photoId) {
+                return this.selectedServerPhotoIds.includes(Number(photoId));
+            },
+            toggleServerPhotoSelection(photoId) {
+                const id = Number(photoId);
+                if (! Number.isInteger(id) || id < 1 || ! this.serverPhotos.some((photo) => Number(photo.id) === id)) return;
+                if (this.selectedServerPhotoIds.includes(id)) {
+                    this.selectedServerPhotoIds = this.selectedServerPhotoIds.filter((selectedId) => selectedId !== id);
+                } else if (this.selectedServerPhotoIds.length < 100) {
+                    this.selectedServerPhotoIds = [...this.selectedServerPhotoIds, id];
+                } else {
+                    this.backgroundState = 'Maksimal 100 foto dapat dipilih sekaligus.';
+                }
+                this.serverSelectionMode = this.selectedServerPhotoIds.length > 0;
+                if (! this.serverSelectionMode && this.serverRefreshPending) this.scheduleServerRefresh(100);
+            },
+            startServerPhotoLongPress(photoId) {
+                if (this.serverSelectionMode) return;
+                window.clearTimeout(this.serverPhotoLongPressTimer);
+                this.serverPhotoLongPressTriggered = false;
+                this.serverPhotoLongPressTimer = window.setTimeout(() => {
+                    this.serverPhotoLongPressTriggered = true;
+                    this.serverSelectionMode = true;
+                    this.toggleServerPhotoSelection(photoId);
+                    navigator.vibrate?.(30);
+                }, 520);
+            },
+            cancelServerPhotoLongPress() {
+                window.clearTimeout(this.serverPhotoLongPressTimer);
+                this.serverPhotoLongPressTimer = null;
+                if (this.serverPhotoLongPressTriggered) {
+                    this.suppressServerPhotoClickUntil = Date.now() + 600;
+                }
+            },
+            handleServerPhotoClick(photoId, index) {
+                if (Date.now() < this.suppressServerPhotoClickUntil) {
+                    this.serverPhotoLongPressTriggered = false;
+                    return;
+                }
+                if (this.serverSelectionMode) {
+                    this.toggleServerPhotoSelection(photoId);
+                    return;
+                }
+                this.openServerGallery(index);
+            },
+            selectAllServerPhotos() {
+                this.selectedServerPhotoIds = this.serverPhotos
+                    .map((photo) => Number(photo.id))
+                    .filter((id) => Number.isInteger(id) && id > 0)
+                    .slice(0, 100);
+                this.serverSelectionMode = this.selectedServerPhotoIds.length > 0;
+                if (this.serverPhotos.length > 100) {
+                    this.backgroundState = '100 foto pertama dipilih. Batas maksimal aksi massal adalah 100 foto.';
+                }
+            },
+            beginServerPhotoSelection() {
+                this.serverSelectionMode = true;
+                this.selectedServerPhotoIds = [];
+            },
+            clearServerPhotoSelection() {
+                window.clearTimeout(this.serverPhotoLongPressTimer);
+                this.serverPhotoLongPressTimer = null;
+                this.serverPhotoLongPressTriggered = false;
+                this.serverSelectionMode = false;
+                this.selectedServerPhotoIds = [];
+                if (this.serverRefreshPending) this.scheduleServerRefresh(100);
+            },
+            requestDeleteSelectedServerPhotos() {
+                if (this.selectedServerPhotoIds.length < 1) return;
+                this.openConfirm({
+                    type: 'server-photos',
+                    targetId: this.selectedServerPhotoIds.join(','),
+                    title: `Hapus ${this.selectedServerPhotoIds.length} foto terpilih?`,
+                    message: 'Semua foto terpilih akan dihapus permanen dari folder dan server.',
+                    requiresText: true,
+                });
+            },
+            downloadSelectedServerPhotos() {
+                if (! this.sessionUuid || this.selectedServerPhotoIds.length < 1 || this.selectedDownloadBusy) return;
+                const ids = this.selectedServerPhotoIds
+                    .map((id) => Number(id))
+                    .filter((id) => Number.isInteger(id) && id > 0)
+                    .slice(0, 100);
+                if (ids.length < 1) return;
+                this.selectedDownloadBusy = true;
+                const url = this.selectedArchiveUrlTemplate.replace(
+                    '__SESSION_UUID__',
+                    encodeURIComponent(this.sessionUuid),
+                ) + `?photos=${encodeURIComponent(ids.join(','))}`;
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = '';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.setTimeout(() => this.selectedDownloadBusy = false, 1800);
             },
             openServerGallery(index = 0) {
                 window.clearTimeout(this.refreshTimer);
@@ -766,8 +874,10 @@
                 const targetId = dialog?.dataset.deleteTargetId || this.confirmTargetId;
                 const targetUuid = dialog?.dataset.deleteTargetUuid || this.confirmTargetUuid;
                 const confirmation = String(this.$refs.confirmTextInput?.value ?? this.confirmInput).trim();
-                if (deleteType === 'folder' && confirmation.toLowerCase() !== 'hapus') {
-                    this.confirmMessage = 'Ketik hapus dengan lengkap untuk menghapus seluruh folder.';
+                if (['folder', 'server-photos'].includes(deleteType) && confirmation.toLowerCase() !== 'hapus') {
+                    this.confirmMessage = deleteType === 'folder'
+                        ? 'Ketik hapus dengan lengkap untuk menghapus seluruh folder.'
+                        : 'Ketik hapus dengan lengkap untuk menghapus foto terpilih.';
                     return;
                 }
                 this.confirmBusy = true;
@@ -782,6 +892,21 @@
                         if (! result?.deleted) throw new Error('Server belum menghapus foto.');
                         this.serverPhotos = this.serverPhotos.filter((photo) => photo.id !== photoId);
                         if (this.serverPhotos.length === 0) this.closeServerGallery();
+                        this.serverPhotoIndex = Math.min(this.serverPhotoIndex, Math.max(0, this.serverPhotos.length - 1));
+                        refreshAfterDelete = true;
+                    } else if (deleteType === 'server-photos') {
+                        const photoIds = String(targetId || '')
+                            .split(',')
+                            .map((id) => Number(id))
+                            .filter((id) => Number.isInteger(id) && id > 0)
+                            .slice(0, 100);
+                        if (photoIds.length < 1) throw new Error('Daftar foto terpilih tidak valid.');
+                        const result = await $wire.deleteSelectedPhotos(photoIds, confirmation);
+                        if (! result?.deleted) throw new Error(result?.message || 'Server belum menghapus foto terpilih.');
+                        const deletedIds = new Set((result.photo_ids || photoIds).map((id) => Number(id)));
+                        this.serverPhotos = this.serverPhotos.filter((photo) => ! deletedIds.has(Number(photo.id)));
+                        this.serverCapturedCount = Math.max(0, this.serverCapturedCount - deletedIds.size);
+                        this.clearServerPhotoSelection();
                         this.serverPhotoIndex = Math.min(this.serverPhotoIndex, Math.max(0, this.serverPhotos.length - 1));
                         refreshAfterDelete = true;
                     } else if (deleteType === 'local-photo') {
@@ -837,12 +962,12 @@
             },
             scheduleServerRefresh(delay = 350) {
                 window.clearTimeout(this.refreshTimer);
-                if (this.serverGalleryOpen || this.confirmOpen || this.localPreviewUrl) {
+                if (this.serverGalleryOpen || this.confirmOpen || this.localPreviewUrl || this.serverSelectionMode) {
                     this.serverRefreshPending = true;
                     return;
                 }
                 this.refreshTimer = window.setTimeout(async () => {
-                    if (this.serverGalleryOpen || this.confirmOpen || this.localPreviewUrl) {
+                    if (this.serverGalleryOpen || this.confirmOpen || this.localPreviewUrl || this.serverSelectionMode) {
                         this.serverRefreshPending = true;
                     } else if (! this.cameraOpen && ! this.uploadInProgress && this.captureQueue.length === 0) {
                         this.serverRefreshPending = false;
@@ -1934,9 +2059,44 @@
                     <div>
                         <span class="fm-section-kicker">Penyimpanan server</span>
                         <h2>{{ $activeSession->items_count }} foto di server</h2>
-                        <p>Foto terbaru berada di urutan paling awal.</p>
+                        <p>Foto terbaru berada di urutan paling awal. Tekan lama foto untuk memilih beberapa.</p>
                     </div>
-                    <x-filament::icon icon="heroicon-o-photo" />
+                    <div class="fm-server-heading-actions">
+                        @if (! $activeSession->items->isEmpty())
+                            <button type="button" x-show="! serverSelectionMode" x-on:click="beginServerPhotoSelection()">
+                                <x-filament::icon icon="heroicon-m-check-circle" /> Pilih Foto
+                            </button>
+                        @endif
+                        <x-filament::icon icon="heroicon-o-photo" />
+                    </div>
+                </div>
+
+                <div class="fm-server-selection" x-show="serverSelectionMode" x-cloak>
+                    <div>
+                        <x-filament::icon icon="heroicon-m-check-circle" />
+                        <strong><span x-text="selectedServerPhotoIds.length"></span> foto dipilih</strong>
+                    </div>
+                    <div>
+                        <button type="button" x-on:click="selectAllServerPhotos()">Pilih Semua</button>
+                        <button type="button" x-on:click="clearServerPhotoSelection()">Batal</button>
+                        <button
+                            type="button"
+                            class="is-download"
+                            x-on:click="downloadSelectedServerPhotos()"
+                            x-bind:disabled="selectedServerPhotoIds.length < 1 || selectedDownloadBusy"
+                        >
+                            <x-filament::icon icon="heroicon-m-arrow-down-tray" />
+                            <span x-text="selectedDownloadBusy ? 'Menyiapkan ZIP...' : 'Unduh Terpilih'"></span>
+                        </button>
+                        <button
+                            type="button"
+                            class="is-delete"
+                            x-on:click="requestDeleteSelectedServerPhotos()"
+                            x-bind:disabled="selectedServerPhotoIds.length < 1"
+                        >
+                            <x-filament::icon icon="heroicon-m-trash" /> Hapus Terpilih
+                        </button>
+                    </div>
                 </div>
 
                 @if ($activeSession->items->isEmpty())
@@ -1955,11 +2115,20 @@
                                 $downloadUrl = route('foto-barang.download', [$activeSession, $item]);
                             @endphp
 
-                            <article class="fm-photo-card" wire:key="foto-barang-{{ $item->id }}">
+                            <article
+                                class="fm-photo-card"
+                                x-bind:class="isServerPhotoSelected({{ $item->id }}) && 'is-selected'"
+                                wire:key="foto-barang-{{ $item->id }}"
+                            >
                                 <button
                                     type="button"
                                     class="fm-photo-card__image"
-                                    x-on:click="openServerGallery({{ $loop->index }})"
+                                    x-on:pointerdown="startServerPhotoLongPress({{ $item->id }})"
+                                    x-on:pointerup="cancelServerPhotoLongPress()"
+                                    x-on:pointercancel="cancelServerPhotoLongPress()"
+                                    x-on:pointerleave="cancelServerPhotoLongPress()"
+                                    x-on:contextmenu.prevent
+                                    x-on:click="handleServerPhotoClick({{ $item->id }}, {{ $loop->index }})"
                                 >
                                     <span class="fm-image-skeleton" aria-hidden="true"><small>Pratinjau belum tersedia</small></span>
                                     <img
@@ -1969,8 +2138,14 @@
                                         decoding="async"
                                         x-on:load="$el.classList.add('is-ready'); $el.parentElement.classList.add('is-image-ready')"
                                         x-on:error="$el.parentElement.classList.add('is-image-failed')"
+                                        draggable="false"
                                     >
                                     <span class="fm-photo-sequence">#{{ str_pad((string) $item->urutan, 2, '0', STR_PAD_LEFT) }}</span>
+                                    <span class="fm-photo-selection" x-show="serverSelectionMode" x-cloak>
+                                        <i x-bind:class="isServerPhotoSelected({{ $item->id }}) && 'is-checked'">
+                                            <x-filament::icon icon="heroicon-m-check" x-show="isServerPhotoSelected({{ $item->id }})" x-cloak />
+                                        </i>
+                                    </span>
                                 </button>
 
                                 <div class="fm-photo-card__body">
@@ -1986,7 +2161,7 @@
                                     <small>{{ number_format((float) $item->latitude, 6) }}, {{ number_format((float) $item->longitude, 6) }}</small>
                                 </div>
 
-                                <div class="fm-photo-card__actions">
+                                <div class="fm-photo-card__actions" x-show="! serverSelectionMode" x-cloak>
                                     <button
                                         type="button"
                                         x-on:click="sharePhoto(@js($previewUrl), @js($downloadUrl), @js($item->fileName()))"
@@ -2294,6 +2469,11 @@
         .fm-section-heading p { margin:.3rem 0 0; color:var(--fm-muted); font-size:.76rem; line-height:1.5; }
         .fm-section-heading>svg { width:2.2rem; height:2.2rem; padding:.5rem; border-radius:.7rem; color:#b77905; background:#fff5d8; }
         .dark .fm-section-heading>svg { color:#fbbf24; background:#2d281c; }
+        .fm-server-heading-actions { display:flex; align-items:center; gap:.5rem; }
+        .fm-server-heading-actions>svg { width:2.2rem; height:2.2rem; padding:.5rem; border-radius:.7rem; color:#b77905; background:#fff5d8; }
+        .dark .fm-server-heading-actions>svg { color:#fbbf24; background:#2d281c; }
+        .fm-server-heading-actions>button { display:flex; align-items:center; gap:.3rem; min-height:2.2rem; padding:.45rem .65rem; border:1px solid var(--fm-line); border-radius:.65rem; color:var(--fm-ink); background:var(--fm-soft); font-size:.63rem; font-weight:800; }
+        .fm-server-heading-actions>button svg { width:.9rem; color:#b77905; }
         .fm-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; margin-top:1.2rem; }
         .fm-field { display:grid; gap:.4rem; }
         .fm-field--full { grid-column:1/-1; }
@@ -2427,11 +2607,28 @@
         .fm-empty span,.fm-empty--small { font-size:.68rem; }
         .fm-empty--small { padding:1.2rem; }
         .fm-photo-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.9rem; }
-        .fm-photo-card { overflow:hidden; border:1px solid var(--fm-line); border-radius:.9rem; background:var(--fm-soft); }
-        .fm-photo-card__image { position:relative; display:block; width:100%; aspect-ratio:4/5; overflow:hidden; padding:0; border:0; background:#0f172a; cursor:pointer; }
+        .fm-server-selection { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.7rem .8rem; border:1px solid #bfdbfe; border-radius:.8rem; background:#eff6ff; }
+        .dark .fm-server-selection { border-color:#244d78; background:#102a44; }
+        .fm-server-selection>div { display:flex; align-items:center; flex-wrap:wrap; gap:.4rem; }
+        .fm-server-selection>div:first-child { color:#1d4ed8; font-size:.72rem; }
+        .dark .fm-server-selection>div:first-child { color:#bfdbfe; }
+        .fm-server-selection>div:first-child svg { width:1.05rem; }
+        .fm-server-selection button { display:flex; align-items:center; justify-content:center; gap:.28rem; min-height:2.15rem; padding:.4rem .55rem; border:1px solid #bfdbfe; border-radius:.55rem; color:#1e40af; background:#fff; font-size:.62rem; font-weight:800; }
+        .dark .fm-server-selection button { border-color:#31587e; color:#dbeafe; background:#122238; }
+        .fm-server-selection button svg { width:.85rem; }
+        .fm-server-selection button.is-download { border-color:#2563eb; color:#fff; background:#2563eb; }
+        .fm-server-selection button.is-delete { border-color:#dc2626; color:#fff; background:#dc2626; }
+        .fm-server-selection button:disabled { opacity:.45; cursor:not-allowed; }
+        .fm-photo-card { overflow:hidden; border:1px solid var(--fm-line); border-radius:.9rem; background:var(--fm-soft); transition:border-color .15s,box-shadow .15s,transform .15s; }
+        .fm-photo-card.is-selected { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.17); transform:translateY(-1px); }
+        .fm-photo-card__image { position:relative; display:block; width:100%; aspect-ratio:4/5; overflow:hidden; padding:0; border:0; background:#0f172a; cursor:pointer; touch-action:pan-y; user-select:none; -webkit-touch-callout:none; }
         .fm-photo-card__image img { width:100%; height:100%; object-fit:contain; opacity:0; transform:scale(1.015); transition:opacity .24s ease,transform .32s ease; }
         .fm-photo-card__image img.is-ready { opacity:1; transform:scale(1); }
         .fm-photo-card__image>.fm-photo-sequence { position:absolute; z-index:3; top:.55rem; left:.55rem; padding:.3rem .45rem; border-radius:.5rem; color:#1f1708; background:#fbbf24; font-size:.62rem; font-weight:850; }
+        .fm-photo-selection { position:absolute; z-index:4; top:.5rem; right:.5rem; display:grid; place-items:center; width:1.75rem; height:1.75rem; border-radius:50%; background:rgba(15,23,42,.72); }
+        .fm-photo-selection i { display:grid; place-items:center; width:1.2rem; height:1.2rem; border:2px solid #fff; border-radius:50%; color:#fff; background:transparent; }
+        .fm-photo-selection i.is-checked { border-color:#2563eb; background:#2563eb; }
+        .fm-photo-selection svg { width:.75rem; }
         .fm-image-skeleton { position:absolute; z-index:1; inset:0; display:grid; place-items:center; background:linear-gradient(110deg,#172235 8%,#26354a 22%,#172235 36%); background-size:220% 100%; animation:fm-skeleton 1.25s ease-in-out infinite; opacity:1; transition:opacity .18s ease; pointer-events:none; }
         .fm-image-skeleton::after { content:''; position:absolute; right:16%; bottom:18%; left:16%; height:30%; border-radius:.7rem; background:rgba(255,255,255,.055); }
         .fm-image-skeleton small { display:none; position:relative; z-index:1; padding:1rem; color:#94a3b8; font-size:.61rem; font-weight:700; }
@@ -2586,6 +2783,11 @@
             .fm-flow span { font-size:.57rem; }
             .fm-flow b { width:1.7rem; height:1.7rem; }
             .fm-start-card,.fm-capture-card,.fm-template-preview,.fm-gallery,.fm-history { padding:.9rem; border-radius:.9rem; }
+            .fm-section-heading { align-items:flex-start; }
+            .fm-server-heading-actions>svg { display:none; }
+            .fm-server-heading-actions>button { white-space:nowrap; }
+            .fm-server-selection { align-items:stretch; flex-direction:column; }
+            .fm-server-selection>div:last-child { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
             .fm-session-header { align-items:flex-start; flex-direction:column; padding:.9rem; }
             .fm-session-actions { width:100%; justify-content:flex-start; }
             .fm-recovery { grid-template-columns:auto minmax(0,1fr); }
