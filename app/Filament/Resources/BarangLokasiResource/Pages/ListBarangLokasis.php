@@ -4,6 +4,7 @@ namespace App\Filament\Resources\BarangLokasiResource\Pages;
 
 use App\Filament\Resources\BarangLokasiResource;
 use App\Models\BarangLokasi;
+use App\Services\DashboardCacheService;
 use App\Services\HistoricalStockService;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,6 +18,8 @@ class ListBarangLokasis extends ListRecords
     /** @var array<int, string> */
     #[Url(as: 'gudang')]
     public array $gudangAktif = [];
+
+    public bool $isStockSummaryLoaded = false;
 
     /** @var array<string, array<string, array<string, int|null>>> */
     private array $historicalTableSnapshots = [];
@@ -72,6 +75,11 @@ class ListBarangLokasis extends ListRecords
         $this->gudangAktif = [];
         $this->resetPage();
         $this->flushCachedTableRecords();
+    }
+
+    public function loadStockSummary(): void
+    {
+        $this->isStockSummaryLoaded = true;
     }
 
     /** @return array<string, array{label: string, keyword: string}> */
@@ -158,28 +166,31 @@ class ListBarangLokasis extends ListRecords
     /** @return array<string, array{label: string, jumlah_barang: int, stok: int, baik: int, rusak: int, hilang: int}> */
     public function ringkasanGudang(): array
     {
-        return collect(self::GUDANG_CEPAT)
-            ->mapWithKeys(function (array $gudang, string $key): array {
-                $ringkasan = BarangLokasi::query()
-                    ->whereHas('lokasi', fn (Builder $query): Builder => $query
-                        ->where('nama_lokasi', 'like', "%{$gudang['keyword']}%"))
-                    ->selectRaw('COUNT(DISTINCT barang_id) as jumlah_barang')
-                    ->selectRaw('COALESCE(SUM(stok), 0) as stok')
-                    ->selectRaw('COALESCE(SUM(stok_baik), 0) as baik')
-                    ->selectRaw('COALESCE(SUM(stok_rusak), 0) as rusak')
-                    ->selectRaw('COALESCE(SUM(stok_hilang), 0) as hilang')
-                    ->first();
+        return app(DashboardCacheService::class)->remember(
+            'stock-page:warehouse-summary:v1',
+            fn (): array => collect(self::GUDANG_CEPAT)
+                ->mapWithKeys(function (array $gudang, string $key): array {
+                    $ringkasan = BarangLokasi::query()
+                        ->whereHas('lokasi', fn (Builder $query): Builder => $query
+                            ->where('nama_lokasi', 'like', "%{$gudang['keyword']}%"))
+                        ->selectRaw('COUNT(DISTINCT barang_id) as jumlah_barang')
+                        ->selectRaw('COALESCE(SUM(stok), 0) as stok')
+                        ->selectRaw('COALESCE(SUM(stok_baik), 0) as baik')
+                        ->selectRaw('COALESCE(SUM(stok_rusak), 0) as rusak')
+                        ->selectRaw('COALESCE(SUM(stok_hilang), 0) as hilang')
+                        ->first();
 
-                return [$key => [
-                    'label' => $gudang['label'],
-                    'jumlah_barang' => (int) ($ringkasan?->jumlah_barang ?? 0),
-                    'stok' => (int) ($ringkasan?->stok ?? 0),
-                    'baik' => (int) ($ringkasan?->baik ?? 0),
-                    'rusak' => (int) ($ringkasan?->rusak ?? 0),
-                    'hilang' => (int) ($ringkasan?->hilang ?? 0),
-                ]];
-            })
-            ->all();
+                    return [$key => [
+                        'label' => $gudang['label'],
+                        'jumlah_barang' => (int) ($ringkasan?->jumlah_barang ?? 0),
+                        'stok' => (int) ($ringkasan?->stok ?? 0),
+                        'baik' => (int) ($ringkasan?->baik ?? 0),
+                        'rusak' => (int) ($ringkasan?->rusak ?? 0),
+                        'hilang' => (int) ($ringkasan?->hilang ?? 0),
+                    ]];
+                })
+                ->all(),
+        );
     }
 
     protected function getTableQuery(): ?Builder

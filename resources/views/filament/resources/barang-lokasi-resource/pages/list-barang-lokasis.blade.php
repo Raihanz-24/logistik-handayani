@@ -4,10 +4,12 @@
         'fi-resource-' . str_replace('/', '-', $this->getResource()::getSlug()),
     ])
 >
-    @php($ringkasanGudang = $this->ringkasanGudang())
-
     <div class="stock-page-layout">
-        <section class="stock-overview" aria-labelledby="stock-overview-title">
+        <section
+            class="stock-overview"
+            aria-labelledby="stock-overview-title"
+            @if (! $isStockSummaryLoaded) wire:init="loadStockSummary" @endif
+        >
             <div class="stock-overview-heading">
                 <div>
                     <h2 id="stock-overview-title">Ringkasan Stok Gudang</h2>
@@ -21,11 +23,14 @@
                 @endif
             </div>
 
-            <div class="stock-summary-grid">
-                @foreach ($ringkasanGudang as $key => $ringkasan)
-                    @php($aktif = in_array($key, $gudangAktif, true))
+            @if ($isStockSummaryLoaded)
+                @php($ringkasanGudang = $this->ringkasanGudang())
 
-                    <article @class(['stock-summary-card', 'is-active' => $aktif])>
+                <div class="stock-summary-grid">
+                    @foreach ($ringkasanGudang as $key => $ringkasan)
+                        @php($aktif = in_array($key, $gudangAktif, true))
+
+                        <article @class(['stock-summary-card', 'is-active' => $aktif])>
                         <div class="stock-summary-card-heading">
                             <div>
                                 <span class="stock-summary-label">{{ $ringkasan['label'] }}</span>
@@ -48,19 +53,29 @@
                             <div><dt>Rusak</dt><dd>{{ number_format($ringkasan['rusak'], 0, ',', '.') }}</dd></div>
                             <div><dt>Hilang</dt><dd>{{ number_format($ringkasan['hilang'], 0, ',', '.') }}</dd></div>
                         </dl>
-                    </article>
-                @endforeach
-            </div>
+                        </article>
+                    @endforeach
+                </div>
 
-            <p class="stock-filter-hint">
-                @if (count($gudangAktif) === 2)
+                <p class="stock-filter-hint">
+                    @if (count($gudangAktif) === 2)
                     Menampilkan stok Gudang Dapur dan Gudang Utama.
-                @elseif (count($gudangAktif) === 1)
+                    @elseif (count($gudangAktif) === 1)
                     Filter aktif: {{ $ringkasanGudang[$gudangAktif[0]]['label'] }}.
-                @else
+                    @else
                     Semua gudang sedang ditampilkan.
-                @endif
-            </p>
+                    @endif
+                </p>
+            @else
+                <div class="stock-summary-grid" aria-label="Memuat ringkasan stok" aria-busy="true">
+                    @foreach (range(1, 2) as $placeholder)
+                        <div class="stock-summary-skeleton" aria-hidden="true">
+                            <i></i><b></b><span></span>
+                            <div><small></small><small></small><small></small></div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
         </section>
 
         <x-filament-panels::resources.tabs />

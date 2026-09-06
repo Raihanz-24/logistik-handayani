@@ -20,7 +20,11 @@ class StockPageUsabilityTest extends TestCase
         $this->assertStringContainsString("'utama' => ['label' => 'Gudang Utama'", $page);
         $this->assertStringContainsString('public function toggleGudang', $page);
         $this->assertStringContainsString('public function ringkasanGudang', $page);
+        $this->assertStringContainsString('public function loadStockSummary', $page);
+        $this->assertStringContainsString('DashboardCacheService::class', $page);
         $this->assertStringContainsString('Ringkasan Stok Gudang', $view);
+        $this->assertStringContainsString('wire:init="loadStockSummary"', $view);
+        $this->assertStringContainsString('stock-summary-skeleton', $view);
         $this->assertStringContainsString('wire:click="toggleGudang', $view);
     }
 
@@ -87,5 +91,7 @@ class StockPageUsabilityTest extends TestCase
         );
 
         $this->assertStringContainsString('->deferLoading()', $resource);
+        $this->assertStringContainsString("'loading' => 'lazy'", $resource);
+        $this->assertStringContainsString("'decoding' => 'async'", $resource);
     }
 }

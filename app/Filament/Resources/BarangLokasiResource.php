@@ -90,7 +90,12 @@ class BarangLokasiResource extends Resource
                     ->tooltip(fn (BarangLokasi $record): string => filled($record->barang?->gambar)
                         ? 'Klik untuk melihat gambar'
                         : 'Gambar belum tersedia')
-                    ->extraImgAttributes(['style' => 'cursor: zoom-in;'])
+                    ->extraImgAttributes([
+                        'style' => 'cursor: zoom-in;',
+                        'loading' => 'lazy',
+                        'decoding' => 'async',
+                        'fetchpriority' => 'low',
+                    ])
                     ->toggleable()
                     ->action(
                         Action::make('preview-gambar-stok')
