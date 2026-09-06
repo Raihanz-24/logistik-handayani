@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-BL1HKfCL.css",
+    "file": "assets/app-DI_WH07h.css",
     "src": "resources/css/app.css",
     "isEntry": true
   },
@@ -13,6 +13,18 @@
     "file": "assets/app-CAiCLEjY.js",
     "name": "app",
     "src": "resources/js/app.js",
+    "isEntry": true
+  },
+  "resources/js/foto-barang-folder.js": {
+    "file": "assets/foto-barang-folder-CRgM-QY6.js",
+    "name": "foto-barang-folder",
+    "src": "resources/js/foto-barang-folder.js",
+    "isEntry": true
+  },
+  "resources/js/foto-barang-maps.js": {
+    "file": "assets/foto-barang-maps-BUoC0IaK.js",
+    "name": "foto-barang-maps",
+    "src": "resources/js/foto-barang-maps.js",
     "isEntry": true
   }
 }

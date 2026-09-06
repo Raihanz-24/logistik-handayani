@@ -639,9 +639,10 @@ class FotoBarangMaps extends Page
     public function openSession(int $sessionId): void
     {
         $session = $this->findVisibleSession($sessionId);
-        $this->activeSessionId = (int) $session->getKey();
-        $this->reset('photo');
-        $this->uploadKey++;
+        $this->redirect(
+            FotoBarangFolder::getUrl(['session' => $session->uuid]),
+            navigate: true,
+        );
     }
 
     public function newSession(): void
@@ -670,7 +671,6 @@ class FotoBarangMaps extends Page
         }
 
         return $this->visibleSessionsQuery()
-            ->with(['items' => fn ($query) => $query->reorder()->latest('urutan')])
             ->withCount('items')
             ->find($this->activeSessionId);
     }

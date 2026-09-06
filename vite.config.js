@@ -9,6 +9,8 @@ export default defineConfig({
                 'resources/css/app.css',
                 'resources/css/filament-dashboard.css',
                 'resources/js/app.js',
+                'resources/js/foto-barang-maps.js',
+                'resources/js/foto-barang-folder.js',
             ],
             refresh: true,
         }),

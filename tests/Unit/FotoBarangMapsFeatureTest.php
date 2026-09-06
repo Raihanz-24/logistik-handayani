@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Filament\Pages\FotoBarangFolder;
 use App\Http\Controllers\FotoBarangMediaController;
 use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
@@ -100,7 +101,12 @@ class FotoBarangMapsFeatureTest extends TestCase
             $root.'/database/migrations/2026_09_02_020000_add_client_capture_id_to_foto_barang_items.php',
         );
         $page = (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangMaps.php');
-        $view = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-maps.blade.php');
+        $mainView = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-maps.blade.php');
+        $cameraScript = (string) file_get_contents($root.'/resources/js/foto-barang-maps.js');
+        $folderPage = (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangFolder.php');
+        $folderView = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-folder.blade.php');
+        $folderScript = (string) file_get_contents($root.'/resources/js/foto-barang-folder.js');
+        $view = implode("\n", [$mainView, $cameraScript, $folderView, $folderScript]);
         $job = (string) file_get_contents($root.'/app/Jobs/ProcessFotoBarangImage.php');
         $imageService = (string) file_get_contents($root.'/app/Services/FotoBarangImageService.php');
         $deletionService = (string) file_get_contents($root.'/app/Services/FotoBarangDeletionService.php');
@@ -207,18 +213,18 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('openServerGallery', $view);
         $this->assertStringContainsString('fm-image-skeleton', $view);
         $this->assertStringContainsString("route('foto-barang.thumbnail'", $view);
-        $this->assertStringContainsString('handleServerPhotoClick({{ $item->id }}, {{ $loop->index }})', $view);
-        $this->assertStringContainsString('startServerPhotoLongPress', $view);
-        $this->assertStringContainsString('selectedServerPhotoIds', $view);
-        $this->assertStringContainsString('Pilih Semua', $view);
+        $this->assertStringContainsString('handlePhotoClick({{ $photo->id }}, {{ $loop->index }})', $folderView);
+        $this->assertStringContainsString('startLongPress', $folderScript);
+        $this->assertStringContainsString('selectedIds', $folderScript);
+        $this->assertStringContainsString('Pilih halaman ini', $folderView);
         $this->assertStringContainsString('Unduh Terpilih', $view);
-        $this->assertStringContainsString('Hapus Terpilih', $view);
-        $this->assertStringContainsString('$wire.deleteSelectedPhotos', $view);
+        $this->assertStringContainsString('Hapus', $folderView);
+        $this->assertStringContainsString('this.$wire.deleteSelectedPhotos', $folderScript);
         $this->assertStringContainsString("route('foto-barang.selected-archive'", $view);
         $this->assertStringNotContainsString('x-data="{ imageReady:', $view);
         $this->assertStringNotContainsString('x-on:pointerdown.passive', $view);
         $this->assertStringContainsString('syncServerPhotosFromDom', $view);
-        $this->assertStringContainsString('x-ref="serverGalleryDialog"', $view);
+        $this->assertStringContainsString('x-ref="viewerDialog"', $folderView);
         $this->assertStringContainsString('serverRefreshPending', $view);
         $this->assertStringContainsString('dialog.dataset.deleteType', $view);
         $this->assertStringContainsString('x-ref="confirmTextInput"', $view);
@@ -232,6 +238,14 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString("confirmation.toLowerCase() !== 'hapus'", $view);
         $this->assertStringContainsString('wire:model.live="historyDate"', $view);
         $this->assertStringContainsString("paginate(10, ['*'], 'fotoSessionsPage')", $page);
+        $this->assertStringContainsString("paginate(12, ['*'], 'photosPage')", $folderPage);
+        $this->assertStringNotContainsString("->with(['items'", $page);
+        $this->assertStringContainsString('public function shareManifest', $folderPage);
+        $this->assertStringContainsString("manifest?.mode !== 'direct'", $folderScript);
+        $this->assertStringContainsString(
+            '/admin/foto-barang-maps/folder/example-session',
+            FotoBarangFolder::getUrl(['session' => 'example-session']),
+        );
         $this->assertStringContainsString('public function deleteSessionFolder', $page);
         $this->assertStringContainsString("return ['deleted' => true, 'photo_id' => \$photoId]", $page);
         $this->assertStringContainsString("!== 'hapus'", $page);
@@ -248,13 +262,10 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function archiveSelected', $controller);
         $this->assertStringContainsString("->name('foto-barang.selected-archive')", $routes);
 
-        preg_match('/x-data="(\{.*?\})"\s*x-init=/s', $view, $alpineData);
-        $this->assertArrayHasKey(1, $alpineData, 'Atribut x-data kamera harus tetap utuh.');
-        $this->assertStringNotContainsString(
-            '"',
-            $alpineData[1],
-            'Tanda kutip ganda di dalam x-data akan memutus atribut HTML dan mencetak JavaScript ke halaman.',
-        );
+        $this->assertStringContainsString("x-data='fotoBarangMaps({", $mainView);
+        $this->assertStringContainsString("@vite('resources/js/foto-barang-maps.js')", $mainView);
+        $this->assertStringContainsString("@vite('resources/js/foto-barang-folder.js')", $folderView);
+        $this->assertStringNotContainsString('navigator.mediaDevices.getUserMedia', $mainView);
 
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Regular.ttf');
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Bold.ttf');
