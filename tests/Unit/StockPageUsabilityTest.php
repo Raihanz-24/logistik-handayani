@@ -78,4 +78,14 @@ class StockPageUsabilityTest extends TestCase
         $this->assertStringContainsString("->whereDate('tanggal', '>', \$asOfDate->format('Y-m-d'))", $service);
         $this->assertStringNotContainsString('leftJoinSub', $service);
     }
+
+    public function test_stock_table_loads_after_the_page_shell_is_visible(): void
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $resource = (string) file_get_contents(
+            $projectRoot.'/app/Filament/Resources/BarangLokasiResource.php',
+        );
+
+        $this->assertStringContainsString('->deferLoading()', $resource);
+    }
 }

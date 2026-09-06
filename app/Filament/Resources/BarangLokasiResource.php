@@ -69,7 +69,7 @@ class BarangLokasiResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-
+            ->deferLoading()
             ->paginationPageOptions([10, 25, 50, 100])
             ->defaultPaginationPageOption(10)
             ->extremePaginationLinks()
