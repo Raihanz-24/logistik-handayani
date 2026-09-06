@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\InvalidatesDashboardCache;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 
 class BarangLokasi extends Pivot
 {
+    use InvalidatesDashboardCache;
+
     protected $table = 'barang_lokasi';
 
     protected $fillable = [

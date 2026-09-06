@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Services\DashboardCacheService;
 use App\Services\SawRestockRecommendationService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Carbon\Carbon;
@@ -33,8 +34,19 @@ class RestockRecommendation extends Widget
             ? Carbon::parse($this->filters['endDate'])
             : null;
 
-        $result = app(SawRestockRecommendationService::class)
-            ->calculate($start, $end);
+        $today = now('Asia/Jakarta')->toDateString();
+        $startKey = $start?->toDateString() ?? "default-{$today}";
+        $endKey = $end?->toDateString() ?? "default-{$today}";
+        $configKey = hash('sha256', serialize([
+            config('saw-restock.limit'),
+            config('saw-restock.period_days'),
+            config('saw-restock.weights'),
+        ]));
+
+        $result = app(DashboardCacheService::class)->remember(
+            "restock:v1:{$startKey}:{$endKey}:{$configKey}",
+            fn (): array => app(SawRestockRecommendationService::class)->calculate($start, $end),
+        );
 
         $result['recommendations'] = $result['recommendations']
             ->map(fn (array $item): array => $item + [

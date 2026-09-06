@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\InvalidatesDashboardCache;
 use App\Services\BarangCodeGenerator;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Storage;
 class Barang extends Model
 {
     use HasFactory;
+    use InvalidatesDashboardCache;
 
     protected $fillable = [
         'nama_barang',

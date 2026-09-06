@@ -10,7 +10,7 @@
 
         <div class="wd-stats-grid">
             @foreach ($cards as $card)
-                <a href="{{ $card['url'] }}" class="wd-stat-card wd-stat-card--{{ $card['tone'] }}">
+                <a href="{{ $card['url'] }}" wire:navigate.hover class="wd-stat-card wd-stat-card--{{ $card['tone'] }}">
                     <div class="wd-stat-card__top">
                         <span class="wd-stat-card__icon">
                             <x-filament::icon :icon="$card['icon']" />

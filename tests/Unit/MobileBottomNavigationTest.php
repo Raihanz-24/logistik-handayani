@@ -27,6 +27,6 @@ class MobileBottomNavigationTest extends TestCase
         $this->assertStringContainsString('env(safe-area-inset-bottom)', $styles);
         $this->assertStringContainsString('@media (max-width: 1023px)', $styles);
         $this->assertStringContainsString('grid-template-columns:repeat(5', $styles);
-        $this->assertStringContainsString('wire:navigate', $view);
+        $this->assertStringContainsString('wire:navigate.hover', $view);
     }
 }

@@ -78,7 +78,7 @@
                 @if ($item['canAccess'])
                     <a
                         href="{{ $item['url'] }}"
-                        wire:navigate
+                        wire:navigate.hover
                         @class([
                             'wm-mobile-nav__item',
                             'wm-mobile-nav__item--featured' => $item['featured'],

@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Models\BarangLokasi;
+use App\Services\DashboardCacheService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\Widget;
 
@@ -20,25 +21,29 @@ class BarangAlert extends Widget
 
     protected function getViewData(): array
     {
-        $rows = BarangLokasi::query()
-            ->with(['barang:id,nama_barang,kode_barang,satuan', 'lokasi:id,nama_lokasi'])
-            ->whereHas('lokasi', fn ($query) => $query->gudang())
-            ->where('stok', '<', 10)
-            ->orderBy('stok')
-            ->limit(8)
-            ->get(['barang_id', 'lokasi_id', 'stok'])
-            ->map(fn (BarangLokasi $stock): array => [
-                'name' => $stock->barang?->nama_barang ?? 'Barang',
-                'code' => $stock->barang?->kode_barang ?? '-',
-                'location' => $stock->lokasi?->nama_lokasi ?? 'Lokasi',
-                'stock' => (int) $stock->stok,
-                'unit' => $stock->barang?->satuan ?? 'unit',
-                'tone' => match (true) {
-                    $stock->stok <= 0 => 'danger',
-                    $stock->stok <= 3 => 'warning',
-                    default => 'amber',
-                },
-            ]);
+        $rows = collect(app(DashboardCacheService::class)->remember(
+            'low-stock:v1',
+            fn (): array => BarangLokasi::query()
+                ->with(['barang:id,nama_barang,kode_barang,satuan', 'lokasi:id,nama_lokasi'])
+                ->whereHas('lokasi', fn ($query) => $query->gudang())
+                ->where('stok', '<', 10)
+                ->orderBy('stok')
+                ->limit(8)
+                ->get(['barang_id', 'lokasi_id', 'stok'])
+                ->map(fn (BarangLokasi $stock): array => [
+                    'name' => $stock->barang?->nama_barang ?? 'Barang',
+                    'code' => $stock->barang?->kode_barang ?? '-',
+                    'location' => $stock->lokasi?->nama_lokasi ?? 'Lokasi',
+                    'stock' => (int) $stock->stok,
+                    'unit' => $stock->barang?->satuan ?? 'unit',
+                    'tone' => match (true) {
+                        $stock->stok <= 0 => 'danger',
+                        $stock->stok <= 3 => 'warning',
+                        default => 'amber',
+                    },
+                ])
+                ->all(),
+        ));
 
         return [
             'rows' => $rows,

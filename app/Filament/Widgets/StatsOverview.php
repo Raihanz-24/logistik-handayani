@@ -9,6 +9,7 @@ use App\Models\Barang;
 use App\Models\BarangLokasi;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
+use App\Services\DashboardCacheService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Carbon\Carbon;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -31,17 +32,27 @@ class StatsOverview extends Widget
     {
         [$start, $end] = $this->resolveDateRange();
 
-        $approvedMutations = Mutasi::query()
-            ->where('status', 'approved')
-            ->whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
-            ->count();
+        $metrics = app(DashboardCacheService::class)->remember(
+            "stats:v1:{$start->toDateString()}:{$end->toDateString()}",
+            fn (): array => [
+                'barang' => Barang::query()->count(),
+                'stok' => (int) BarangLokasi::query()
+                    ->whereHas('lokasi', fn ($query) => $query->gudang())
+                    ->sum('stok'),
+                'mutasi' => Mutasi::query()
+                    ->where('status', 'approved')
+                    ->whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
+                    ->count(),
+                'gudang' => Lokasi::query()->gudang()->count(),
+            ],
+        );
 
         return [
             'periodLabel' => $start->translatedFormat('d M').' - '.$end->translatedFormat('d M Y'),
             'cards' => [
                 [
                     'label' => 'Total barang',
-                    'value' => Barang::query()->count(),
+                    'value' => $metrics['barang'],
                     'description' => 'Barang terdaftar dalam sistem',
                     'icon' => 'heroicon-o-cube',
                     'tone' => 'amber',
@@ -49,9 +60,7 @@ class StatsOverview extends Widget
                 ],
                 [
                     'label' => 'Total stok',
-                    'value' => (int) BarangLokasi::query()
-                        ->whereHas('lokasi', fn ($query) => $query->gudang())
-                        ->sum('stok'),
+                    'value' => $metrics['stok'],
                     'description' => 'Unit tersedia di seluruh gudang',
                     'icon' => 'heroicon-o-archive-box',
                     'tone' => 'blue',
@@ -59,7 +68,7 @@ class StatsOverview extends Widget
                 ],
                 [
                     'label' => 'Mutasi disetujui',
-                    'value' => $approvedMutations,
+                    'value' => $metrics['mutasi'],
                     'description' => 'Transaksi pada periode aktif',
                     'icon' => 'heroicon-o-arrows-right-left',
                     'tone' => 'green',
@@ -67,7 +76,7 @@ class StatsOverview extends Widget
                 ],
                 [
                     'label' => 'Gudang aktif',
-                    'value' => Lokasi::query()->gudang()->count(),
+                    'value' => $metrics['gudang'],
                     'description' => 'Lokasi penyimpanan terdaftar',
                     'icon' => 'heroicon-o-building-storefront',
                     'tone' => 'cyan',
