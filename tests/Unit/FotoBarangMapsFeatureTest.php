@@ -146,6 +146,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('playShutterBeep()', $view);
         $this->assertStringContainsString('window.AudioContext || window.webkitAudioContext', $view);
         $this->assertStringContainsString('this.playShutterBeep();', $view);
+        $this->assertStringContainsString("oscillator.type = 'square'", $cameraScript);
+        $this->assertStringContainsString('exponentialRampToValueAtTime(0.3', $cameraScript);
         $this->assertStringContainsString('toggleShutterBeep()', $view);
         $this->assertStringContainsString("localStorage.getItem('handayani-foto-maps-beep')", $view);
         $this->assertStringContainsString("beepEnabled ? 'Beep Aktif' : 'Beep Nonaktif'", $view);
@@ -176,6 +178,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('shareLocalCapture(captureId)', $view);
         $this->assertStringContainsString('deleteLocalOnlyCapture(captureId)', $view);
         $this->assertStringContainsString('Mode Lokal HP', $view);
+        $this->assertStringNotContainsString('Template hasil', $mainView);
+        $this->assertStringNotContainsString('fm-template-preview', $mainView);
         $this->assertStringContainsString('Alamat otomatis dari GPS', $view);
         $this->assertStringNotContainsString('wire:model="namaLokasi"', $view);
         $this->assertStringNotContainsString('wire:model="alamat"', $view);

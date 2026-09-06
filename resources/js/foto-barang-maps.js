@@ -244,11 +244,11 @@ const fotoBarangMaps = (config = {}) => ({
                         const startedAt = context.currentTime;
                         const oscillator = context.createOscillator();
                         const gain = context.createGain();
-                        oscillator.type = 'sine';
-                        oscillator.frequency.setValueAtTime(920, startedAt);
+                        oscillator.type = 'square';
+                        oscillator.frequency.setValueAtTime(1280, startedAt);
                         gain.gain.setValueAtTime(0.0001, startedAt);
-                        gain.gain.exponentialRampToValueAtTime(0.16, startedAt + 0.008);
-                        gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.095);
+                        gain.gain.exponentialRampToValueAtTime(0.3, startedAt + 0.006);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.135);
                         oscillator.connect(gain);
                         gain.connect(context.destination);
                         oscillator.onended = () => {
@@ -256,7 +256,7 @@ const fotoBarangMaps = (config = {}) => ({
                             gain.disconnect();
                         };
                         oscillator.start(startedAt);
-                        oscillator.stop(startedAt + 0.1);
+                        oscillator.stop(startedAt + 0.14);
                     };
 
                     if (context.state === 'suspended') {
