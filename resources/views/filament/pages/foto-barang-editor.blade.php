@@ -153,11 +153,16 @@
                     resultPhotos: [],
                     resultImageLoading: false,
                     resultTouchStartX: null,
-                    copyEditId: null,
+                    copyEditIds: [],
                     copyPhotoTitle: '',
                     copyDestinationSessionId: {{ (int) $selectedSession->getKey() }},
                     copyBusy: false,
                     copyError: '',
+                    selectionMode: false,
+                    selectedEditIds: [],
+                    resultLongPressTimer: null,
+                    resultLongPressTriggered: false,
+                    suppressResultClickUntil: 0,
                     syncResultPhotos() {
                         this.resultPhotos = Array.from(this.$root.querySelectorAll('[data-edit-preview]')).map((button) => ({
                             preview: button.dataset.preview,
@@ -205,15 +210,85 @@
                         if (Math.abs(distance) < 45) return;
                         this.moveResultPreview(distance < 0 ? 1 : -1);
                     },
+                    isResultSelected(index) {
+                        const button = this.$root.querySelectorAll('[data-edit-preview]')[index];
+                        const editId = Number(button?.dataset.editId);
+                        return editId > 0 && this.selectedEditIds.includes(editId);
+                    },
+                    toggleResultSelection(index) {
+                        this.syncResultPhotos();
+                        const editId = Number(this.resultPhotos[index]?.editId);
+                        if (! editId) return;
+                        if (this.selectedEditIds.includes(editId)) {
+                            this.selectedEditIds = this.selectedEditIds.filter((id) => id !== editId);
+                        } else {
+                            this.selectedEditIds = [...this.selectedEditIds, editId];
+                        }
+                        this.selectionMode = this.selectedEditIds.length > 0;
+                    },
+                    startResultLongPress(index) {
+                        if (this.selectionMode) return;
+                        window.clearTimeout(this.resultLongPressTimer);
+                        this.resultLongPressTriggered = false;
+                        this.resultLongPressTimer = window.setTimeout(() => {
+                            this.resultLongPressTriggered = true;
+                            this.selectionMode = true;
+                            this.toggleResultSelection(index);
+                            navigator.vibrate?.(30);
+                        }, 520);
+                    },
+                    cancelResultLongPress() {
+                        window.clearTimeout(this.resultLongPressTimer);
+                        this.resultLongPressTimer = null;
+                        if (this.resultLongPressTriggered) {
+                            this.suppressResultClickUntil = Date.now() + 600;
+                        }
+                    },
+                    handleResultPhotoClick(index) {
+                        if (Date.now() < this.suppressResultClickUntil) {
+                            this.resultLongPressTriggered = false;
+                            return;
+                        }
+                        if (this.selectionMode) {
+                            this.toggleResultSelection(index);
+                            return;
+                        }
+                        this.openResultPreview(index);
+                    },
+                    selectAllResults() {
+                        this.syncResultPhotos();
+                        const pageIds = this.resultPhotos
+                            .map((photo) => Number(photo.editId))
+                            .filter((id) => id > 0);
+                        this.selectedEditIds = [...new Set([...this.selectedEditIds, ...pageIds])].slice(0, 100);
+                        this.selectionMode = this.selectedEditIds.length > 0;
+                    },
+                    clearResultSelection() {
+                        this.cancelResultLongPress();
+                        this.selectionMode = false;
+                        this.selectedEditIds = [];
+                        this.resultLongPressTriggered = false;
+                    },
+                    openBulkCopyDialog() {
+                        if (this.selectedEditIds.length < 1) return;
+                        this.openCopyDialog(
+                            this.selectedEditIds,
+                            `${this.selectedEditIds.length} foto hasil edit terpilih`,
+                        );
+                    },
                     openCopyDialogFromIndex(index) {
                         this.syncResultPhotos();
                         const photo = this.resultPhotos[index];
                         if (! photo?.editId) return;
                         this.openCopyDialog(photo.editId, photo.title);
                     },
-                    openCopyDialog(editId, title) {
+                    openCopyDialog(editIds, title) {
+                        const normalizedIds = (Array.isArray(editIds) ? editIds : [editIds])
+                            .map((id) => Number(id))
+                            .filter((id) => Number.isInteger(id) && id > 0);
+                        if (normalizedIds.length < 1) return;
                         if (this.resultPreviewOpen) this.closeResultPreview();
-                        this.copyEditId = Number(editId);
+                        this.copyEditIds = [...new Set(normalizedIds)].slice(0, 100);
                         this.copyPhotoTitle = title || 'Hasil edit foto';
                         this.copyDestinationSessionId = {{ (int) $selectedSession->getKey() }};
                         this.copyError = '';
@@ -226,7 +301,7 @@
                     closeCopyDialog() {
                         const dialog = this.$refs.copyResultDialog;
                         if (dialog?.open) dialog.close();
-                        this.copyEditId = null;
+                        this.copyEditIds = [];
                         this.copyPhotoTitle = '';
                         this.copyBusy = false;
                         this.copyError = '';
@@ -238,23 +313,28 @@
                             this.copyError = 'Pilih folder tujuan terlebih dahulu.';
                             return;
                         }
-                        if (! Number.isInteger(this.copyEditId) || this.copyEditId < 1 || this.copyBusy) return;
+                        if (this.copyEditIds.length < 1 || this.copyBusy) return;
 
                         this.copyBusy = true;
                         this.copyError = '';
 
                         try {
-                            const result = await $wire.copyEditedPhoto(this.copyEditId, destinationId);
+                            const result = await $wire.copyEditedPhotos(this.copyEditIds, destinationId);
                             if (! result?.copied) {
                                 this.copyError = result?.message || 'Foto belum berhasil disalin.';
                                 return;
                             }
                             this.closeCopyDialog();
+                            this.clearResultSelection();
                         } catch (error) {
                             this.copyError = 'Koneksi terputus. Foto asli tetap aman, silakan coba kembali.';
                         } finally {
                             this.copyBusy = false;
                         }
+                    },
+                    destroy() {
+                        this.cancelResultLongPress();
+                        document.body.style.overflow = '';
                     },
                 }"
                 x-on:keydown.left.window="if (resultPreviewOpen) moveResultPreview(-1)"
@@ -265,12 +345,26 @@
                         <span>Folder terpisah</span>
                         <h2>Hasil Edit</h2>
                     </div>
-                    <p>Semua salinan hasil perubahan waktu tersimpan di sini.</p>
+                    <p>Tekan lama salah satu foto untuk memilih dan menyalin beberapa foto sekaligus.</p>
+                </div>
+
+                <div class="fme-selection-bar" x-show="selectionMode" x-cloak>
+                    <div>
+                        <x-filament::icon icon="heroicon-m-check-circle" />
+                        <strong><span x-text="selectedEditIds.length"></span> foto dipilih</strong>
+                    </div>
+                    <div>
+                        <button type="button" x-on:click="selectAllResults()">Pilih Semua di Halaman</button>
+                        <button type="button" x-on:click="clearResultSelection()">Batal</button>
+                        <button type="button" class="is-primary" x-on:click="openBulkCopyDialog()">
+                            <x-filament::icon icon="heroicon-m-folder-arrow-down" /> Salin Terpilih
+                        </button>
+                    </div>
                 </div>
 
                 <div class="fme-result-grid">
                     @forelse ($editedPhotos as $edit)
-                        <article>
+                        <article x-bind:class="isResultSelected({{ $loop->index }}) && 'is-selected'">
                             <button
                                 type="button"
                                 class="fme-result-preview"
@@ -279,15 +373,25 @@
                                 data-preview="{{ route('foto-barang.edit-preview', [$selectedSession, $edit]) }}?v={{ $edit->updated_at->getTimestamp() }}"
                                 data-download="{{ route('foto-barang.edit-download', [$selectedSession, $edit]) }}"
                                 data-title="Foto #{{ str_pad((string) ($edit->photo?->urutan ?? 0), 2, '0', STR_PAD_LEFT) }} · {{ $edit->waktu_baru?->setTimezone('Asia/Jakarta')->format('d/m/Y H:i') }} WIB"
-                                x-on:click="openResultPreview({{ $loop->index }})"
+                                x-on:pointerdown="startResultLongPress({{ $loop->index }})"
+                                x-on:pointerup="cancelResultLongPress()"
+                                x-on:pointercancel="cancelResultLongPress()"
+                                x-on:pointerleave="cancelResultLongPress()"
+                                x-on:contextmenu.prevent
+                                x-on:click="handleResultPhotoClick({{ $loop->index }})"
                                 aria-label="Preview hasil edit foto {{ $edit->photo?->urutan }}"
                             >
-                                <img src="{{ route('foto-barang.edit-preview', [$selectedSession, $edit]) }}?v={{ $edit->updated_at->getTimestamp() }}" alt="Hasil foto {{ $edit->photo?->urutan }}" loading="lazy">
+                                <img src="{{ route('foto-barang.edit-preview', [$selectedSession, $edit]) }}?v={{ $edit->updated_at->getTimestamp() }}" alt="Hasil foto {{ $edit->photo?->urutan }}" loading="lazy" draggable="false">
+                                <span class="fme-result-selection" x-show="selectionMode" x-cloak>
+                                    <i x-bind:class="isResultSelected({{ $loop->index }}) && 'is-checked'">
+                                        <x-filament::icon icon="heroicon-m-check" x-show="isResultSelected({{ $loop->index }})" x-cloak />
+                                    </i>
+                                </span>
                             </button>
                             <div class="fme-result-meta">
                                 <span>Foto #{{ str_pad((string) ($edit->photo?->urutan ?? 0), 2, '0', STR_PAD_LEFT) }}</span>
                                 <strong>{{ $edit->waktu_baru?->setTimezone('Asia/Jakarta')->format('d/m/Y H:i') }} WIB</strong>
-                                <div class="fme-result-actions">
+                                <div class="fme-result-actions" x-show="! selectionMode" x-cloak>
                                     <button type="button" x-on:click="openCopyDialogFromIndex({{ $loop->index }})">
                                         <x-filament::icon icon="heroicon-m-folder-arrow-down" /> Salin ke Folder
                                     </button>
@@ -466,8 +570,23 @@
         .fme-submit svg,.fme-safe svg { width:1rem; }
         .fme-safe { display:flex; justify-content:center; gap:.3rem; margin-top:.55rem; color:#15803d; font-size:.65rem; font-weight:750; }
         .fme-results { margin-top:.1rem; }
-        .fme-result-grid article { overflow:hidden; border:1px solid var(--fme-line); border-radius:.8rem; background:var(--fme-soft); }
-        .fme-result-preview { display:block; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in; }
+        .fme-selection-bar { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:1rem; padding:.65rem .75rem; border:1px solid #fda4af; border-radius:.8rem; background:#fff1f2; }
+        .dark .fme-selection-bar { border-color:#6b2638; background:#351521; }
+        .fme-selection-bar>div { display:flex; align-items:center; flex-wrap:wrap; gap:.4rem; }
+        .fme-selection-bar>div:first-child { color:#9f1239; font-size:.73rem; }
+        .dark .fme-selection-bar>div:first-child { color:#fecdd3; }
+        .fme-selection-bar>div:first-child svg { width:1.1rem; }
+        .fme-selection-bar button { min-height:2.1rem; padding:.38rem .55rem; border:1px solid #fda4af; border-radius:.55rem; color:#9f1239; background:#fff; font-size:.63rem; font-weight:850; }
+        .dark .fme-selection-bar button { border-color:#6b2638; color:#fecdd3; background:#24111a; }
+        .fme-selection-bar button.is-primary { display:flex; align-items:center; gap:.25rem; border-color:#be123c; color:#fff; background:#be123c; }
+        .fme-selection-bar button.is-primary svg { width:.9rem; }
+        .fme-result-grid article { overflow:hidden; border:2px solid transparent; border-radius:.8rem; background:var(--fme-soft); box-shadow:0 0 0 1px var(--fme-line); transition:border-color .15s,box-shadow .15s,transform .15s; }
+        .fme-result-grid article.is-selected { border-color:#e11d48; box-shadow:0 0 0 3px rgba(225,29,72,.15); transform:translateY(-1px); }
+        .fme-result-preview { position:relative; display:block; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in; touch-action:pan-y; user-select:none; -webkit-touch-callout:none; }
+        .fme-result-selection { position:absolute; z-index:2; top:.45rem; right:.45rem; display:grid; place-items:center; width:1.7rem; height:1.7rem; padding:0!important; border-radius:50%; background:rgba(15,23,42,.7); }
+        .fme-result-selection i { display:grid; place-items:center; width:1.2rem; height:1.2rem; border:2px solid #fff; border-radius:50%; color:#fff; background:transparent; }
+        .fme-result-selection i.is-checked { border-color:#e11d48; background:#e11d48; }
+        .fme-result-selection svg { width:.75rem; }
         .fme-result-grid article>.fme-result-meta { display:grid; gap:.18rem; padding:.55rem; }
         .fme-result-grid article span { color:var(--fme-muted); font-size:.62rem; }
         .fme-result-grid article strong { font-size:.7rem; }
@@ -527,6 +646,6 @@
         [x-cloak] { display:none!important; }
         @keyframes fme-result-loading { from { background-position:100% 0; } to { background-position:-100% 0; } }
         @media (max-width:900px) { .fme-workspace { grid-template-columns:1fr; } .fme-editor-card { position:static; } }
-        @media (max-width:640px) { .fme-hero { padding:1.05rem; } .fme-hero>svg { width:3rem; } .fme-heading { align-items:flex-start; flex-direction:column; } .fme-folder-grid { grid-template-columns:1fr; } .fme-photo-grid,.fme-result-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .fme-folder-bar { align-items:flex-start; flex-direction:column; } .fme-result-actions { grid-template-columns:1fr; } .fme-result-dialog__nav { display:none; } .fme-result-dialog__panel>footer { align-items:stretch; flex-direction:column; } .fme-result-dialog__panel>footer>strong { max-width:100%; } .fme-result-dialog__panel>footer>div { display:grid; grid-template-columns:1fr 1fr; } }
+        @media (max-width:640px) { .fme-hero { padding:1.05rem; } .fme-hero>svg { width:3rem; } .fme-heading { align-items:flex-start; flex-direction:column; } .fme-folder-grid { grid-template-columns:1fr; } .fme-photo-grid,.fme-result-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .fme-folder-bar { align-items:flex-start; flex-direction:column; } .fme-selection-bar { align-items:stretch; flex-direction:column; } .fme-selection-bar>div:last-child { display:grid; grid-template-columns:1fr 1fr; } .fme-selection-bar button.is-primary { grid-column:1/-1; justify-content:center; } .fme-result-actions { grid-template-columns:1fr; } .fme-result-dialog__nav { display:none; } .fme-result-dialog__panel>footer { align-items:stretch; flex-direction:column; } .fme-result-dialog__panel>footer>strong { max-width:100%; } .fme-result-dialog__panel>footer>div { display:grid; grid-template-columns:1fr 1fr; } }
     </style>
 </x-filament-panels::page>

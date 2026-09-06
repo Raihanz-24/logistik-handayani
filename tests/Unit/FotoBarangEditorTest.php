@@ -77,7 +77,9 @@ class FotoBarangEditorTest extends TestCase
         $this->assertStringContainsString("protected static ?string \$navigationLabel = 'Editor Foto Maps'", $page);
         $this->assertStringContainsString('public function createEditedPhoto', $page);
         $this->assertStringContainsString('public function copyEditedPhoto', $page);
+        $this->assertStringContainsString('public function copyEditedPhotos', $page);
         $this->assertStringContainsString('foto_barang_edit_copy', $page);
+        $this->assertStringContainsString('foto_barang_edit_bulk_copy', $page);
         $this->assertStringContainsString('visibleEditsQuery()', $page);
         $this->assertStringContainsString('Foto asli tetap tersimpan', $page);
         $this->assertStringContainsString('Folder terpisah', $view);
@@ -92,18 +94,37 @@ class FotoBarangEditorTest extends TestCase
         $this->assertStringContainsString('Unduh Foto', $view);
         $this->assertStringContainsString('Salin ke Folder Foto Maps', $view);
         $this->assertStringContainsString('confirmResultCopy', $view);
+        $this->assertStringContainsString('startResultLongPress', $view);
+        $this->assertStringContainsString('selectedEditIds', $view);
+        $this->assertStringContainsString('Salin Terpilih', $view);
+        $this->assertStringContainsString('Pilih Semua', $view);
+        $this->assertStringContainsString('$wire.copyEditedPhotos', $view);
         $this->assertStringContainsString('wire:ignore', $view);
         $this->assertStringNotContainsString('target="_blank"', $view);
         $this->assertStringContainsString(".'/hasil-edit/'.sprintf(", $service);
         $this->assertStringContainsString('public function copyToSession', $service);
-        $this->assertStringContainsString("\$clientCaptureId = 'edit-copy:'", $service);
-        $this->assertStringContainsString("->where('client_capture_id', \$clientCaptureId)", $service);
+        $this->assertStringContainsString('public function copyManyToSession', $service);
+        $this->assertStringContainsString("'client_capture_id' => 'edit-copy:'", $service);
+        $this->assertStringContainsString("->whereIn('client_capture_id'", $service);
         $this->assertStringContainsString("'processing_status' => FotoBarangItem::PROCESSING_COMPLETED", $service);
-        $this->assertStringContainsString("\$disk->copy(\$edit->path, \$storedPath)", $service);
+        $this->assertStringContainsString("\$disk->copy(\$photo['source_path'], \$storedPath)", $service);
+        $this->assertStringContainsString("\$disk->delete(\$storedPaths)", $service);
         $this->assertStringNotContainsString("\$disk->delete(\$edit->path)", $service);
         $this->assertStringContainsString('renderTimeRevision', $imageService);
         $this->assertStringNotContainsString("'Diedit'", $imageService);
         $this->assertStringContainsString("->name('foto-barang.edit-preview')", $routes);
         $this->assertStringContainsString("->name('foto-barang.edit-download')", $routes);
+
+        preg_match(
+            '/class="fme-panel fme-results"\s*x-data="(\{.*?\})"\s*x-on:keydown.left/s',
+            $view,
+            $galleryData,
+        );
+        $this->assertArrayHasKey(1, $galleryData, 'Atribut x-data galeri hasil edit harus tetap utuh.');
+        $this->assertStringNotContainsString(
+            '"',
+            $galleryData[1],
+            'Tanda kutip ganda di dalam x-data akan memutus atribut HTML.',
+        );
     }
 }

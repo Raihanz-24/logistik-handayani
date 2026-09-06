@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Livewire\WithPagination;
+use RuntimeException;
 use Throwable;
 
 class FotoBarangEditor extends Page
@@ -214,6 +215,104 @@ class FotoBarangEditor extends Page
             return [
                 'copied' => false,
                 'message' => 'Foto gagal disalin. Periksa koneksi lalu coba kembali.',
+            ];
+        }
+    }
+
+    /** @return array{copied: bool, copied_count?: int, duplicate_count?: int, message: string} */
+    public function copyEditedPhotos(
+        FotoBarangEditService $editService,
+        array $editIds,
+        int $destinationSessionId,
+    ): array {
+        $this->skipRender();
+
+        try {
+            $normalizedIds = collect($editIds)
+                ->filter(fn (mixed $id): bool => is_int($id) || (is_string($id) && ctype_digit($id)))
+                ->map(fn (int|string $id): int => (int) $id)
+                ->filter(fn (int $id): bool => $id > 0)
+                ->unique()
+                ->values();
+
+            if ($normalizedIds->isEmpty()) {
+                throw new RuntimeException('Pilih minimal satu foto hasil edit.');
+            }
+
+            if ($normalizedIds->count() > 100) {
+                throw new RuntimeException('Maksimal 100 foto dalam satu proses penyalinan.');
+            }
+
+            $edits = $this->visibleEditsQuery()
+                ->whereKey($normalizedIds->all())
+                ->get()
+                ->keyBy(fn (FotoBarangEdit $edit): int => (int) $edit->getKey());
+
+            if ($edits->count() !== $normalizedIds->count()) {
+                throw new RuntimeException('Salah satu hasil edit tidak tersedia atau tidak dapat diakses.');
+            }
+
+            $orderedEdits = $normalizedIds->map(
+                fn (int $id): FotoBarangEdit => $edits->get($id),
+            );
+            $destination = $this->visibleSessionsQuery()->findOrFail($destinationSessionId);
+            $result = $editService->copyManyToSession($orderedEdits, $destination);
+            $copiedCount = (int) $result['copied_count'];
+            $duplicateCount = (int) $result['duplicate_count'];
+
+            if ($copiedCount > 0) {
+                app(AuditLogger::class)->activity(
+                    'foto_barang_edit_bulk_copy',
+                    "Menyalin {$copiedCount} hasil edit foto ke folder: {$destination->judul}",
+                    auth()->user(),
+                    [
+                        'edit_ids' => $normalizedIds->all(),
+                        'destination_session_id' => $destination->getKey(),
+                        'destination_photo_ids' => collect($result['items'])->pluck('id')->all(),
+                        'copied_count' => $copiedCount,
+                        'duplicate_count' => $duplicateCount,
+                    ],
+                );
+            }
+
+            $message = "{$copiedCount} foto berhasil disalin";
+
+            if ($duplicateCount > 0) {
+                $message .= " · {$duplicateCount} foto sebelumnya sudah tersedia";
+            }
+
+            $notification = Notification::make()
+                ->title($copiedCount > 0 ? 'Foto terpilih berhasil disalin' : 'Semua foto sudah tersedia')
+                ->body($destination->judul.' · '.$message.'.');
+
+            if ($copiedCount > 0) {
+                $notification->success();
+            } else {
+                $notification->info();
+            }
+
+            $notification->send();
+
+            return [
+                'copied' => true,
+                'copied_count' => $copiedCount,
+                'duplicate_count' => $duplicateCount,
+                'message' => $message,
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            Notification::make()
+                ->title('Foto terpilih gagal disalin')
+                ->body('Tidak ada file asli atau hasil edit yang diubah. Silakan coba kembali.')
+                ->danger()
+                ->send();
+
+            return [
+                'copied' => false,
+                'message' => $exception instanceof RuntimeException
+                    ? $exception->getMessage()
+                    : 'Foto gagal disalin. Periksa koneksi lalu coba kembali.',
             ];
         }
     }
