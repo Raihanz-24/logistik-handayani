@@ -32,6 +32,7 @@
             capturedCount: @js((int) ($activeSession?->items_count ?? 0)),
             serverCapturedCount: @js((int) ($activeSession?->items_count ?? 0)),
             sessionUuid: @js($activeSession?->uuid),
+            sessionIsActive: @js((bool) ($activeSession?->isActive() ?? false)),
             uploadUrlTemplate: @js(route('foto-barang.upload', ['session' => '__SESSION_UUID__'], absolute: false)),
             captureQueue: [],
             localCaptures: [],
@@ -70,12 +71,34 @@
             liveDate: '',
             liveDay: '',
             clockTimer: null,
-            initCamera() {
+            shutterAudioContext: null,
+            beepEnabled: true,
+            recoveryAvailable: false,
+            recoveryMessage: '',
+            shareAllBusy: false,
+            shareAllProgress: 0,
+            shareAllStatus: '',
+            async initCamera() {
                 this.gpsState = 'GPS akan diambil saat kamera dibuka';
                 this.gpsReady = this.latitude !== null && this.longitude !== null;
+                const recovery = this.loadDeviceSettings();
                 this.updateClock();
-                this.initializeCaptureQueue();
-                this.loadLocalGallery();
+                await Promise.allSettled([
+                    this.initializeCaptureQueue(),
+                    this.loadLocalGallery(),
+                ]);
+                this.syncServerPhotosFromDom();
+
+                if (
+                    this.sessionIsActive
+                    && this.sessionUuid
+                    && (recovery?.cameraWasOpen || this.queuedCount > 0)
+                ) {
+                    this.recoveryAvailable = true;
+                    this.recoveryMessage = this.queuedCount > 0
+                        ? `${this.queuedCount} foto antrean dipulihkan dan dikirim otomatis.`
+                        : `Sesi ${this.captureMode === 'local' ? 'Lokal HP' : 'Server'} sebelumnya siap dilanjutkan.`;
+                }
             },
             destroy() {
                 window.clearTimeout(this.refreshTimer);
@@ -85,7 +108,92 @@
                 this.confirmOpen = false;
                 this.closeCamera();
                 this.closeLocalPreview();
+                if (this.shutterAudioContext) {
+                    this.shutterAudioContext.close().catch(() => {});
+                    this.shutterAudioContext = null;
+                }
                 document.body.style.overflow = '';
+            },
+            loadDeviceSettings() {
+                let recovery = null;
+
+                try {
+                    this.beepEnabled = window.localStorage.getItem('handayani-foto-maps-beep') !== 'off';
+                    const storedRecovery = window.localStorage.getItem('handayani-foto-maps-recovery');
+                    recovery = storedRecovery ? JSON.parse(storedRecovery) : null;
+
+                    if (recovery?.sessionUuid === this.sessionUuid) {
+                        this.captureMode = ['server', 'local'].includes(recovery.captureMode)
+                            ? recovery.captureMode
+                            : 'server';
+                    } else {
+                        recovery = null;
+                    }
+                } catch (error) {
+                    this.beepEnabled = true;
+                    recovery = null;
+                }
+
+                return recovery;
+            },
+            persistSessionRecovery(cameraWasOpen = this.cameraOpen) {
+                if (! this.sessionUuid) return;
+
+                try {
+                    window.localStorage.setItem('handayani-foto-maps-recovery', JSON.stringify({
+                        sessionUuid: this.sessionUuid,
+                        captureMode: this.captureMode,
+                        cameraWasOpen: Boolean(cameraWasOpen),
+                        updatedAt: Date.now(),
+                    }));
+                } catch (error) {
+                    // IndexedDB tetap menjadi penyimpanan utama foto bila localStorage tidak tersedia.
+                }
+            },
+            clearSessionRecovery() {
+                try {
+                    const storedRecovery = window.localStorage.getItem('handayani-foto-maps-recovery');
+                    const recovery = storedRecovery ? JSON.parse(storedRecovery) : null;
+                    if (! recovery || recovery.sessionUuid === this.sessionUuid) {
+                        window.localStorage.removeItem('handayani-foto-maps-recovery');
+                    }
+                } catch (error) {
+                    try {
+                        window.localStorage.removeItem('handayani-foto-maps-recovery');
+                    } catch (storageError) {
+                        // Pemulihan IndexedDB tetap berjalan tanpa localStorage.
+                    }
+                }
+
+                this.recoveryAvailable = false;
+                this.recoveryMessage = '';
+            },
+            setCaptureMode(mode) {
+                if (! ['server', 'local'].includes(mode) || this.captureBusy) return;
+                this.captureMode = mode;
+                this.persistSessionRecovery(this.cameraOpen);
+            },
+            dismissRecovery() {
+                this.recoveryAvailable = false;
+                this.persistSessionRecovery(false);
+            },
+            async resumeRecoveredSession() {
+                this.recoveryAvailable = false;
+                await this.openCamera();
+            },
+            toggleShutterBeep() {
+                this.beepEnabled = ! this.beepEnabled;
+
+                try {
+                    window.localStorage.setItem(
+                        'handayani-foto-maps-beep',
+                        this.beepEnabled ? 'on' : 'off',
+                    );
+                } catch (error) {
+                    // Preferensi tetap aktif selama halaman ini terbuka.
+                }
+
+                if (this.beepEnabled) this.playShutterBeep();
             },
             updateClock() {
                 const now = new Date();
@@ -99,6 +207,48 @@
                 this.liveDay = new Intl.DateTimeFormat('id-ID', {
                     timeZone, weekday: 'long',
                 }).format(now);
+            },
+            playShutterBeep() {
+                if (! this.beepEnabled) return;
+
+                try {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    if (! AudioContextClass) return;
+
+                    if (! this.shutterAudioContext || this.shutterAudioContext.state === 'closed') {
+                        this.shutterAudioContext = new AudioContextClass();
+                    }
+
+                    const context = this.shutterAudioContext;
+                    const emitBeep = () => {
+                        if (context.state !== 'running') return;
+
+                        const startedAt = context.currentTime;
+                        const oscillator = context.createOscillator();
+                        const gain = context.createGain();
+                        oscillator.type = 'sine';
+                        oscillator.frequency.setValueAtTime(920, startedAt);
+                        gain.gain.setValueAtTime(0.0001, startedAt);
+                        gain.gain.exponentialRampToValueAtTime(0.16, startedAt + 0.008);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.095);
+                        oscillator.connect(gain);
+                        gain.connect(context.destination);
+                        oscillator.onended = () => {
+                            oscillator.disconnect();
+                            gain.disconnect();
+                        };
+                        oscillator.start(startedAt);
+                        oscillator.stop(startedAt + 0.1);
+                    };
+
+                    if (context.state === 'suspended') {
+                        context.resume().then(emitBeep).catch(() => {});
+                    } else {
+                        emitBeep();
+                    }
+                } catch (error) {
+                    // Audio hanya umpan balik tambahan; kegagalannya tidak boleh mengganggu potret.
+                }
             },
             openCaptureDb() {
                 if (this.captureDbPromise) return this.captureDbPromise;
@@ -177,7 +327,10 @@
                         const storedMode = storedCapture.mode || 'server';
                         if (storedMode === mode) {
                             const { blob, ...metadata } = storedCapture;
-                            captures.push(metadata);
+                            captures.push({
+                                ...metadata,
+                                fileSize: Number(metadata.fileSize || blob?.size || 0),
+                            });
                         }
                         cursor.continue();
                     };
@@ -803,9 +956,13 @@
 
                 this.finishingSession = true;
                 this.finishRequested = false;
-                await $wire.finishSession(this.finishAllowsEmptyLocal);
-                this.finishingSession = false;
-                this.finishAllowsEmptyLocal = false;
+                try {
+                    await $wire.finishSession(this.finishAllowsEmptyLocal);
+                    this.clearSessionRecovery();
+                } finally {
+                    this.finishingSession = false;
+                    this.finishAllowsEmptyLocal = false;
+                }
             },
             async useHandayaniTemplateLocation() {
                 if (this.templateApplying) return false;
@@ -968,6 +1125,7 @@
                     video.srcObject = this.cameraStream;
                     await Promise.all([video.play(), this.waitForCameraReady(video)]);
                     this.cameraReady = true;
+                    this.persistSessionRecovery(true);
                     const videoTrack = this.cameraStream.getVideoTracks()[0];
                     videoTrack?.addEventListener('mute', () => {
                         if (! this.cameraOpen) return;
@@ -1028,6 +1186,7 @@
                 if (clearError) this.cameraError = '';
             },
             async closeCameraAndRefresh() {
+                this.persistSessionRecovery(false);
                 this.closeCamera();
                 if (! this.uploadInProgress && this.captureQueue.length === 0) {
                     this.scheduleServerRefresh(100);
@@ -1054,6 +1213,7 @@
                     return;
                 }
 
+                this.playShutterBeep();
                 this.captureBusy = true;
                 this.cameraError = '';
 
@@ -1102,6 +1262,7 @@
                         latitude: this.latitude,
                         longitude: this.longitude,
                         accuracy: this.accuracy,
+                        fileSize: blob.size,
                         attempts: 0,
                         blob,
                     };
@@ -1121,6 +1282,8 @@
                         this.localCapturedCount = this.localCaptures.length;
                         this.backgroundState = `${this.localCapturedCount} foto tersimpan lokal di perangkat`;
                     }
+
+                    this.persistSessionRecovery(true);
 
                     this.$refs.cameraFlash?.classList.add('is-visible');
                     window.setTimeout(() => this.$refs.cameraFlash?.classList.remove('is-visible'), 140);
@@ -1153,6 +1316,7 @@
                 this.queuedCount = this.captureQueue.length;
                 this.currentUploadId = null;
                 this.uploadInProgress = false;
+                this.persistSessionRecovery(this.cameraOpen);
                 this.backgroundState = this.queuedCount > 0
                     ? `${this.queuedCount} foto aman, melanjutkan upload`
                     : 'Semua foto sudah aman di server';
@@ -1175,6 +1339,7 @@
             },
             async finishCaptureSession() {
                 if (this.captureBusy) return;
+                this.persistSessionRecovery(false);
                 this.closeCamera();
                 this.finishRequested = true;
                 this.finishAllowsEmptyLocal = this.captureMode === 'local';
@@ -1184,12 +1349,158 @@
                 await this.completeFinishIfReady();
             },
             async finishSessionFromPage() {
+                this.persistSessionRecovery(false);
                 this.finishRequested = true;
                 this.finishAllowsEmptyLocal = this.localCapturedCount > 0;
                 this.backgroundState = this.captureQueue.length > 0 || this.uploadInProgress
                     ? 'Menunggu semua foto aman di server sebelum menyelesaikan sesi'
                     : this.backgroundState;
                 await this.completeFinishIfReady();
+            },
+            async shareSessionArchive(archiveUrl, archiveFileName, sessionTitle) {
+                if (! archiveUrl) return false;
+
+                try {
+                    const response = await fetch(archiveUrl, { credentials: 'same-origin' });
+                    if (! response.ok) throw new Error('Arsip sesi tidak dapat disiapkan.');
+                    const blob = await response.blob();
+                    const file = new File([blob], archiveFileName, {
+                        type: blob.type || 'application/zip',
+                    });
+
+                    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+                        await navigator.share({
+                            title: sessionTitle,
+                            text: `Semua foto ${sessionTitle} - Logistik Handayani`,
+                            files: [file],
+                        });
+                        this.shareAllStatus = 'Arsip seluruh foto berhasil dibagikan.';
+
+                        return true;
+                    }
+                } catch (error) {
+                    if (error?.name === 'AbortError') throw error;
+                }
+
+                window.location.href = archiveUrl;
+                this.shareAllStatus = 'Perangkat tidak mendukung berbagi file; ZIP sedang diunduh.';
+
+                return false;
+            },
+            async shareAllSessionPhotos(archiveUrl, archiveFileName, sessionTitle) {
+                if (this.shareAllBusy) return;
+                if (this.uploadInProgress || this.captureQueue.length > 0) {
+                    this.shareAllStatus = 'Tunggu seluruh antrean selesai dikirim sebelum membagikan sesi.';
+                    return;
+                }
+
+                this.syncServerPhotosFromDom();
+                const totalFiles = this.serverPhotos.length + this.localCaptures.length;
+                const estimatedBytes = [...this.serverPhotos, ...this.localCaptures].reduce(
+                    (total, photo) => total + Number(photo.fileSize || 0),
+                    0,
+                );
+
+                if (totalFiles === 0) {
+                    this.shareAllStatus = 'Belum ada foto yang dapat dibagikan.';
+                    return;
+                }
+
+                if (estimatedBytes > 100 * 1024 * 1024) {
+                    if (this.localCaptures.length === 0) {
+                        this.shareAllStatus = 'Sesi berukuran besar, menyiapkan satu arsip ZIP agar perangkat tetap ringan...';
+                        this.shareAllBusy = true;
+                        try {
+                            await this.shareSessionArchive(archiveUrl, archiveFileName, sessionTitle);
+                        } finally {
+                            this.shareAllBusy = false;
+                        }
+                    } else {
+                        this.shareAllStatus = 'Ukuran seluruh foto lokal melebihi 100 MB. Bagikan dalam beberapa bagian agar HP tetap stabil.';
+                    }
+
+                    return;
+                }
+
+                this.shareAllBusy = true;
+                this.shareAllProgress = 0;
+                this.shareAllStatus = 'Menyiapkan seluruh foto...';
+
+                try {
+                    if (! navigator.share || ! navigator.canShare) {
+                        if (this.localCaptures.length === 0) {
+                            await this.shareSessionArchive(archiveUrl, archiveFileName, sessionTitle);
+                        } else {
+                            this.shareAllStatus = 'Browser ini belum mendukung berbagi banyak foto. Gunakan tombol bagikan pada tiap foto lokal.';
+                        }
+
+                        return;
+                    }
+
+                    const files = [];
+                    let totalBytes = 0;
+                    let processedFiles = 0;
+
+                    for (const photo of this.serverPhotos) {
+                        const response = await fetch(photo.preview, { credentials: 'same-origin' });
+                        const contentType = response.headers.get('content-type') || '';
+                        if (! response.ok || ! contentType.startsWith('image/')) {
+                            throw new Error('Salah satu foto server tidak dapat dibaca.');
+                        }
+
+                        const blob = await response.blob();
+                        totalBytes += blob.size;
+                        files.push(new File([blob], photo.fileName, {
+                            type: blob.type || 'image/jpeg',
+                        }));
+                        processedFiles++;
+                        this.shareAllProgress = Math.round((processedFiles / totalFiles) * 100);
+                    }
+
+                    for (const metadata of this.localCaptures) {
+                        const capture = await this.getLocalCapture(metadata.id);
+                        if (! capture?.blob) throw new Error('Salah satu foto lokal tidak ditemukan.');
+                        totalBytes += capture.blob.size;
+                        files.push(new File([capture.blob], this.localCaptureFileName(capture), {
+                            type: capture.blob.type || 'image/jpeg',
+                            lastModified: capture.createdAt,
+                        }));
+                        processedFiles++;
+                        this.shareAllProgress = Math.round((processedFiles / totalFiles) * 100);
+                    }
+
+                    if (totalBytes > 100 * 1024 * 1024 || ! navigator.canShare({ files })) {
+                        if (this.localCaptures.length === 0) {
+                            await this.shareSessionArchive(archiveUrl, archiveFileName, sessionTitle);
+                        } else {
+                            this.shareAllStatus = 'Jumlah foto terlalu besar untuk dibagikan sekaligus oleh perangkat ini.';
+                        }
+
+                        return;
+                    }
+
+                    await navigator.share({
+                        title: sessionTitle,
+                        text: `Laporan ${totalFiles} foto barang datang - Logistik Handayani`,
+                        files,
+                    });
+                    this.shareAllStatus = `${totalFiles} foto berhasil dikirim ke menu berbagi.`;
+                } catch (error) {
+                    if (error?.name === 'AbortError') {
+                        this.shareAllStatus = 'Berbagi dibatalkan.';
+                        return;
+                    }
+
+                    if (this.localCaptures.length === 0) {
+                        this.shareAllStatus = 'Berbagi foto langsung gagal, menyiapkan arsip ZIP...';
+                        await this.shareSessionArchive(archiveUrl, archiveFileName, sessionTitle);
+                    } else {
+                        this.shareAllStatus = error?.message || 'Foto belum dapat dibagikan sekaligus.';
+                    }
+                } finally {
+                    this.shareAllBusy = false;
+                    this.shareAllProgress = 0;
+                }
             },
             async sharePhoto(previewUrl, downloadUrl, fileName) {
                 try {
@@ -1232,7 +1543,7 @@
                 <i></i>
                 <span><b>2</b> Foto berurutan</span>
                 <i></i>
-                <span><b>3</b> Selesai & unduh</span>
+                <span><b>3</b> Selesai & bagikan</span>
             </div>
         </section>
 
@@ -1281,6 +1592,22 @@
                 </div>
 
                 <div class="fm-session-actions">
+                    <button
+                        type="button"
+                        class="fm-share-all-button"
+                        x-show="serverPhotos.length > 0 || localCapturedCount > 0"
+                        x-on:click="shareAllSessionPhotos(
+                            @js(route('foto-barang.archive', $activeSession)),
+                            @js('foto-maps-'.$activeSession->code().'.zip'),
+                            @js($activeSession->judul),
+                        )"
+                        x-bind:disabled="shareAllBusy || uploadInProgress || queuedCount > 0"
+                        x-cloak
+                    >
+                        <x-filament::icon icon="heroicon-m-share" />
+                        <span x-text="shareAllBusy ? `Menyiapkan ${shareAllProgress}%` : 'Bagikan Semua ke WhatsApp'"></span>
+                    </button>
+
                     @if ($activeSession->items_count > 0)
                         <x-filament::button
                             tag="a"
@@ -1308,6 +1635,21 @@
                     @endif
                 </div>
             </section>
+
+            <div class="fm-recovery" x-show="recoveryAvailable" x-cloak>
+                <span><x-filament::icon icon="heroicon-m-arrow-path-rounded-square" /></span>
+                <div>
+                    <strong>Sesi sebelumnya dipulihkan</strong>
+                    <small x-text="recoveryMessage"></small>
+                </div>
+                <button type="button" x-on:click="resumeRecoveredSession()">Lanjutkan Kamera</button>
+                <button type="button" class="is-muted" x-on:click="dismissRecovery()">Tutup</button>
+            </div>
+
+            <div class="fm-share-status" x-show="shareAllStatus" x-cloak>
+                <x-filament::icon icon="heroicon-m-information-circle" />
+                <span x-text="shareAllStatus"></span>
+            </div>
 
             <div class="fm-background-queue" x-show="queuedCount > 0 || uploadInProgress" x-cloak>
                 <x-filament::icon icon="heroicon-m-cloud-arrow-up" />
@@ -1351,7 +1693,7 @@
                         <div class="fm-mode-picker" role="group" aria-label="Pilih penyimpanan foto">
                             <button
                                 type="button"
-                                x-on:click="captureMode = 'server'"
+                                x-on:click="setCaptureMode('server')"
                                 x-bind:class="captureMode === 'server' && 'is-active'"
                             >
                                 <span><x-filament::icon icon="heroicon-o-cloud-arrow-up" /></span>
@@ -1360,7 +1702,7 @@
                             </button>
                             <button
                                 type="button"
-                                x-on:click="captureMode = 'local'"
+                                x-on:click="setCaptureMode('local')"
                                 x-bind:class="captureMode === 'local' && 'is-active'"
                             >
                                 <span><x-filament::icon icon="heroicon-o-device-phone-mobile" /></span>
@@ -1469,6 +1811,19 @@
                     </main>
 
                     <footer class="fm-live-camera__controls">
+                        <div class="fm-live-camera__preferences">
+                            <button
+                                type="button"
+                                x-on:click="toggleShutterBeep()"
+                                x-bind:class="beepEnabled && 'is-active'"
+                                x-bind:aria-pressed="beepEnabled"
+                            >
+                                <x-filament::icon icon="heroicon-m-speaker-wave" x-show="beepEnabled" />
+                                <x-filament::icon icon="heroicon-m-speaker-x-mark" x-show="! beepEnabled" />
+                                <span x-text="beepEnabled ? 'Beep Aktif' : 'Beep Nonaktif'"></span>
+                            </button>
+                        </div>
+
                         <div class="fm-live-camera__gps" x-bind:class="gpsReady ? 'is-ready' : 'is-warning'">
                             <x-filament::icon icon="heroicon-m-map-pin" />
                             <span x-text="gpsState"></span>
@@ -1533,6 +1888,7 @@
                     'thumbnail' => route('foto-barang.thumbnail', [$activeSession, $item]).'?v='.$item->updated_at->getTimestamp(),
                     'download' => route('foto-barang.download', [$activeSession, $item]),
                     'fileName' => $item->fileName(),
+                    'fileSize' => $item->ukuran_hasil,
                     'capturedAt' => $item->diambil_at->locale('id')->translatedFormat('d M Y, H:i').' WIB',
                 ])->all();
             @endphp
@@ -1925,6 +2281,25 @@
         .dark .fm-status { color:#86efac; background:#153625; }
         .dark .fm-status--done { color:#cbd5e1; background:#2a394b; }
         .fm-session-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.55rem; }
+        .fm-share-all-button { display:inline-flex; align-items:center; justify-content:center; gap:.4rem; min-height:2.25rem; padding:.48rem .75rem; border:0; border-radius:.55rem; color:#fff; background:#d97706; font-size:.72rem; font-weight:700; box-shadow:0 1px 2px rgba(0,0,0,.08); cursor:pointer; }
+        .fm-share-all-button:hover { background:#b45309; }
+        .fm-share-all-button:disabled { opacity:.55; cursor:wait; }
+        .fm-share-all-button svg { width:1rem; }
+        .fm-recovery { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:.7rem; align-items:center; padding:.78rem .85rem; border:1px solid #a7d8bc; border-radius:.85rem; color:#14532d; background:linear-gradient(135deg,#f0fdf4,#ecfdf5); box-shadow:0 8px 20px rgba(21,128,61,.07); }
+        .dark .fm-recovery { border-color:#28563b; color:#bbf7d0; background:linear-gradient(135deg,#142a20,#13261f); }
+        .fm-recovery>span { display:grid; place-items:center; width:2.25rem; height:2.25rem; border-radius:.65rem; color:#15803d; background:#dcfce7; }
+        .dark .fm-recovery>span { color:#86efac; background:#1c3d2a; }
+        .fm-recovery svg { width:1.1rem; }
+        .fm-recovery>div { display:grid; gap:.1rem; }
+        .fm-recovery strong { font-size:.7rem; }
+        .fm-recovery small { color:#3f6f50; font-size:.61rem; }
+        .dark .fm-recovery small { color:#86b89a; }
+        .fm-recovery button { min-height:2.15rem; padding:.4rem .65rem; border:0; border-radius:.6rem; color:#fff; background:#15803d; font-size:.62rem; font-weight:800; }
+        .fm-recovery button.is-muted { color:#3f6f50; background:transparent; }
+        .dark .fm-recovery button.is-muted { color:#9ccbad; }
+        .fm-share-status { display:flex; align-items:center; gap:.45rem; padding:.62rem .75rem; border:1px solid #fde68a; border-radius:.72rem; color:#854d0e; background:#fffbeb; font-size:.64rem; font-weight:700; }
+        .dark .fm-share-status { border-color:#58441b; color:#fde68a; background:#2c2517; }
+        .fm-share-status svg { flex:0 0 auto; width:.95rem; }
         .fm-background-queue { display:flex; align-items:center; gap:.5rem; padding:.68rem .8rem; border:1px solid #bfdbfe; border-radius:.75rem; color:#1e3a8a; background:#eff6ff; font-size:.68rem; font-weight:700; }
         .dark .fm-background-queue { border-color:#28496d; color:#bfdbfe; background:#142439; }
         .fm-background-queue svg { flex:0 0 auto; width:1rem; }
@@ -2146,6 +2521,10 @@
         .fm-live-camera__flash { position:absolute; z-index:5; inset:0; pointer-events:none; background:#fff; opacity:0; transition:opacity .14s ease-out; }
         .fm-live-camera__flash.is-visible { opacity:.72; transition:none; }
         .fm-live-camera__controls { display:grid; gap:.55rem; padding:.55rem .8rem calc(.65rem + env(safe-area-inset-bottom)); background:#080d14; }
+        .fm-live-camera__preferences { display:flex; justify-content:center; }
+        .fm-live-camera__preferences button { display:flex; align-items:center; gap:.3rem; min-height:1.75rem; padding:.28rem .55rem; border:1px solid #475569; border-radius:999px; color:#cbd5e1; background:#111c2a; font-size:.58rem; font-weight:800; }
+        .fm-live-camera__preferences button.is-active { border-color:#d69a24; color:#fcd34d; background:#2a2112; }
+        .fm-live-camera__preferences svg { width:.85rem; }
         .fm-live-camera__gps { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:1.4rem; color:#fbbf24; font-size:.64rem; font-weight:700; text-align:center; }
         .fm-live-camera__gps.is-ready { color:#86efac; }
         .fm-live-camera__gps svg { flex:0 0 auto; width:.85rem; }
@@ -2176,6 +2555,8 @@
             .fm-start-card,.fm-capture-card,.fm-template-preview,.fm-gallery,.fm-history { padding:.9rem; border-radius:.9rem; }
             .fm-session-header { align-items:flex-start; flex-direction:column; padding:.9rem; }
             .fm-session-actions { width:100%; justify-content:flex-start; }
+            .fm-recovery { grid-template-columns:auto minmax(0,1fr); }
+            .fm-recovery button { width:100%; }
             .fm-form { grid-template-columns:1fr; }
             .fm-form__footer { align-items:stretch; flex-direction:column; }
             .fm-gps { grid-template-columns:auto minmax(0,1fr); }

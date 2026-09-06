@@ -132,6 +132,12 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('navigator.mediaDevices.getUserMedia', $view);
         $this->assertStringContainsString('waitForCameraReady', $view);
         $this->assertStringContainsString('cameraReady', $view);
+        $this->assertStringContainsString('playShutterBeep()', $view);
+        $this->assertStringContainsString('window.AudioContext || window.webkitAudioContext', $view);
+        $this->assertStringContainsString('this.playShutterBeep();', $view);
+        $this->assertStringContainsString('toggleShutterBeep()', $view);
+        $this->assertStringContainsString("localStorage.getItem('handayani-foto-maps-beep')", $view);
+        $this->assertStringContainsString("beepEnabled ? 'Beep Aktif' : 'Beep Nonaktif'", $view);
         $this->assertStringContainsString('closeCameraAndRefresh', $view);
         $this->assertStringContainsString('refreshInProgress', $view);
         $this->assertStringContainsString('x-bind:disabled="refreshInProgress"', $view);
@@ -143,6 +149,10 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString("readLocalCaptures(sessionUuid, mode = 'server')", $view);
         $this->assertStringContainsString("this.readLocalCaptures(sessionUuid, 'server')", $view);
         $this->assertStringContainsString("this.readLocalCaptures(sessionUuid, 'local')", $view);
+        $this->assertStringContainsString('persistSessionRecovery(cameraWasOpen = this.cameraOpen)', $view);
+        $this->assertStringContainsString("localStorage.getItem('handayani-foto-maps-recovery')", $view);
+        $this->assertStringContainsString('resumeRecoveredSession()', $view);
+        $this->assertStringContainsString('Sesi sebelumnya dipulihkan', $view);
         $this->assertStringContainsString('drawLocalWatermark(canvas, context, capturedAt)', $view);
         $this->assertStringContainsString('downloadLocalCapture(captureId)', $view);
         $this->assertStringContainsString('shareLocalCapture(captureId)', $view);
@@ -178,6 +188,10 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringNotContainsString('navigator.geolocation', $templateLocationMethod[1]);
         $this->assertStringContainsString('Unduh Semua ZIP', $view);
         $this->assertStringContainsString('sharePhoto(', $view);
+        $this->assertStringContainsString('shareAllSessionPhotos(', $view);
+        $this->assertStringContainsString('shareSessionArchive(', $view);
+        $this->assertStringContainsString('navigator.canShare({ files })', $view);
+        $this->assertStringContainsString('Bagikan Semua ke WhatsApp', $view);
         $this->assertStringContainsString('openServerGallery', $view);
         $this->assertStringContainsString('fm-image-skeleton', $view);
         $this->assertStringContainsString("route('foto-barang.thumbnail'", $view);
