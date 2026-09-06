@@ -24,9 +24,11 @@ class PwaAssetsTest extends TestCase
         $serviceWorker = (string) file_get_contents(dirname(__DIR__, 2).'/public/service-worker.js');
 
         $this->assertStringContainsString("request.mode === 'navigate'", $serviceWorker);
-        $this->assertStringContainsString("fetch(request).catch(() => caches.match(OFFLINE_URL))", $serviceWorker);
+        $this->assertStringContainsString('fetch(request).catch(() => caches.match(OFFLINE_URL))', $serviceWorker);
         $this->assertStringNotContainsString("'/admin'", $serviceWorker);
         $this->assertStringNotContainsString("'/media/'", $serviceWorker);
+        $this->assertStringContainsString('CACHE_APP_ASSETS', $serviceWorker);
+        $this->assertStringContainsString('CACHEABLE_ASSET_PATHS', $serviceWorker);
     }
 
     public function test_login_contains_the_pwa_install_action(): void
@@ -39,5 +41,8 @@ class PwaAssetsTest extends TestCase
         $this->assertStringContainsString('Unduh Aplikasi', $loginView);
         $this->assertStringContainsString("window.addEventListener('beforeinstallprompt'", $pwaView);
         $this->assertStringContainsString("window.addEventListener('appinstalled'", $pwaView);
+        $this->assertStringContainsString('cachePwaAppAssets', $pwaView);
+        $this->assertStringContainsString('resources/js/mobile-swipe-navigation.js', $pwaView);
+        $this->assertStringContainsString('resources/js/foto-barang-maps.js', $pwaView);
     }
 }

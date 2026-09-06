@@ -1,3 +1,13 @@
+@php
+    $pwaAppAssets = [
+        \Illuminate\Support\Facades\Vite::asset('resources/css/filament-dashboard.css'),
+        \Illuminate\Support\Facades\Vite::asset('resources/js/mobile-swipe-navigation.js'),
+        \Illuminate\Support\Facades\Vite::asset('resources/js/foto-barang-maps.js'),
+        \Illuminate\Support\Facades\Vite::asset('resources/js/foto-barang-folder.js'),
+        asset('images/logo-handayani.webp'),
+    ];
+@endphp
+
 <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
 <meta name="application-name" content="Logistik Handayani">
 <meta name="theme-color" content="#102031">
@@ -9,9 +19,39 @@
 
 <script>
     (() => {
+        if (window.__handayaniPwaInitialized) {
+            window.__handayaniCachePwaAssets?.();
+
+            return;
+        }
+
+        window.__handayaniPwaInitialized = true;
+
         const displayMode = window.matchMedia('(display-mode: standalone)');
         const isInstalledPwa = () => displayMode.matches || window.navigator.standalone === true;
+        const declaredAppAssets = @js($pwaAppAssets);
         let installPrompt = null;
+
+        const cachePwaAppAssets = () => {
+            if (! isInstalledPwa() || ! ('serviceWorker' in navigator)) {
+                return;
+            }
+
+            const documentAssets = Array.from(document.querySelectorAll('link[rel="stylesheet"][href], script[src]'))
+                .map((element) => element.href || element.src)
+                .filter(Boolean);
+
+            navigator.serviceWorker.ready.then((registration) => {
+                registration.active?.postMessage({
+                    type: 'CACHE_APP_ASSETS',
+                    urls: [...new Set([...declaredAppAssets, ...documentAssets])],
+                });
+            }).catch(() => {
+                // PWA remains usable when asset storage is unavailable or denied.
+            });
+        };
+
+        window.__handayaniCachePwaAssets = cachePwaAppAssets;
 
         const updateInstallButton = () => {
             const button = document.querySelector('[data-pwa-install]');
@@ -74,6 +114,7 @@
         window.addEventListener('appinstalled', () => {
             installPrompt = null;
             updateInstallButton();
+            cachePwaAppAssets();
         });
 
         displayMode.addEventListener?.('change', updateInstallButton);
@@ -109,14 +150,20 @@
         });
 
         document.addEventListener('DOMContentLoaded', updateInstallButton, { once: true });
-        document.addEventListener('livewire:navigated', updateInstallButton);
+        document.addEventListener('livewire:navigated', () => {
+            updateInstallButton();
+            cachePwaAppAssets();
+        });
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('{{ asset('service-worker.js') }}', {
                     scope: '/',
                     updateViaCache: 'none',
-                }).then((registration) => registration.update()).catch(() => {
+                }).then((registration) => {
+                    registration.update();
+                    cachePwaAppAssets();
+                }).catch(() => {
                     // Aplikasi tetap dapat digunakan normal jika browser menolak PWA.
                 });
             }, { once: true });

@@ -799,6 +799,11 @@
 @media (max-width: 1023px) {
     .fi-body .fi-main { padding-bottom:calc(6.75rem + env(safe-area-inset-bottom)) !important; }
     .wm-mobile-nav-wrap { position:fixed; z-index:29; right:.7rem; bottom:calc(.55rem + env(safe-area-inset-bottom)); left:.7rem; display:block; pointer-events:none; }
+    .wm-swipe-cue { --swipe-progress:0; --swipe-scale:.78; position:fixed; z-index:28; top:50%; display:grid; place-items:center; width:2.85rem; height:2.85rem; border:1px solid rgba(245,158,11,.42); border-radius:50%; color:#fff; background:linear-gradient(145deg,rgba(251,191,36,.96),rgba(217,119,6,.96)); box-shadow:0 12px 32px rgba(146,84,8,.3),0 0 0 6px rgba(245,158,11,.09); opacity:var(--swipe-progress); pointer-events:none; transform:translateY(-50%) scale(var(--swipe-scale)); transition:opacity .12s ease,transform .12s ease; }
+    .wm-swipe-cue svg { width:1.35rem; height:1.35rem; stroke-width:2.25; }
+    .wm-swipe-cue.is-next { right:.85rem; }
+    .wm-swipe-cue.is-previous { left:.85rem; }
+    .wm-swipe-cue.is-previous svg { transform:rotate(180deg); }
     .wm-mobile-nav { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); align-items:end; max-width:31rem; min-height:4.35rem; margin:0 auto; padding:.38rem .42rem .35rem; border:1px solid rgba(148,163,184,.24); border-radius:1.35rem; background:rgba(255,255,255,.88); box-shadow:0 18px 45px rgba(15,23,42,.2),0 3px 10px rgba(15,23,42,.08); backdrop-filter:blur(18px) saturate(150%); -webkit-backdrop-filter:blur(18px) saturate(150%); pointer-events:auto; }
     .dark .wm-mobile-nav { border-color:rgba(255,255,255,.1); background:rgba(16,25,39,.9); box-shadow:0 18px 45px rgba(0,0,0,.45); }
     .wm-mobile-nav__item { position:relative; display:flex; align-items:center; justify-content:flex-end; flex-direction:column; gap:.2rem; min-width:0; min-height:3.55rem; padding:.35rem .15rem .25rem; border:0; border-radius:.9rem; color:#64748b; background:transparent; text-decoration:none; cursor:pointer; transition:color .18s ease,background-color .18s ease,transform .18s ease; -webkit-tap-highlight-color:transparent; }
@@ -834,7 +839,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .wm-mobile-nav__item,.wm-mobile-nav__icon,.wm-mobile-nav-enter,.wm-mobile-nav-leave { transition:none; }
+    .wm-mobile-nav__item,.wm-mobile-nav__icon,.wm-mobile-nav-enter,.wm-mobile-nav-leave,.wm-swipe-cue { transition:none; }
 }
 .fi-body .fi-notification,
 .fi-body .fi-no-notification {

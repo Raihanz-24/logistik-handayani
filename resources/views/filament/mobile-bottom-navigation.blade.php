@@ -1,4 +1,6 @@
 @auth
+    @vite('resources/js/mobile-swipe-navigation.js')
+
     @php
         $quickNavigationItems = [
             [
@@ -34,27 +36,21 @@
                 'featured' => false,
             ],
         ];
+
+        $swipeNavigationPages = collect($quickNavigationItems)
+            ->where('canAccess', true)
+            ->map(fn (array $item): array => [
+                'label' => $item['label'],
+                'url' => $item['url'],
+                'exact' => $item['exact'],
+            ])
+            ->values()
+            ->all();
     @endphp
 
     <div
         class="wm-mobile-nav-wrap"
-        x-data="{
-            currentPath: window.location.pathname,
-            syncPath: null,
-            init() {
-                this.syncPath = () => this.currentPath = window.location.pathname;
-                document.addEventListener('livewire:navigated', this.syncPath);
-            },
-            destroy() {
-                if (this.syncPath) document.removeEventListener('livewire:navigated', this.syncPath);
-            },
-            isActive(url, exact = false) {
-                const normalize = (path) => path.replace(/\/+$/, '') || '/';
-                const current = normalize(this.currentPath);
-                const target = normalize(new URL(url, window.location.origin).pathname);
-                return exact ? current === target : current === target || current.startsWith(`${target}/`);
-            },
-        }"
+        x-data="mobileSwipeNavigation(@js($swipeNavigationPages))"
         x-show="! $store.sidebar.isOpen"
         x-transition:enter="wm-mobile-nav-enter"
         x-transition:enter-start="wm-mobile-nav-enter-start"
@@ -63,6 +59,17 @@
         x-transition:leave-start="wm-mobile-nav-leave-start"
         x-transition:leave-end="wm-mobile-nav-leave-end"
     >
+        <div
+            class="wm-swipe-cue"
+            x-cloak
+            x-show="cueDirection"
+            x-bind:class="cueDirection && `is-${cueDirection}`"
+            x-bind:style="`--swipe-progress: ${cueProgress}; --swipe-scale: ${0.78 + (cueProgress * 0.22)}`"
+            aria-hidden="true"
+        >
+            <x-filament::icon icon="heroicon-o-chevron-right" />
+        </div>
+
         <nav class="wm-mobile-nav" aria-label="Navigasi cepat">
             <button
                 type="button"

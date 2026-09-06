@@ -12,6 +12,7 @@ class MobileBottomNavigationTest extends TestCase
         $provider = (string) file_get_contents($root.'/app/Providers/Filament/AdminPanelProvider.php');
         $view = (string) file_get_contents($root.'/resources/views/filament/mobile-bottom-navigation.blade.php');
         $styles = (string) file_get_contents($root.'/resources/css/filament-dashboard.css');
+        $swipeNavigation = (string) file_get_contents($root.'/resources/js/mobile-swipe-navigation.js');
 
         $this->assertStringContainsString('PanelsRenderHook::BODY_END', $provider);
         $this->assertStringContainsString("view('filament.mobile-bottom-navigation')", $provider);
@@ -23,10 +24,19 @@ class MobileBottomNavigationTest extends TestCase
         $this->assertStringContainsString('Dashboard::getUrl', $view);
         $this->assertStringContainsString('::canViewAny()', $view);
         $this->assertStringContainsString('::canAccess()', $view);
-        $this->assertStringContainsString("document.addEventListener('livewire:navigated'", $view);
+        $this->assertStringContainsString("document.addEventListener('livewire:navigated'", $swipeNavigation);
         $this->assertStringContainsString('env(safe-area-inset-bottom)', $styles);
         $this->assertStringContainsString('@media (max-width: 1023px)', $styles);
         $this->assertStringContainsString('grid-template-columns:repeat(5', $styles);
         $this->assertStringContainsString('wire:navigate.hover', $view);
+        $this->assertStringContainsString('mobileSwipeNavigation(@js($swipeNavigationPages))', $view);
+        $this->assertStringContainsString('wm-swipe-cue', $view);
+        $this->assertStringContainsString('event.preventDefault()', $swipeNavigation);
+        $this->assertStringContainsString('style.overflowX', $swipeNavigation);
+        $this->assertStringContainsString("'.fi-modal'", $swipeNavigation);
+        $this->assertStringContainsString("'.fm-live-camera'", $swipeNavigation);
+        $this->assertStringContainsString('Math.abs(deltaX) >= 72', $swipeNavigation);
+        $this->assertStringContainsString("new MouseEvent('mouseenter'", $swipeNavigation);
+        $this->assertStringContainsString('this.pagePath(page) === current', $swipeNavigation);
     }
 }

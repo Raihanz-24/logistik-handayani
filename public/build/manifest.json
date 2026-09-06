@@ -5,7 +5,7 @@
     "isEntry": true
   },
   "resources/css/filament-dashboard.css": {
-    "file": "assets/filament-dashboard-BKfvs5Tn.css",
+    "file": "assets/filament-dashboard-BPzExQR4.css",
     "src": "resources/css/filament-dashboard.css",
     "isEntry": true
   },
@@ -25,6 +25,12 @@
     "file": "assets/foto-barang-maps-KZyE5m90.js",
     "name": "foto-barang-maps",
     "src": "resources/js/foto-barang-maps.js",
+    "isEntry": true
+  },
+  "resources/js/mobile-swipe-navigation.js": {
+    "file": "assets/mobile-swipe-navigation-DGW_H4dU.js",
+    "name": "mobile-swipe-navigation",
+    "src": "resources/js/mobile-swipe-navigation.js",
     "isEntry": true
   }
 }
