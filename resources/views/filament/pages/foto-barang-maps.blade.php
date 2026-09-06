@@ -4,30 +4,33 @@
     @php
         $activeSession = $this->activeSession();
         $sessions = $this->sessions();
+        $cameraConfig = [
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'accuracy' => $accuracy,
+            'verticalCropRatio' => (float) config('foto_barang.vertical_crop_ratio', 0.045),
+            'sessionLocation' => $activeSession?->nama_lokasi ?? '',
+            'sessionAddress' => $activeSession?->alamat ?? '',
+            'capturedCount' => (int) ($activeSession?->items_count ?? 0),
+            'serverCapturedCount' => (int) ($activeSession?->items_count ?? 0),
+            'sessionUuid' => $activeSession?->uuid,
+            'sessionIsActive' => (bool) ($activeSession?->isActive() ?? false),
+            'uploadUrlTemplate' => route('foto-barang.upload', ['session' => '__SESSION_UUID__'], absolute: false),
+            'selectedArchiveUrlTemplate' => route('foto-barang.selected-archive', ['session' => '__SESSION_UUID__'], absolute: false),
+        ];
     @endphp
 
     <div
         class="fm-page"
-        x-data='fotoBarangMaps({
-            latitude: @js($latitude),
-            longitude: @js($longitude),
-            accuracy: @js($accuracy),
-            verticalCropRatio: @js((float) config('foto_barang.vertical_crop_ratio', 0.045)),
-            sessionLocation: @js($activeSession?->nama_lokasi ?? ''),
-            sessionAddress: @js($activeSession?->alamat ?? ''),
-            capturedCount: @js((int) ($activeSession?->items_count ?? 0)),
-            serverCapturedCount: @js((int) ($activeSession?->items_count ?? 0)),
-            sessionUuid: @js($activeSession?->uuid),
-            sessionIsActive: @js((bool) ($activeSession?->isActive() ?? false)),
-            uploadUrlTemplate: @js(route('foto-barang.upload', ['session' => '__SESSION_UUID__'], absolute: false)),
-            selectedArchiveUrlTemplate: @js(route('foto-barang.selected-archive', ['session' => '__SESSION_UUID__'], absolute: false)),
-        })'
-        x-init="initCamera()"
+        x-data="fotoBarangMaps()"
+        x-init="initializeCamera(JSON.parse($refs.cameraConfig.textContent)); initCamera()"
         x-on:foto-barang-saved.window="handlePhotoSaved()"
         x-on:foto-barang-failed.window="handlePhotoFailed()"
         x-on:foto-barang-deleted.window="serverCapturedCount = Math.max(0, serverCapturedCount - 1); capturedCount = Math.max(0, capturedCount - 1)"
         x-on:online.window="retryPendingUploads()"
     >
+        <script type="application/json" x-ref="cameraConfig">@json($cameraConfig)</script>
+
         <section class="fm-hero">
             <div class="fm-hero__copy">
                 <span class="fm-eyebrow">Handayani Map Camera</span>

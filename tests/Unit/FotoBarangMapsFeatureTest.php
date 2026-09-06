@@ -262,7 +262,10 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('public function archiveSelected', $controller);
         $this->assertStringContainsString("->name('foto-barang.selected-archive')", $routes);
 
-        $this->assertStringContainsString("x-data='fotoBarangMaps({", $mainView);
+        $this->assertStringContainsString('x-data="fotoBarangMaps()"', $mainView);
+        $this->assertStringContainsString('x-ref="cameraConfig"', $mainView);
+        $this->assertStringContainsString('initializeCamera(JSON.parse($refs.cameraConfig.textContent))', $mainView);
+        $this->assertStringNotContainsString("x-data='fotoBarangMaps({", $mainView);
         $this->assertStringContainsString("@vite('resources/js/foto-barang-maps.js')", $mainView);
         $this->assertStringContainsString("@vite('resources/js/foto-barang-folder.js')", $folderView);
         $this->assertStringNotContainsString('navigator.mediaDevices.getUserMedia', $mainView);

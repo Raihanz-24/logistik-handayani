@@ -81,6 +81,20 @@ const fotoBarangMaps = (config = {}) => ({
             shareAllBusy: false,
             shareAllProgress: 0,
             shareAllStatus: '',
+            initializeCamera(nextConfig = {}) {
+                this.latitude = nextConfig.latitude ?? null;
+                this.longitude = nextConfig.longitude ?? null;
+                this.accuracy = nextConfig.accuracy ?? null;
+                this.verticalCropRatio = Number(nextConfig.verticalCropRatio ?? 0.045);
+                this.sessionLocation = nextConfig.sessionLocation || '';
+                this.sessionAddress = nextConfig.sessionAddress || '';
+                this.capturedCount = Number(nextConfig.capturedCount || 0);
+                this.serverCapturedCount = Number(nextConfig.serverCapturedCount || 0);
+                this.sessionUuid = nextConfig.sessionUuid || null;
+                this.sessionIsActive = Boolean(nextConfig.sessionIsActive);
+                this.uploadUrlTemplate = nextConfig.uploadUrlTemplate || '';
+                this.selectedArchiveUrlTemplate = nextConfig.selectedArchiveUrlTemplate || '';
+            },
             async initCamera() {
                 this.gpsState = 'GPS akan diambil saat kamera dibuka';
                 this.gpsReady = this.latitude !== null && this.longitude !== null;
