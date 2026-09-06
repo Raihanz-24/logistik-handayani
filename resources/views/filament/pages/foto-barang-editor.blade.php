@@ -5,6 +5,7 @@
         $sessions = $selectedSession ? null : $this->sessions();
         $originalPhotos = $selectedSession ? $this->originalPhotos() : null;
         $editedPhotos = $selectedSession ? $this->editedPhotos() : null;
+        $destinationSessions = $selectedSession ? $this->copyDestinationSessions() : collect();
     @endphp
 
     <div class="fme-page">
@@ -144,7 +145,121 @@
                 </aside>
             </div>
 
-            <section class="fme-panel fme-results">
+            <section
+                class="fme-panel fme-results"
+                x-data="{
+                    resultPreviewOpen: false,
+                    resultPhotoIndex: 0,
+                    resultPhotos: [],
+                    resultImageLoading: false,
+                    resultTouchStartX: null,
+                    copyEditId: null,
+                    copyPhotoTitle: '',
+                    copyDestinationSessionId: {{ (int) $selectedSession->getKey() }},
+                    copyBusy: false,
+                    copyError: '',
+                    syncResultPhotos() {
+                        this.resultPhotos = Array.from(this.$root.querySelectorAll('[data-edit-preview]')).map((button) => ({
+                            preview: button.dataset.preview,
+                            download: button.dataset.download,
+                            title: button.dataset.title,
+                            editId: Number(button.dataset.editId),
+                        }));
+                    },
+                    currentResultPhoto() {
+                        return this.resultPhotos[this.resultPhotoIndex] || null;
+                    },
+                    openResultPreview(index) {
+                        this.syncResultPhotos();
+                        if (! this.resultPhotos[index]) return;
+                        this.resultPhotoIndex = index;
+                        this.resultImageLoading = true;
+                        this.resultPreviewOpen = true;
+                        this.$nextTick(() => {
+                            const dialog = this.$refs.resultPreviewDialog;
+                            if (dialog && ! dialog.open) dialog.showModal();
+                            document.body.style.overflow = 'hidden';
+                        });
+                    },
+                    closeResultPreview() {
+                        const dialog = this.$refs.resultPreviewDialog;
+                        if (dialog?.open) dialog.close();
+                        this.resultPreviewOpen = false;
+                        this.resultImageLoading = false;
+                        this.resultTouchStartX = null;
+                        document.body.style.overflow = '';
+                    },
+                    moveResultPreview(direction) {
+                        if (this.resultPhotos.length < 2) return;
+                        this.resultPhotoIndex = (this.resultPhotoIndex + direction + this.resultPhotos.length) % this.resultPhotos.length;
+                        this.resultImageLoading = true;
+                    },
+                    startResultSwipe(event) {
+                        this.resultTouchStartX = event.changedTouches?.[0]?.clientX ?? null;
+                    },
+                    endResultSwipe(event) {
+                        const endX = event.changedTouches?.[0]?.clientX;
+                        if (this.resultTouchStartX === null || endX === undefined) return;
+                        const distance = endX - this.resultTouchStartX;
+                        this.resultTouchStartX = null;
+                        if (Math.abs(distance) < 45) return;
+                        this.moveResultPreview(distance < 0 ? 1 : -1);
+                    },
+                    openCopyDialogFromIndex(index) {
+                        this.syncResultPhotos();
+                        const photo = this.resultPhotos[index];
+                        if (! photo?.editId) return;
+                        this.openCopyDialog(photo.editId, photo.title);
+                    },
+                    openCopyDialog(editId, title) {
+                        if (this.resultPreviewOpen) this.closeResultPreview();
+                        this.copyEditId = Number(editId);
+                        this.copyPhotoTitle = title || 'Hasil edit foto';
+                        this.copyDestinationSessionId = {{ (int) $selectedSession->getKey() }};
+                        this.copyError = '';
+                        this.$nextTick(() => {
+                            const dialog = this.$refs.copyResultDialog;
+                            if (dialog && ! dialog.open) dialog.showModal();
+                            document.body.style.overflow = 'hidden';
+                        });
+                    },
+                    closeCopyDialog() {
+                        const dialog = this.$refs.copyResultDialog;
+                        if (dialog?.open) dialog.close();
+                        this.copyEditId = null;
+                        this.copyPhotoTitle = '';
+                        this.copyBusy = false;
+                        this.copyError = '';
+                        document.body.style.overflow = '';
+                    },
+                    async confirmResultCopy() {
+                        const destinationId = Number(this.copyDestinationSessionId);
+                        if (! Number.isInteger(destinationId) || destinationId < 1) {
+                            this.copyError = 'Pilih folder tujuan terlebih dahulu.';
+                            return;
+                        }
+                        if (! Number.isInteger(this.copyEditId) || this.copyEditId < 1 || this.copyBusy) return;
+
+                        this.copyBusy = true;
+                        this.copyError = '';
+
+                        try {
+                            const result = await $wire.copyEditedPhoto(this.copyEditId, destinationId);
+                            if (! result?.copied) {
+                                this.copyError = result?.message || 'Foto belum berhasil disalin.';
+                                return;
+                            }
+                            this.closeCopyDialog();
+                        } catch (error) {
+                            this.copyError = 'Koneksi terputus. Foto asli tetap aman, silakan coba kembali.';
+                        } finally {
+                            this.copyBusy = false;
+                        }
+                    },
+                }"
+                x-on:keydown.left.window="if (resultPreviewOpen) moveResultPreview(-1)"
+                x-on:keydown.right.window="if (resultPreviewOpen) moveResultPreview(1)"
+            >
                 <div class="fme-heading">
                     <div>
                         <span>Folder terpisah</span>
@@ -156,15 +271,30 @@
                 <div class="fme-result-grid">
                     @forelse ($editedPhotos as $edit)
                         <article>
-                            <a href="{{ route('foto-barang.edit-preview', [$selectedSession, $edit]) }}" target="_blank" rel="noopener">
+                            <button
+                                type="button"
+                                class="fme-result-preview"
+                                data-edit-preview
+                                data-edit-id="{{ $edit->getKey() }}"
+                                data-preview="{{ route('foto-barang.edit-preview', [$selectedSession, $edit]) }}?v={{ $edit->updated_at->getTimestamp() }}"
+                                data-download="{{ route('foto-barang.edit-download', [$selectedSession, $edit]) }}"
+                                data-title="Foto #{{ str_pad((string) ($edit->photo?->urutan ?? 0), 2, '0', STR_PAD_LEFT) }} · {{ $edit->waktu_baru?->setTimezone('Asia/Jakarta')->format('d/m/Y H:i') }} WIB"
+                                x-on:click="openResultPreview({{ $loop->index }})"
+                                aria-label="Preview hasil edit foto {{ $edit->photo?->urutan }}"
+                            >
                                 <img src="{{ route('foto-barang.edit-preview', [$selectedSession, $edit]) }}?v={{ $edit->updated_at->getTimestamp() }}" alt="Hasil foto {{ $edit->photo?->urutan }}" loading="lazy">
-                            </a>
-                            <div>
+                            </button>
+                            <div class="fme-result-meta">
                                 <span>Foto #{{ str_pad((string) ($edit->photo?->urutan ?? 0), 2, '0', STR_PAD_LEFT) }}</span>
                                 <strong>{{ $edit->waktu_baru?->setTimezone('Asia/Jakarta')->format('d/m/Y H:i') }} WIB</strong>
-                                <a href="{{ route('foto-barang.edit-download', [$selectedSession, $edit]) }}">
-                                    <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
-                                </a>
+                                <div class="fme-result-actions">
+                                    <button type="button" x-on:click="openCopyDialogFromIndex({{ $loop->index }})">
+                                        <x-filament::icon icon="heroicon-m-folder-arrow-down" /> Salin ke Folder
+                                    </button>
+                                    <a href="{{ route('foto-barang.edit-download', [$selectedSession, $edit]) }}">
+                                        <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh
+                                    </a>
+                                </div>
                             </div>
                         </article>
                     @empty
@@ -179,6 +309,109 @@
                 @if ($editedPhotos->hasPages())
                     <div class="fme-pagination">{{ $editedPhotos->links() }}</div>
                 @endif
+
+                <dialog
+                    class="fme-result-dialog"
+                    x-ref="resultPreviewDialog"
+                    x-on:cancel.prevent="closeResultPreview()"
+                    x-on:close="resultPreviewOpen = false; resultImageLoading = false; document.body.style.overflow = ''"
+                    x-on:click.self="closeResultPreview()"
+                >
+                    <div
+                        class="fme-result-dialog__panel"
+                        x-on:touchstart.passive="startResultSwipe($event)"
+                        x-on:touchend.passive="endResultSwipe($event)"
+                    >
+                        <header>
+                            <button type="button" class="fme-result-dialog__back" x-on:click="closeResultPreview()">
+                                <x-filament::icon icon="heroicon-m-arrow-left" /> Kembali
+                            </button>
+                            <span x-text="resultPhotos.length ? `${resultPhotoIndex + 1} / ${resultPhotos.length}` : ''"></span>
+                        </header>
+
+                        <main>
+                            <div class="fme-result-dialog__loader" x-show="resultImageLoading" x-cloak></div>
+                            <img
+                                x-bind:src="currentResultPhoto()?.preview || ''"
+                                x-bind:alt="currentResultPhoto()?.title || 'Preview hasil edit'"
+                                x-on:load="resultImageLoading = false"
+                                x-on:error="resultImageLoading = false"
+                            >
+                            <button
+                                type="button"
+                                class="fme-result-dialog__nav is-prev"
+                                x-show="resultPhotos.length > 1"
+                                x-on:click="moveResultPreview(-1)"
+                                aria-label="Foto sebelumnya"
+                            ><x-filament::icon icon="heroicon-m-chevron-left" /></button>
+                            <button
+                                type="button"
+                                class="fme-result-dialog__nav is-next"
+                                x-show="resultPhotos.length > 1"
+                                x-on:click="moveResultPreview(1)"
+                                aria-label="Foto berikutnya"
+                            ><x-filament::icon icon="heroicon-m-chevron-right" /></button>
+                        </main>
+
+                        <footer>
+                            <strong x-text="currentResultPhoto()?.title || ''"></strong>
+                            <div>
+                                <button
+                                    type="button"
+                                    x-on:click="openCopyDialog(currentResultPhoto()?.editId, currentResultPhoto()?.title)"
+                                >
+                                    <x-filament::icon icon="heroicon-m-folder-arrow-down" /> Salin ke Folder
+                                </button>
+                                <a x-bind:href="currentResultPhoto()?.download || '#'">
+                                    <x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh Foto
+                                </a>
+                            </div>
+                        </footer>
+                    </div>
+                </dialog>
+
+                <dialog
+                    class="fme-copy-dialog"
+                    x-ref="copyResultDialog"
+                    x-on:cancel.prevent="if (! copyBusy) closeCopyDialog()"
+                    x-on:close="document.body.style.overflow = ''"
+                    wire:ignore
+                >
+                    <div class="fme-copy-dialog__panel">
+                        <div class="fme-copy-dialog__icon"><x-filament::icon icon="heroicon-o-folder-arrow-down" /></div>
+                        <div>
+                            <span>Salin tanpa mengubah file asli</span>
+                            <h3>Salin ke Folder Foto Maps</h3>
+                            <p x-text="copyPhotoTitle"></p>
+                        </div>
+
+                        <label>
+                            <span>Folder tujuan</span>
+                            <select x-model.number="copyDestinationSessionId" x-bind:disabled="copyBusy">
+                                <option value="">Pilih folder tujuan</option>
+                                @foreach ($destinationSessions as $destinationSession)
+                                    <option value="{{ $destinationSession->getKey() }}">
+                                        {{ $destinationSession->judul }} · {{ $destinationSession->code() }} · {{ $destinationSession->items_count }} foto
+                                    </option>
+                                @endforeach
+                            </select>
+                        </label>
+
+                        <p class="fme-copy-dialog__safe">
+                            <x-filament::icon icon="heroicon-o-shield-check" />
+                            File disalin tanpa kompres ulang. Foto asli dan hasil edit tetap tersimpan.
+                        </p>
+                        <p class="fme-copy-dialog__error" x-show="copyError" x-text="copyError" x-cloak></p>
+
+                        <footer>
+                            <button type="button" class="is-cancel" x-on:click="closeCopyDialog()" x-bind:disabled="copyBusy">Batal</button>
+                            <button type="button" class="is-copy" x-on:click="confirmResultCopy()" x-bind:disabled="copyBusy">
+                                <x-filament::icon icon="heroicon-m-folder-arrow-down" />
+                                <span x-text="copyBusy ? 'Menyalin...' : 'Salin Foto'"></span>
+                            </button>
+                        </footer>
+                    </div>
+                </dialog>
             </section>
         @endif
     </div>
@@ -234,18 +467,66 @@
         .fme-safe { display:flex; justify-content:center; gap:.3rem; margin-top:.55rem; color:#15803d; font-size:.65rem; font-weight:750; }
         .fme-results { margin-top:.1rem; }
         .fme-result-grid article { overflow:hidden; border:1px solid var(--fme-line); border-radius:.8rem; background:var(--fme-soft); }
-        .fme-result-grid article>div { display:grid; grid-template-columns:1fr auto; gap:.15rem .4rem; align-items:center; padding:.55rem; }
+        .fme-result-preview { display:block; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in; }
+        .fme-result-grid article>.fme-result-meta { display:grid; gap:.18rem; padding:.55rem; }
         .fme-result-grid article span { color:var(--fme-muted); font-size:.62rem; }
-        .fme-result-grid article strong { grid-column:1; font-size:.7rem; }
-        .fme-result-grid article>div>a { display:flex; grid-column:2; grid-row:1/3; align-items:center; gap:.25rem; padding:.42rem .52rem; border-radius:.55rem; color:#fff; background:#be123c; font-size:.66rem; font-weight:850; }
-        .fme-result-grid article>div>a svg { width:.85rem; }
+        .fme-result-grid article strong { font-size:.7rem; }
+        .fme-result-actions { display:grid; grid-template-columns:1fr auto; gap:.35rem; margin-top:.35rem; }
+        .fme-result-actions button,.fme-result-actions a { display:flex; align-items:center; justify-content:center; gap:.25rem; min-height:2.15rem; padding:.38rem .48rem; border:1px solid #fda4af; border-radius:.55rem; color:#9f1239; background:#fff1f2; font-size:.62rem; font-weight:850; }
+        .dark .fme-result-actions button,.dark .fme-result-actions a { border-color:#6b2638; color:#fecdd3; background:#351521; }
+        .fme-result-actions a { border-color:#be123c; color:#fff; background:#be123c; }
+        .fme-result-actions svg { width:.85rem; }
         .fme-empty { display:grid; grid-column:1/-1; place-items:center; gap:.25rem; min-height:12rem; padding:1rem; color:var(--fme-muted); text-align:center; }
         .fme-empty svg { width:2.5rem; opacity:.45; }
         .fme-empty strong { color:var(--fme-ink); font-size:.82rem; }
         .fme-empty span { font-size:.7rem; }
         .fme-empty--compact { min-height:9rem; }
         .fme-pagination { margin-top:1rem; }
+        .fme-result-dialog { width:100%; max-width:none; height:100%; max-height:none; margin:0; padding:0; border:0; color:#fff; background:transparent; }
+        .fme-result-dialog::backdrop { background:rgba(2,6,12,.94); backdrop-filter:blur(10px); }
+        .fme-result-dialog__panel { display:grid; grid-template-rows:auto minmax(0,1fr) auto; width:100%; height:100dvh; padding:calc(.75rem + env(safe-area-inset-top)) .75rem calc(.75rem + env(safe-area-inset-bottom)); background:rgba(2,6,12,.88); }
+        .fme-result-dialog__panel>header,.fme-result-dialog__panel>footer { display:flex; align-items:center; justify-content:space-between; gap:.75rem; width:min(100%,70rem); margin:auto; }
+        .fme-result-dialog__panel>header { padding-bottom:.65rem; }
+        .fme-result-dialog__panel>header>span { color:#cbd5e1; font-size:.72rem; font-weight:850; }
+        .fme-result-dialog__back,.fme-result-dialog__panel>footer button,.fme-result-dialog__panel>footer a { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:2.45rem; padding:.5rem .7rem; border:1px solid #475569; border-radius:.7rem; color:#fff; background:#172033; font-size:.72rem; font-weight:850; }
+        .fme-result-dialog__back svg,.fme-result-dialog__panel>footer button svg,.fme-result-dialog__panel>footer a svg { width:1rem; }
+        .fme-result-dialog__panel>main { position:relative; display:grid; place-items:center; overflow:hidden; min-height:0; touch-action:pan-y; }
+        .fme-result-dialog__panel>main>img { display:block; width:100%; height:100%; object-fit:contain; user-select:none; -webkit-user-drag:none; }
+        .fme-result-dialog__loader { position:absolute; z-index:1; width:min(78vw,24rem); aspect-ratio:3/4; border-radius:.85rem; background:linear-gradient(100deg,#111827 20%,#293548 45%,#111827 70%); background-size:220% 100%; animation:fme-result-loading 1.15s ease-in-out infinite; }
+        .fme-result-dialog__nav { position:absolute; z-index:2; top:50%; display:grid; place-items:center; width:2.75rem; height:2.75rem; border:1px solid rgba(255,255,255,.2); border-radius:50%; color:#fff; background:rgba(15,23,42,.78); transform:translateY(-50%); }
+        .fme-result-dialog__nav svg { width:1.2rem; }
+        .fme-result-dialog__nav.is-prev { left:.4rem; }
+        .fme-result-dialog__nav.is-next { right:.4rem; }
+        .fme-result-dialog__panel>footer { padding-top:.65rem; }
+        .fme-result-dialog__panel>footer>strong { overflow:hidden; color:#e2e8f0; font-size:.72rem; text-overflow:ellipsis; white-space:nowrap; }
+        .fme-result-dialog__panel>footer>div { display:flex; gap:.4rem; }
+        .fme-result-dialog__panel>footer button { border-color:#9f1239; background:#9f1239; }
+        .fme-copy-dialog { width:min(calc(100% - 2rem),30rem); max-width:30rem; padding:0; border:0; border-radius:1.1rem; color:var(--fme-ink); background:var(--fme-bg); box-shadow:0 25px 70px rgba(2,6,23,.35); }
+        .fme-copy-dialog::backdrop { background:rgba(15,23,42,.65); backdrop-filter:blur(8px); }
+        .fme-copy-dialog__panel { display:grid; gap:.85rem; padding:1.2rem; }
+        .fme-copy-dialog__icon { display:grid; place-items:center; width:3rem; height:3rem; border-radius:.9rem; color:#be123c; background:#ffe4e6; }
+        .dark .fme-copy-dialog__icon { color:#fda4af; background:#4c1d2b; }
+        .fme-copy-dialog__icon svg { width:1.5rem; }
+        .fme-copy-dialog__panel>div:nth-child(2) { display:grid; gap:.15rem; }
+        .fme-copy-dialog__panel>div:nth-child(2)>span { color:#be123c; font-size:.62rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+        .fme-copy-dialog__panel h3 { font-size:1.05rem; font-weight:900; }
+        .fme-copy-dialog__panel>div:nth-child(2)>p { color:var(--fme-muted); font-size:.7rem; }
+        .fme-copy-dialog__panel label { display:grid; gap:.35rem; font-size:.7rem; font-weight:850; }
+        .fme-copy-dialog__panel select { width:100%; min-height:2.8rem; padding:.55rem .65rem; border:1px solid var(--fme-line); border-radius:.7rem; color:var(--fme-ink); background:var(--fme-soft); font-size:.72rem; }
+        .fme-copy-dialog__safe { display:flex; gap:.4rem; padding:.65rem; border-radius:.7rem; color:#166534; background:#f0fdf4; font-size:.65rem; font-weight:700; line-height:1.35; }
+        .dark .fme-copy-dialog__safe { color:#bbf7d0; background:#10291c; }
+        .fme-copy-dialog__safe svg { flex:0 0 auto; width:1rem; }
+        .fme-copy-dialog__error { padding:.55rem .65rem; border-radius:.65rem; color:#b91c1c; background:#fef2f2; font-size:.68rem; font-weight:750; }
+        .dark .fme-copy-dialog__error { color:#fecaca; background:#3b151b; }
+        .fme-copy-dialog__panel>footer { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+        .fme-copy-dialog__panel>footer button { display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:2.55rem; padding:.5rem; border-radius:.7rem; font-size:.72rem; font-weight:900; }
+        .fme-copy-dialog__panel>footer button svg { width:1rem; }
+        .fme-copy-dialog__panel>footer .is-cancel { border:1px solid var(--fme-line); color:var(--fme-ink); background:var(--fme-soft); }
+        .fme-copy-dialog__panel>footer .is-copy { color:#fff; background:linear-gradient(135deg,#9f1239,#e11d48); }
+        .fme-copy-dialog__panel>footer button:disabled { opacity:.55; cursor:wait; }
+        [x-cloak] { display:none!important; }
+        @keyframes fme-result-loading { from { background-position:100% 0; } to { background-position:-100% 0; } }
         @media (max-width:900px) { .fme-workspace { grid-template-columns:1fr; } .fme-editor-card { position:static; } }
-        @media (max-width:640px) { .fme-hero { padding:1.05rem; } .fme-hero>svg { width:3rem; } .fme-heading { align-items:flex-start; flex-direction:column; } .fme-folder-grid { grid-template-columns:1fr; } .fme-photo-grid,.fme-result-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .fme-folder-bar { align-items:flex-start; flex-direction:column; } }
+        @media (max-width:640px) { .fme-hero { padding:1.05rem; } .fme-hero>svg { width:3rem; } .fme-heading { align-items:flex-start; flex-direction:column; } .fme-folder-grid { grid-template-columns:1fr; } .fme-photo-grid,.fme-result-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .fme-folder-bar { align-items:flex-start; flex-direction:column; } .fme-result-actions { grid-template-columns:1fr; } .fme-result-dialog__nav { display:none; } .fme-result-dialog__panel>footer { align-items:stretch; flex-direction:column; } .fme-result-dialog__panel>footer>strong { max-width:100%; } .fme-result-dialog__panel>footer>div { display:grid; grid-template-columns:1fr 1fr; } }
     </style>
 </x-filament-panels::page>

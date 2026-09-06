@@ -13,6 +13,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Livewire\WithPagination;
 use Throwable;
 
@@ -150,6 +151,73 @@ class FotoBarangEditor extends Page
         }
     }
 
+    /** @return array{copied: bool, duplicate?: bool, message: string} */
+    public function copyEditedPhoto(
+        FotoBarangEditService $editService,
+        int $editId,
+        int $destinationSessionId,
+    ): array {
+        $this->skipRender();
+
+        try {
+            $edit = $this->visibleEditsQuery()->findOrFail($editId);
+            $destination = $this->visibleSessionsQuery()->findOrFail($destinationSessionId);
+            $result = $editService->copyToSession($edit, $destination);
+            $item = $result['item'];
+            $duplicate = (bool) $result['duplicate'];
+
+            if (! $duplicate) {
+                app(AuditLogger::class)->activity(
+                    'foto_barang_edit_copy',
+                    "Menyalin hasil edit foto ke folder: {$destination->judul}",
+                    auth()->user(),
+                    [
+                        'edit_id' => $edit->getKey(),
+                        'source_photo_id' => $edit->foto_barang_item_id,
+                        'destination_session_id' => $destination->getKey(),
+                        'destination_photo_id' => $item->getKey(),
+                        'sequence' => $item->urutan,
+                    ],
+                );
+            }
+
+            $message = $duplicate
+                ? 'Foto ini sebelumnya sudah ada di folder tujuan.'
+                : "Foto berhasil disalin sebagai foto nomor {$item->urutan}.";
+
+            $notification = Notification::make()
+                ->title($duplicate ? 'Foto sudah tersedia' : 'Foto berhasil disalin')
+                ->body($destination->judul.' · '.$message);
+
+            if ($duplicate) {
+                $notification->info();
+            } else {
+                $notification->success();
+            }
+
+            $notification->send();
+
+            return [
+                'copied' => true,
+                'duplicate' => $duplicate,
+                'message' => $message,
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            Notification::make()
+                ->title('Foto gagal disalin')
+                ->body('Foto asli dan hasil edit tetap aman. Silakan coba kembali.')
+                ->danger()
+                ->send();
+
+            return [
+                'copied' => false,
+                'message' => 'Foto gagal disalin. Periksa koneksi lalu coba kembali.',
+            ];
+        }
+    }
+
     public function updatedHistoryDate(): void
     {
         $this->resetPage('editorSessionsPage');
@@ -207,18 +275,20 @@ class FotoBarangEditor extends Page
     /** @return LengthAwarePaginator<FotoBarangEdit> */
     public function editedPhotos(): LengthAwarePaginator
     {
-        $user = auth()->user();
-
-        abort_unless($user instanceof User, 403);
-
-        return FotoBarangEdit::query()
-            ->whereHas('photo', fn (Builder $query): Builder => $query
-                ->where('foto_barang_session_id', $this->selectedSessionId ?? 0)
-                ->whereHas('session', fn (Builder $sessionQuery): Builder => $sessionQuery
-                    ->visibleTo($user)))
+        return $this->visibleEditsQuery()
             ->with(['photo:id,foto_barang_session_id,urutan'])
             ->latest()
             ->paginate(12, ['*'], 'editorResultsPage');
+    }
+
+    /** @return Collection<int, FotoBarangSession> */
+    public function copyDestinationSessions(): Collection
+    {
+        return $this->visibleSessionsQuery()
+            ->withCount('items')
+            ->latest('dimulai_at')
+            ->limit(100)
+            ->get();
     }
 
     public function selectedPhoto(): ?FotoBarangItem
@@ -253,5 +323,18 @@ class FotoBarangEditor extends Page
             ->whereHas('session', fn (Builder $query): Builder => $query
                 ->visibleTo($user))
             ->with('session');
+    }
+
+    private function visibleEditsQuery(): Builder
+    {
+        $user = auth()->user();
+
+        abort_unless($user instanceof User, 403);
+
+        return FotoBarangEdit::query()
+            ->whereHas('photo', fn (Builder $query): Builder => $query
+                ->where('foto_barang_session_id', $this->selectedSessionId ?? 0)
+                ->whereHas('session', fn (Builder $sessionQuery): Builder => $sessionQuery
+                    ->visibleTo($user)));
     }
 }
