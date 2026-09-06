@@ -50,6 +50,10 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::HEAD_END,
                 fn (): string => view('filament.pwa')->render()
             )
+            ->renderHook(
+                PanelsRenderHook::BODY_END,
+                fn (): string => view('filament.mobile-bottom-navigation')->render()
+            )
              // ->renderHook('head.end', fn () => view('filament.ga4'))
             ->sidebarCollapsibleOnDesktop()
             ->default()
