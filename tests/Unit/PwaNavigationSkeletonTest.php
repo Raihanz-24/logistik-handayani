@@ -18,6 +18,7 @@ class PwaNavigationSkeletonTest extends TestCase
 
         $this->assertStringContainsString("view('filament.pwa-navigation-skeleton')", $provider);
         $this->assertStringContainsString("@vite('resources/js/pwa-navigation-skeleton.js')", $pwaView);
+        $this->assertStringNotContainsString("@auth\n    @vite('resources/js/pwa-navigation-skeleton.js')", $pwaView);
         $this->assertStringNotContainsString('@vite(', $view);
         $this->assertStringContainsString('data-pwa-navigation-skeleton', $view);
         $this->assertStringContainsString("document.addEventListener('click', handleNavigationClick, true)", $script);

@@ -9,9 +9,8 @@
     ];
 @endphp
 
-@auth
-    @vite('resources/js/pwa-navigation-skeleton.js')
-@endauth
+{{-- Load the listener before authentication so it survives Filament's SPA login redirect. --}}
+@vite('resources/js/pwa-navigation-skeleton.js')
 
 <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
 <meta name="application-name" content="Logistik Handayani">
