@@ -24,8 +24,6 @@
 <script>
     (() => {
         if (window.__handayaniPwaInitialized) {
-            window.__handayaniCachePwaAssets?.();
-
             return;
         }
 
@@ -154,10 +152,7 @@
         });
 
         document.addEventListener('DOMContentLoaded', updateInstallButton, { once: true });
-        document.addEventListener('livewire:navigated', () => {
-            updateInstallButton();
-            cachePwaAppAssets();
-        });
+        document.addEventListener('livewire:navigated', updateInstallButton);
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

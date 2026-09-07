@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'handayani-pwa-v2';
+const CACHE_VERSION = 'handayani-pwa-v3';
 const OFFLINE_URL = '/offline.html';
 const PRECACHE_ASSETS = [
     OFFLINE_URL,
@@ -17,6 +17,10 @@ const isCacheableAsset = (url) => (
         CACHEABLE_ASSET_PATHS.some((path) => url.pathname.startsWith(path))
         || CACHEABLE_EXACT_PATHS.includes(url.pathname)
     )
+);
+const isImmutableBuildAsset = (url) => (
+    url.origin === self.location.origin
+    && url.pathname.startsWith('/build/assets/')
 );
 
 self.addEventListener('install', (event) => {
@@ -60,6 +64,12 @@ self.addEventListener('message', (event) => {
             urls.map(async (url) => {
                 try {
                     const request = new Request(url.href, { credentials: 'same-origin' });
+                    const cachedResponse = await cache.match(request);
+
+                    if (cachedResponse) {
+                        return;
+                    }
+
                     const response = await fetch(request);
 
                     if (response.ok && response.type === 'basic') {
@@ -97,6 +107,28 @@ self.addEventListener('fetch', (event) => {
     const isPublicAsset = isCacheableAsset(url);
 
     if (! isPublicAsset) {
+        return;
+    }
+
+    if (isImmutableBuildAsset(url)) {
+        event.respondWith(
+            caches.open(CACHE_VERSION).then(async (cache) => {
+                const cachedResponse = await cache.match(request);
+
+                if (cachedResponse) {
+                    return cachedResponse;
+                }
+
+                const response = await fetch(request);
+
+                if (response.ok && response.type === 'basic') {
+                    await cache.put(request, response.clone());
+                }
+
+                return response;
+            }),
+        );
+
         return;
     }
 

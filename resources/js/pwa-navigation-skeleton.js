@@ -1,5 +1,5 @@
 const PWA_NAVIGATION_TIMEOUT = 12000;
-const PWA_NAVIGATION_TRANSITION = 160;
+const PWA_NAVIGATION_TRANSITION = 80;
 
 if (! window.__handayaniNavigationSkeletonInitialized) {
     window.__handayaniNavigationSkeletonInitialized = true;

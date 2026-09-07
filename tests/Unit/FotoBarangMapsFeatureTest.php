@@ -142,6 +142,10 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringNotContainsString('target="_blank"', $view);
         $this->assertStringContainsString('navigator.mediaDevices.getUserMedia', $view);
         $this->assertStringContainsString('waitForCameraReady', $view);
+        $this->assertStringContainsString('waitForFreshCameraFrame', $view);
+        $this->assertStringContainsString('requestVideoFrameCallback', $cameraScript);
+        $this->assertStringContainsString('encodeCaptureBlob', $view);
+        $this->assertStringContainsString('saveLocalCaptureWithRetry', $view);
         $this->assertStringContainsString('cameraReady', $view);
         $this->assertStringContainsString('playShutterBeep()', $view);
         $this->assertStringContainsString('window.AudioContext || window.webkitAudioContext', $view);

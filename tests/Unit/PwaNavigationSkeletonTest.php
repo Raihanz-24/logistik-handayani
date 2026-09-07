@@ -27,8 +27,11 @@ class PwaNavigationSkeletonTest extends TestCase
         $this->assertStringNotContainsString("document.addEventListener('livewire:navigating'", $script);
         $this->assertStringContainsString("document.addEventListener('livewire:navigated'", $script);
         $this->assertStringContainsString('PWA_NAVIGATION_TIMEOUT = 12000', $script);
+        $this->assertStringContainsString('PWA_NAVIGATION_TRANSITION = 80', $script);
         $this->assertStringContainsString('isMobileViewport', $script);
         $this->assertStringContainsString('.wm-navigation-skeleton.is-visible', $styles);
+        $this->assertStringContainsString('animation:wm-skeleton-pulse', $styles);
+        $this->assertStringNotContainsString('wm-skeleton-shimmer', $styles);
         $this->assertStringContainsString('@media (prefers-reduced-motion: reduce)', $styles);
 
         // Authenticated HTML and Livewire data must always remain network-backed.

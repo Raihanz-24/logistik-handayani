@@ -292,8 +292,18 @@ const fotoBarangMaps = (config = {}) => ({
                             store.createIndex('mode', 'mode', { unique: false });
                         }
                     };
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error || new Error('Penyimpanan perangkat gagal dibuka.'));
+                    request.onsuccess = () => {
+                        const database = request.result;
+                        database.onversionchange = () => {
+                            database.close();
+                            this.captureDbPromise = null;
+                        };
+                        resolve(database);
+                    };
+                    request.onerror = () => {
+                        this.captureDbPromise = null;
+                        reject(request.error || new Error('Penyimpanan perangkat gagal dibuka.'));
+                    };
                 });
 
                 return this.captureDbPromise;
@@ -314,6 +324,25 @@ const fotoBarangMaps = (config = {}) => ({
                     transaction.onerror = () => reject(transaction.error || new Error('Foto gagal diamankan di perangkat.'));
                     transaction.onabort = () => reject(transaction.error || new Error('Penyimpanan foto dibatalkan perangkat.'));
                 });
+            },
+            async saveLocalCaptureWithRetry(capture) {
+                let lastError = null;
+
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    try {
+                        await this.saveLocalCapture(capture);
+                        return;
+                    } catch (error) {
+                        lastError = error;
+                        this.captureDbPromise = null;
+
+                        if (attempt === 0) {
+                            await new Promise((resolve) => window.setTimeout(resolve, 60));
+                        }
+                    }
+                }
+
+                throw lastError || new Error('Foto gagal diamankan di perangkat.');
             },
             async deleteLocalCapture(captureId) {
                 const database = await this.openCaptureDb();
@@ -1312,6 +1341,70 @@ const fotoBarangMaps = (config = {}) => ({
                     check();
                 });
             },
+            waitForFreshCameraFrame(video) {
+                const frameIsUsable = () => Boolean(
+                    this.cameraOpen
+                    && this.cameraStream?.active
+                    && this.cameraVideoTrack?.readyState !== 'ended'
+                    && video?.readyState >= 2
+                    && video.videoWidth > 0
+                    && video.videoHeight > 0
+                );
+
+                if (typeof video?.requestVideoFrameCallback !== 'function') {
+                    return new Promise((resolve) => {
+                        window.requestAnimationFrame(() => {
+                            window.requestAnimationFrame(() => resolve(frameIsUsable()));
+                        });
+                    });
+                }
+
+                return new Promise((resolve) => {
+                    let settled = false;
+                    let callbackId = null;
+                    let timeoutId = null;
+                    const finish = () => {
+                        if (settled) return;
+                        settled = true;
+                        window.clearTimeout(timeoutId);
+                        if (callbackId !== null && typeof video.cancelVideoFrameCallback === 'function') {
+                            video.cancelVideoFrameCallback(callbackId);
+                        }
+                        resolve(frameIsUsable());
+                    };
+
+                    callbackId = video.requestVideoFrameCallback(finish);
+                    timeoutId = window.setTimeout(finish, 650);
+                });
+            },
+            async encodeCaptureBlob(canvas, quality) {
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    const blob = await new Promise((resolve) => {
+                        let settled = false;
+                        const finish = (result) => {
+                            if (settled) return;
+                            settled = true;
+                            window.clearTimeout(timeoutId);
+                            resolve(result || null);
+                        };
+                        const timeoutId = window.setTimeout(() => finish(null), 1800);
+
+                        try {
+                            canvas.toBlob(finish, 'image/jpeg', quality);
+                        } catch (error) {
+                            finish(null);
+                        }
+                    });
+
+                    if (blob) {
+                        return blob;
+                    }
+
+                    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+                }
+
+                throw new Error('Foto gagal dibuat oleh kamera. Silakan coba kembali.');
+            },
             closeCamera(clearError = true) {
                 this.cameraStream?.getTracks().forEach((track) => track.stop());
                 this.cameraStream = null;
@@ -1371,16 +1464,22 @@ const fotoBarangMaps = (config = {}) => ({
                 }
 
                 const video = this.$refs.cameraVideo;
-                if (! this.cameraReady || ! video?.videoWidth || ! video?.videoHeight || video.readyState < 2) {
+                if (! video) {
                     this.cameraError = 'Kamera belum siap. Tunggu sebentar lalu coba lagi.';
                     return;
                 }
 
-                this.playShutterBeep();
                 this.captureBusy = true;
                 this.cameraError = '';
+                let shouldProcessUpload = false;
 
                 try {
+                    const frameReady = await this.waitForFreshCameraFrame(video);
+                    if (! frameReady) {
+                        throw new Error('Frame kamera belum siap. Tunggu sebentar lalu coba lagi.');
+                    }
+
+                    this.playShutterBeep();
                     const maxDimension = 1920;
                     const cropPerSide = this.captureMode === 'local'
                         ? Math.round(video.videoHeight * this.verticalCropRatio)
@@ -1410,11 +1509,10 @@ const fotoBarangMaps = (config = {}) => ({
                         this.drawLocalWatermark(canvas, context, createdAt);
                     }
 
-                    const blob = await new Promise((resolve, reject) => canvas.toBlob(
-                        (result) => result ? resolve(result) : reject(new Error('Foto gagal dibuat.')),
-                        'image/jpeg',
+                    const blob = await this.encodeCaptureBlob(
+                        canvas,
                         this.captureMode === 'local' ? 0.86 : 0.9,
-                    ));
+                    );
                     const capture = {
                         id: this.createCaptureId(),
                         sessionUuid: this.sessionUuid,
@@ -1430,7 +1528,7 @@ const fotoBarangMaps = (config = {}) => ({
                         blob,
                     };
 
-                    await this.saveLocalCapture(capture);
+                    await this.saveLocalCaptureWithRetry(capture);
                     const captureMetadata = { ...capture };
                     delete captureMetadata.blob;
 
@@ -1440,6 +1538,7 @@ const fotoBarangMaps = (config = {}) => ({
                         this.queuedCount = this.captureQueue.length;
                         this.capturedCount++;
                         this.backgroundState = `${this.queuedCount} foto aman di perangkat`;
+                        shouldProcessUpload = true;
                     } else {
                         this.localCaptures.unshift(captureMetadata);
                         this.localCapturedCount = this.localCaptures.length;
@@ -1450,12 +1549,13 @@ const fotoBarangMaps = (config = {}) => ({
 
                     this.$refs.cameraFlash?.classList.add('is-visible');
                     window.setTimeout(() => this.$refs.cameraFlash?.classList.remove('is-visible'), 140);
-                    this.captureBusy = false;
-                    if (this.captureMode === 'server') this.processUploadQueue();
                 } catch (error) {
-                    this.captureBusy = false;
                     this.cameraError = error?.message || 'Foto gagal diamankan. Silakan potret ulang.';
+                } finally {
+                    this.captureBusy = false;
                 }
+
+                if (shouldProcessUpload) this.processUploadQueue();
             },
             async handlePhotoSaved() {
                 this.uploadProgress = 100;

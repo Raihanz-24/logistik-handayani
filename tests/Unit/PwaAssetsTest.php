@@ -29,6 +29,9 @@ class PwaAssetsTest extends TestCase
         $this->assertStringNotContainsString("'/media/'", $serviceWorker);
         $this->assertStringContainsString('CACHE_APP_ASSETS', $serviceWorker);
         $this->assertStringContainsString('CACHEABLE_ASSET_PATHS', $serviceWorker);
+        $this->assertStringContainsString("CACHE_VERSION = 'handayani-pwa-v3'", $serviceWorker);
+        $this->assertStringContainsString('isImmutableBuildAsset', $serviceWorker);
+        $this->assertStringContainsString('const cachedResponse = await cache.match(request)', $serviceWorker);
     }
 
     public function test_login_contains_the_pwa_install_action(): void
@@ -44,5 +47,6 @@ class PwaAssetsTest extends TestCase
         $this->assertStringContainsString('cachePwaAppAssets', $pwaView);
         $this->assertStringContainsString('resources/js/mobile-swipe-navigation.js', $pwaView);
         $this->assertStringContainsString('resources/js/foto-barang-maps.js', $pwaView);
+        $this->assertSame(2, substr_count($pwaView, 'cachePwaAppAssets();'));
     }
 }
