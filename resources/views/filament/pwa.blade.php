@@ -9,6 +9,10 @@
     ];
 @endphp
 
+@auth
+    @vite('resources/js/pwa-navigation-skeleton.js')
+@endauth
+
 <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
 <meta name="application-name" content="Logistik Handayani">
 <meta name="theme-color" content="#102031">

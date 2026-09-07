@@ -1,6 +1,4 @@
 @auth
-    @vite('resources/js/pwa-navigation-skeleton.js')
-
     <div
         class="wm-navigation-skeleton"
         data-pwa-navigation-skeleton

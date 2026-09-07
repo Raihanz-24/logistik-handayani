@@ -12,6 +12,10 @@ if (! window.__handayaniNavigationSkeletonInitialized) {
         || window.navigator.standalone === true
     );
 
+    if (isInstalledPwa()) {
+        document.documentElement.classList.add('is-installed-pwa');
+    }
+
     const skeleton = () => document.querySelector('[data-pwa-navigation-skeleton]');
 
     const setMainBusyState = (isBusy) => {
@@ -73,7 +77,40 @@ if (! window.__handayaniNavigationSkeletonInitialized) {
         safetyTimer = window.setTimeout(hideSkeleton, PWA_NAVIGATION_TIMEOUT);
     };
 
+    const handleNavigationClick = (event) => {
+        if (
+            event.button !== 0
+            || event.metaKey
+            || event.ctrlKey
+            || event.shiftKey
+            || event.altKey
+            || ! (event.target instanceof Element)
+        ) {
+            return;
+        }
+
+        const link = event.target.closest('a[wire\\:navigate],a[wire\\:navigate\\.hover]');
+
+        if (! link || link.hasAttribute('download') || link.target === '_blank') {
+            return;
+        }
+
+        const target = new URL(link.href, window.location.href);
+
+        if (target.origin !== window.location.origin || target.href === window.location.href) {
+            return;
+        }
+
+        // Wait until Livewire has accepted the click. This avoids flashing on cancelled actions.
+        queueMicrotask(() => {
+            if (event.defaultPrevented) {
+                showSkeleton();
+            }
+        });
+    };
+
     // `livewire:navigate` fires as soon as navigation starts, before the server response arrives.
+    document.addEventListener('click', handleNavigationClick, true);
     document.addEventListener('livewire:navigate', showSkeleton);
     document.addEventListener('livewire:navigated', hideSkeleton);
     window.addEventListener('pageshow', hideSkeleton);

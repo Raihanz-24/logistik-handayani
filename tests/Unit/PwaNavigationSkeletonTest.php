@@ -10,13 +10,17 @@ class PwaNavigationSkeletonTest extends TestCase
     {
         $root = dirname(__DIR__, 2);
         $provider = (string) file_get_contents($root.'/app/Providers/Filament/AdminPanelProvider.php');
+        $pwaView = (string) file_get_contents($root.'/resources/views/filament/pwa.blade.php');
         $view = (string) file_get_contents($root.'/resources/views/filament/pwa-navigation-skeleton.blade.php');
         $script = (string) file_get_contents($root.'/resources/js/pwa-navigation-skeleton.js');
         $styles = (string) file_get_contents($root.'/resources/css/filament-dashboard.css');
         $serviceWorker = (string) file_get_contents($root.'/public/service-worker.js');
 
         $this->assertStringContainsString("view('filament.pwa-navigation-skeleton')", $provider);
+        $this->assertStringContainsString("@vite('resources/js/pwa-navigation-skeleton.js')", $pwaView);
+        $this->assertStringNotContainsString('@vite(', $view);
         $this->assertStringContainsString('data-pwa-navigation-skeleton', $view);
+        $this->assertStringContainsString("document.addEventListener('click', handleNavigationClick, true)", $script);
         $this->assertStringContainsString("document.addEventListener('livewire:navigate'", $script);
         $this->assertStringNotContainsString("document.addEventListener('livewire:navigating'", $script);
         $this->assertStringContainsString("document.addEventListener('livewire:navigated'", $script);
