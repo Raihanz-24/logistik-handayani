@@ -7,14 +7,7 @@ if (! window.__handayaniNavigationSkeletonInitialized) {
     let safetyTimer = null;
     let hideTimer = null;
 
-    const isInstalledPwa = () => (
-        window.matchMedia('(display-mode: standalone)').matches
-        || window.navigator.standalone === true
-    );
-
-    if (isInstalledPwa()) {
-        document.documentElement.classList.add('is-installed-pwa');
-    }
+    const isMobileViewport = () => window.matchMedia('(max-width: 1023px)').matches;
 
     const skeleton = () => document.querySelector('[data-pwa-navigation-skeleton]');
 
@@ -54,7 +47,7 @@ if (! window.__handayaniNavigationSkeletonInitialized) {
     };
 
     const showSkeleton = () => {
-        if (! isInstalledPwa()) {
+        if (! isMobileViewport()) {
             return;
         }
 

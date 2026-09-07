@@ -798,9 +798,9 @@
 .wm-navigation-skeleton { display:none; }
 
 @media (max-width: 1023px) {
-    html.is-installed-pwa .wm-navigation-skeleton { position:fixed; z-index:27; inset:4rem 0 calc(5.65rem + env(safe-area-inset-bottom)); display:block; overflow:hidden; padding:1.1rem 1rem 1.5rem; color:#0f172a; background:#f4f7fb; opacity:0; visibility:hidden; pointer-events:none; transition:opacity .16s ease,visibility .16s ease; }
-    html.is-installed-pwa.dark .wm-navigation-skeleton { color:#e5edf7; background:#0b1421; }
-    html.is-installed-pwa .wm-navigation-skeleton.is-visible { opacity:1; visibility:visible; pointer-events:auto; }
+    .wm-navigation-skeleton { position:fixed; z-index:27; inset:4rem 0 calc(5.65rem + env(safe-area-inset-bottom)); display:block; overflow:hidden; padding:1.1rem 1rem 1.5rem; color:#0f172a; background:#f4f7fb; opacity:0; visibility:hidden; pointer-events:none; transition:opacity .16s ease,visibility .16s ease; }
+    .dark .wm-navigation-skeleton { color:#e5edf7; background:#0b1421; }
+    .wm-navigation-skeleton.is-visible { opacity:1; visibility:visible; pointer-events:auto; }
     .wm-navigation-skeleton__content { width:min(100%,80rem); margin:0 auto; }
     .wm-navigation-skeleton__heading { display:grid; gap:.55rem; margin-bottom:1.1rem; }
     .wm-navigation-skeleton__line,.wm-navigation-skeleton__cards>span,.wm-navigation-skeleton__toolbar>span,.wm-navigation-skeleton__rows>span { position:relative; display:block; overflow:hidden; border-radius:.8rem; background:#dfe7f1; }

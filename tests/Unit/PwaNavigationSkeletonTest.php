@@ -20,13 +20,15 @@ class PwaNavigationSkeletonTest extends TestCase
         $this->assertStringContainsString("@vite('resources/js/pwa-navigation-skeleton.js')", $pwaView);
         $this->assertStringNotContainsString("@auth\n    @vite('resources/js/pwa-navigation-skeleton.js')", $pwaView);
         $this->assertStringNotContainsString('@vite(', $view);
+        $this->assertStringNotContainsString('@auth', $view);
         $this->assertStringContainsString('data-pwa-navigation-skeleton', $view);
         $this->assertStringContainsString("document.addEventListener('click', handleNavigationClick, true)", $script);
         $this->assertStringContainsString("document.addEventListener('livewire:navigate'", $script);
         $this->assertStringNotContainsString("document.addEventListener('livewire:navigating'", $script);
         $this->assertStringContainsString("document.addEventListener('livewire:navigated'", $script);
         $this->assertStringContainsString('PWA_NAVIGATION_TIMEOUT = 12000', $script);
-        $this->assertStringContainsString('html.is-installed-pwa .wm-navigation-skeleton', $styles);
+        $this->assertStringContainsString('isMobileViewport', $script);
+        $this->assertStringContainsString('.wm-navigation-skeleton.is-visible', $styles);
         $this->assertStringContainsString('@media (prefers-reduced-motion: reduce)', $styles);
 
         // Authenticated HTML and Livewire data must always remain network-backed.

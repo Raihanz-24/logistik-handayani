@@ -1,11 +1,11 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-DI_WH07h.css",
+    "file": "assets/app-D719Uvcd.css",
     "src": "resources/css/app.css",
     "isEntry": true
   },
   "resources/css/filament-dashboard.css": {
-    "file": "assets/filament-dashboard-D-sNh6Bi.css",
+    "file": "assets/filament-dashboard-BGql9bpo.css",
     "src": "resources/css/filament-dashboard.css",
     "isEntry": true
   },
@@ -34,7 +34,7 @@
     "isEntry": true
   },
   "resources/js/pwa-navigation-skeleton.js": {
-    "file": "assets/pwa-navigation-skeleton-BJYvPAwI.js",
+    "file": "assets/pwa-navigation-skeleton-DTFg0ee-.js",
     "name": "pwa-navigation-skeleton",
     "src": "resources/js/pwa-navigation-skeleton.js",
     "isEntry": true
