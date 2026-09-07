@@ -63,17 +63,39 @@
     @endif
 
     <footer class="wm-kb-store-card__footer">
-        @if ($folders->isNotEmpty())
-            <span class="wm-kb-store-card__folders">
+        <div class="wm-kb-store-card__folder-status">
+            @if ($folders->isNotEmpty())
+                <span class="wm-kb-store-card__folders">
+                    <x-heroicon-m-camera />
+                    @foreach ($folders as $folder)
+                        <a href="{{ \App\Filament\Pages\FotoBarangFolder::getUrl(['session' => $folder->uuid]) }}" wire:navigate>
+                            {{ $folder->code() }}
+                        </a>
+                    @endforeach
+                </span>
+            @else
+                <span class="wm-kb-store-card__unlinked">Belum terhubung ke Foto Maps</span>
+            @endif
+        </div>
+
+        <div class="wm-kb-store-card__photo-actions">
+            <button
+                type="button"
+                wire:click.stop="mountTableAction('atur-foto-maps', '{{ $transaction->getKey() }}')"
+                wire:loading.attr="disabled"
+                wire:target="mountTableAction"
+            >
+                <x-heroicon-m-link />
+                <span>Hubungkan Folder</span>
+            </button>
+
+            <a
+                href="{{ \App\Filament\Pages\FotoBarangMaps::getUrl(['pengeluaran' => $transaction->getKey()]) }}"
+                wire:navigate
+            >
                 <x-heroicon-m-camera />
-                @foreach ($folders as $folder)
-                    <a href="{{ \App\Filament\Pages\FotoBarangFolder::getUrl(['session' => $folder->uuid]) }}" wire:navigate>
-                        {{ $folder->code() }}
-                    </a>
-                @endforeach
-            </span>
-        @else
-            <span class="wm-kb-store-card__unlinked">Belum terhubung ke Foto Maps</span>
-        @endif
+                <span>Buat Sesi Foto Baru</span>
+            </a>
+        </div>
     </footer>
 </article>

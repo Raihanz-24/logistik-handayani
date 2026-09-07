@@ -61,6 +61,9 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("Action::make('buka-foto-maps')", $relationManager);
         $this->assertStringContainsString('$transaction = $getRecord();', $transactionCard);
         $this->assertStringNotContainsString('$record->', $transactionCard);
+        $this->assertStringContainsString("mountTableAction('atur-foto-maps'", $transactionCard);
+        $this->assertStringContainsString('Hubungkan Folder', $transactionCard);
+        $this->assertStringContainsString('Buat Sesi Foto Baru', $transactionCard);
         $this->assertStringNotContainsString("make('diskon')", $relationManager);
         $this->assertStringNotContainsString("make('biaya_tambahan')", $relationManager);
         $this->assertStringContainsString("'view' => Pages\\ViewKalkulatorBelanja::route('/{record}')", $resource);
