@@ -52,6 +52,10 @@ class AdminPanelProvider extends PanelProvider
             )
             ->renderHook(
                 PanelsRenderHook::BODY_END,
+                fn (): string => view('filament.pwa-navigation-skeleton')->render()
+            )
+            ->renderHook(
+                PanelsRenderHook::BODY_END,
                 fn (): string => view('filament.mobile-bottom-navigation')->render()
             )
              // ->renderHook('head.end', fn () => view('filament.ga4'))

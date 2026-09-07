@@ -1,6 +1,7 @@
 @php
     $pwaAppAssets = [
         \Illuminate\Support\Facades\Vite::asset('resources/css/filament-dashboard.css'),
+        \Illuminate\Support\Facades\Vite::asset('resources/js/pwa-navigation-skeleton.js'),
         \Illuminate\Support\Facades\Vite::asset('resources/js/mobile-swipe-navigation.js'),
         \Illuminate\Support\Facades\Vite::asset('resources/js/foto-barang-maps.js'),
         \Illuminate\Support\Facades\Vite::asset('resources/js/foto-barang-folder.js'),
