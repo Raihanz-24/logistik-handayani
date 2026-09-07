@@ -294,7 +294,7 @@ class PengeluaranRelationManager extends RelationManager
                                 ->minValue(0.001)
                                 ->maxValue(999999999.999)
                                 ->inputMode('decimal')
-                                ->live(debounce: 350)
+                                ->live(onBlur: true)
                                 ->required()
                                 ->columnSpan(['default' => 1, 'lg' => 2]),
                             Forms\Components\Placeholder::make('satuan_preview')
@@ -306,12 +306,14 @@ class PengeluaranRelationManager extends RelationManager
                             Forms\Components\TextInput::make('harga_satuan')
                                 ->label('Harga Satuan')
                                 ->prefix('Rp')
+                                ->type('text')
                                 ->numeric()
                                 ->integer()
+                                ->stripCharacters(['.', ',', ' ', 'Rp', 'rp'])
                                 ->minValue(1)
                                 ->maxValue(999_999_999_999)
                                 ->inputMode('numeric')
-                                ->live(debounce: 350)
+                                ->live(onBlur: true)
                                 ->helperText(function (Get $get): string {
                                     $latest = app(BelanjaTransactionService::class)->latestPrice(
                                         (int) $get('../../supplier_id'),

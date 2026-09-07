@@ -47,6 +47,8 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("Select::make('supplier_id')", $relationManager);
         $this->assertStringContainsString("Repeater::make('items')", $relationManager);
         $this->assertStringContainsString("Select::make('barang_id')", $relationManager);
+        $this->assertStringContainsString("->stripCharacters(['.', ',', ' ', 'Rp', 'rp'])", $relationManager);
+        $this->assertStringContainsString('->live(onBlur: true)', $relationManager);
         $this->assertStringContainsString("FileUpload::make('nota_paths')", $relationManager);
         $this->assertStringContainsString('->multiple()', $relationManager);
         $this->assertStringContainsString('->maxFiles(20)', $relationManager);
