@@ -1,11 +1,11 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-DI_WH07h.css",
+    "file": "assets/app-B7aPltrP.css",
     "src": "resources/css/app.css",
     "isEntry": true
   },
   "resources/css/filament-dashboard.css": {
-    "file": "assets/filament-dashboard-peqEvHfR.css",
+    "file": "assets/filament-dashboard-DzzFE30S.css",
     "src": "resources/css/filament-dashboard.css",
     "isEntry": true
   },
@@ -28,7 +28,7 @@
     "isEntry": true
   },
   "resources/js/mobile-swipe-navigation.js": {
-    "file": "assets/mobile-swipe-navigation-DGW_H4dU.js",
+    "file": "assets/mobile-swipe-navigation-DuT1RSJm.js",
     "name": "mobile-swipe-navigation",
     "src": "resources/js/mobile-swipe-navigation.js",
     "isEntry": true

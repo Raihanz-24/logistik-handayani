@@ -6,6 +6,8 @@ const mobileSwipeNavigation = (pages = []) => ({
     gesture: null,
     navigating: false,
     listeners: {},
+    visualTimer: null,
+    navigationTimer: null,
 
     init() {
         this.listeners.start = (event) => this.startSwipe(event);
@@ -13,9 +15,13 @@ const mobileSwipeNavigation = (pages = []) => ({
         this.listeners.end = (event) => this.endSwipe(event);
         this.listeners.cancel = () => this.cancelSwipe();
         this.listeners.navigated = () => {
+            const direction = document.documentElement.dataset.swipeNavigationDirection || null;
+            window.clearTimeout(this.navigationTimer);
             this.currentPath = window.location.pathname;
             this.navigating = false;
-            this.cancelSwipe();
+            this.gesture = null;
+            this.resetCue();
+            this.animateIncomingPage(direction);
         };
 
         document.addEventListener('touchstart', this.listeners.start, { capture: true, passive: true });
@@ -23,6 +29,11 @@ const mobileSwipeNavigation = (pages = []) => ({
         document.addEventListener('touchend', this.listeners.end, { capture: true, passive: true });
         document.addEventListener('touchcancel', this.listeners.cancel, { capture: true, passive: true });
         document.addEventListener('livewire:navigated', this.listeners.navigated);
+
+        const pendingDirection = document.documentElement.dataset.swipeNavigationDirection;
+        if (pendingDirection) {
+            window.requestAnimationFrame(() => this.animateIncomingPage(pendingDirection));
+        }
     },
 
     destroy() {
@@ -31,6 +42,9 @@ const mobileSwipeNavigation = (pages = []) => ({
         document.removeEventListener('touchend', this.listeners.end, true);
         document.removeEventListener('touchcancel', this.listeners.cancel, true);
         document.removeEventListener('livewire:navigated', this.listeners.navigated);
+        window.clearTimeout(this.visualTimer);
+        window.clearTimeout(this.navigationTimer);
+        if (! this.navigating) this.clearPageVisual();
     },
 
     normalizePath(path) {
@@ -127,8 +141,10 @@ const mobileSwipeNavigation = (pages = []) => ({
         const targetIndex = this.gesture.activeIndex + step;
 
         event.preventDefault();
+        this.updatePageDrag(deltaX, targetIndex < 0 || targetIndex >= this.pages.length);
 
         if (targetIndex < 0 || targetIndex >= this.pages.length) {
+            this.gesture.targetIndex = null;
             this.cueDirection = null;
             this.cueProgress = 0;
 
@@ -164,13 +180,22 @@ const mobileSwipeNavigation = (pages = []) => ({
 
         if (! shouldNavigate) {
             this.resetCue();
+            this.returnPageVisual();
 
             return;
         }
 
+        const direction = deltaX < 0 ? 'next' : 'previous';
         this.cueProgress = 1;
         this.navigating = true;
+        this.commitPageVisual(direction);
         window.navigator.vibrate?.(8);
+
+        window.clearTimeout(this.navigationTimer);
+        this.navigationTimer = window.setTimeout(() => {
+            this.navigating = false;
+            this.returnPageVisual();
+        }, 12000);
 
         window.setTimeout(() => {
             const page = this.pages[targetIndex];
@@ -185,17 +210,99 @@ const mobileSwipeNavigation = (pages = []) => ({
             }
 
             this.resetCue();
-        }, 90);
+        }, 16);
     },
 
     cancelSwipe() {
+        const hadHorizontalGesture = this.gesture?.axis === 'horizontal';
         this.gesture = null;
         this.resetCue();
+        if (hadHorizontalGesture) this.returnPageVisual();
     },
 
     resetCue() {
         this.cueDirection = null;
         this.cueProgress = 0;
+    },
+
+    updatePageDrag(deltaX, isBoundary = false) {
+        const root = document.documentElement;
+        const distance = Math.abs(deltaX);
+        const resistance = isBoundary ? 0.18 : 0.72;
+        const maximumOffset = window.innerWidth * (isBoundary ? 0.07 : 0.28);
+        const offset = Math.sign(deltaX) * Math.min(distance * resistance, maximumOffset);
+        const progress = Math.min(1, distance / 120);
+
+        window.clearTimeout(this.visualTimer);
+        root.classList.remove(
+            'wm-page-swipe-returning',
+            'wm-page-swipe-entering-next',
+            'wm-page-swipe-entering-previous',
+        );
+        root.style.setProperty('--wm-page-swipe-offset', `${offset}px`);
+        root.style.setProperty('--wm-page-swipe-opacity', String(1 - (progress * 0.12)));
+        root.classList.add('wm-page-swipe-dragging');
+    },
+
+    returnPageVisual() {
+        const root = document.documentElement;
+
+        window.clearTimeout(this.visualTimer);
+        root.classList.remove(
+            'wm-page-swipe-dragging',
+            'wm-page-swipe-leaving-next',
+            'wm-page-swipe-leaving-previous',
+        );
+        delete root.dataset.swipeNavigationDirection;
+        root.classList.add('wm-page-swipe-returning');
+        this.visualTimer = window.setTimeout(() => this.clearPageVisual(), 260);
+    },
+
+    commitPageVisual(direction) {
+        const root = document.documentElement;
+        const exitDistance = Math.min(220, Math.max(96, window.innerWidth * 0.34));
+
+        window.clearTimeout(this.visualTimer);
+        root.classList.remove(
+            'wm-page-swipe-dragging',
+            'wm-page-swipe-returning',
+            'wm-page-swipe-leaving-next',
+            'wm-page-swipe-leaving-previous',
+        );
+        root.dataset.swipeNavigationDirection = direction;
+        root.style.setProperty(
+            '--wm-page-swipe-exit',
+            `${direction === 'next' ? -exitDistance : exitDistance}px`,
+        );
+        root.classList.add(`wm-page-swipe-leaving-${direction}`);
+    },
+
+    animateIncomingPage(direction) {
+        const root = document.documentElement;
+
+        this.clearPageVisual();
+        if (! ['next', 'previous'].includes(direction)) return;
+
+        root.classList.add(`wm-page-swipe-entering-${direction}`);
+        this.visualTimer = window.setTimeout(() => this.clearPageVisual(), 300);
+    },
+
+    clearPageVisual() {
+        const root = document.documentElement;
+
+        window.clearTimeout(this.visualTimer);
+        root.classList.remove(
+            'wm-page-swipe-dragging',
+            'wm-page-swipe-returning',
+            'wm-page-swipe-leaving-next',
+            'wm-page-swipe-leaving-previous',
+            'wm-page-swipe-entering-next',
+            'wm-page-swipe-entering-previous',
+        );
+        root.style.removeProperty('--wm-page-swipe-offset');
+        root.style.removeProperty('--wm-page-swipe-opacity');
+        root.style.removeProperty('--wm-page-swipe-exit');
+        delete root.dataset.swipeNavigationDirection;
     },
 
     prefetchPage(targetIndex) {

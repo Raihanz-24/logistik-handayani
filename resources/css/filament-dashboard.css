@@ -798,6 +798,18 @@
 .wm-navigation-skeleton { display:none; }
 
 @media (max-width: 1023px) {
+    html.wm-page-swipe-dragging,html.wm-page-swipe-returning,html.wm-page-swipe-leaving-next,html.wm-page-swipe-leaving-previous { overflow-x:clip; }
+    html.wm-page-swipe-dragging .fi-main>.fi-page { opacity:var(--wm-page-swipe-opacity,1); transform:translate3d(var(--wm-page-swipe-offset,0),0,0); transition:none !important; will-change:transform,opacity; }
+    html.wm-page-swipe-returning .fi-main>.fi-page { opacity:1; transform:translate3d(0,0,0); transition:transform .24s cubic-bezier(.22,1,.36,1),opacity .18s ease !important; will-change:transform,opacity; }
+    html.wm-page-swipe-leaving-next .fi-main>.fi-page,html.wm-page-swipe-leaving-previous .fi-main>.fi-page { opacity:.3; transform:translate3d(var(--wm-page-swipe-exit),0,0); transition:transform .22s cubic-bezier(.32,.72,0,1),opacity .18s ease !important; will-change:transform,opacity; }
+    html.wm-page-swipe-leaving-next .wm-navigation-skeleton.is-visible { animation:wm-swipe-layer-next .22s cubic-bezier(.32,.72,0,1) both; }
+    html.wm-page-swipe-leaving-previous .wm-navigation-skeleton.is-visible { animation:wm-swipe-layer-previous .22s cubic-bezier(.32,.72,0,1) both; }
+    html.wm-page-swipe-entering-next .fi-main>.fi-page { animation:wm-page-enter-next .28s cubic-bezier(.22,1,.36,1) both; }
+    html.wm-page-swipe-entering-previous .fi-main>.fi-page { animation:wm-page-enter-previous .28s cubic-bezier(.22,1,.36,1) both; }
+    @keyframes wm-swipe-layer-next { from { opacity:.45; transform:translate3d(3.5rem,0,0); } to { opacity:1; transform:translate3d(0,0,0); } }
+    @keyframes wm-swipe-layer-previous { from { opacity:.45; transform:translate3d(-3.5rem,0,0); } to { opacity:1; transform:translate3d(0,0,0); } }
+    @keyframes wm-page-enter-next { from { opacity:.35; transform:translate3d(2.6rem,0,0); } to { opacity:1; transform:translate3d(0,0,0); } }
+    @keyframes wm-page-enter-previous { from { opacity:.35; transform:translate3d(-2.6rem,0,0); } to { opacity:1; transform:translate3d(0,0,0); } }
     .wm-navigation-skeleton { position:fixed; z-index:27; inset:4rem 0 calc(5.65rem + env(safe-area-inset-bottom)); display:block; overflow:hidden; padding:1.1rem 1rem 1.5rem; color:#0f172a; background:#f4f7fb; opacity:0; visibility:hidden; pointer-events:none; transition:opacity .08s ease,visibility .08s ease; }
     .dark .wm-navigation-skeleton { color:#e5edf7; background:#0b1421; }
     .wm-navigation-skeleton.is-visible { opacity:1; visibility:visible; pointer-events:auto; }
@@ -863,6 +875,7 @@
 @media (prefers-reduced-motion: reduce) {
     .wm-mobile-nav__item,.wm-mobile-nav__icon,.wm-mobile-nav-enter,.wm-mobile-nav-leave,.wm-swipe-cue,.wm-navigation-skeleton { transition:none; }
     .wm-navigation-skeleton__content { animation:none; }
+    html.wm-page-swipe-dragging .fi-main>.fi-page,html.wm-page-swipe-returning .fi-main>.fi-page,html.wm-page-swipe-leaving-next .fi-main>.fi-page,html.wm-page-swipe-leaving-previous .fi-main>.fi-page,html.wm-page-swipe-entering-next .fi-main>.fi-page,html.wm-page-swipe-entering-previous .fi-main>.fi-page,html.wm-page-swipe-leaving-next .wm-navigation-skeleton.is-visible,html.wm-page-swipe-leaving-previous .wm-navigation-skeleton.is-visible { opacity:1 !important; transform:none !important; animation:none !important; transition:none !important; }
 }
 .fi-body .fi-notification,
 .fi-body .fi-no-notification {

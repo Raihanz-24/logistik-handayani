@@ -38,5 +38,14 @@ class MobileBottomNavigationTest extends TestCase
         $this->assertStringContainsString('Math.abs(deltaX) >= 72', $swipeNavigation);
         $this->assertStringContainsString("new MouseEvent('mouseenter'", $swipeNavigation);
         $this->assertStringContainsString('this.pagePath(page) === current', $swipeNavigation);
+        $this->assertStringContainsString('updatePageDrag(deltaX', $swipeNavigation);
+        $this->assertStringContainsString('returnPageVisual()', $swipeNavigation);
+        $this->assertStringContainsString('commitPageVisual(direction)', $swipeNavigation);
+        $this->assertStringContainsString('animateIncomingPage(direction)', $swipeNavigation);
+        $this->assertStringContainsString('wm-page-swipe-dragging', $styles);
+        $this->assertStringContainsString('wm-page-enter-next', $styles);
+        $this->assertStringContainsString('wm-page-enter-previous', $styles);
+        $this->assertStringContainsString('window.setTimeout(() => {', $swipeNavigation);
+        $this->assertStringContainsString('}, 12000)', $swipeNavigation);
     }
 }
