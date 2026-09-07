@@ -42,6 +42,9 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $relationManager = (string) file_get_contents(
             $root.'/app/Filament/Resources/KalkulatorBelanjaResource/RelationManagers/PengeluaranRelationManager.php',
         );
+        $transactionCard = (string) file_get_contents(
+            $root.'/resources/views/filament/tables/columns/pengeluaran-belanja-card.blade.php',
+        );
 
         $this->assertStringContainsString('PengeluaranRelationManager::class', $resource);
         $this->assertStringContainsString("Select::make('supplier_id')", $relationManager);
@@ -56,6 +59,8 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString('latestPrice(', $relationManager);
         $this->assertStringContainsString("Action::make('atur-foto-maps')", $relationManager);
         $this->assertStringContainsString("Action::make('buka-foto-maps')", $relationManager);
+        $this->assertStringContainsString('$transaction = $getRecord();', $transactionCard);
+        $this->assertStringNotContainsString('$record->', $transactionCard);
         $this->assertStringNotContainsString("make('diskon')", $relationManager);
         $this->assertStringNotContainsString("make('biaya_tambahan')", $relationManager);
         $this->assertStringContainsString("'view' => Pages\\ViewKalkulatorBelanja::route('/{record}')", $resource);

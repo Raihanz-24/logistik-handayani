@@ -1,9 +1,10 @@
 @php
-    /** @var \App\Models\PengeluaranBelanja $record */
-    $items = $record->items;
-    $folders = $record->fotoBarangSessions;
-    $receipts = $record->notas;
-    $legacyReceipt = filled($record->foto_nota);
+    /** @var \App\Models\PengeluaranBelanja $transaction */
+    $transaction = $getRecord();
+    $items = $transaction->items;
+    $folders = $transaction->fotoBarangSessions;
+    $receipts = $transaction->notas;
+    $legacyReceipt = filled($transaction->foto_nota);
 @endphp
 
 <article class="wm-kb-store-card">
@@ -12,16 +13,16 @@
             <x-heroicon-o-building-storefront />
         </span>
         <span class="wm-kb-store-card__title">
-            <strong>{{ $record->namaSupplier() }}</strong>
-            <small>{{ $items->count() }} barang · {{ $record->jumlahNota() }} foto nota</small>
+            <strong>{{ $transaction->namaSupplier() }}</strong>
+            <small>{{ $items->count() }} barang · {{ $transaction->jumlahNota() }} foto nota</small>
         </span>
         <strong class="wm-kb-store-card__total">
-            {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $record->nominal) }}
+            {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $transaction->nominal) }}
         </strong>
     </header>
 
-    @if ($record->keterangan)
-        <p class="wm-kb-store-card__note">{{ $record->keterangan }}</p>
+    @if ($transaction->keterangan)
+        <p class="wm-kb-store-card__note">{{ $transaction->keterangan }}</p>
     @endif
 
     <div class="wm-kb-store-card__items">
@@ -49,13 +50,13 @@
     @if ($receipts->isNotEmpty() || $legacyReceipt)
         <div class="wm-kb-store-card__receipts" aria-label="Foto nota">
             @if ($legacyReceipt)
-                <a href="{{ route('media.show', ['path' => $record->foto_nota]) }}" target="_blank" rel="noopener">
-                    <img src="{{ route('media.show', ['path' => $record->foto_nota]) }}" alt="Nota lama {{ $record->namaSupplier() }}" loading="lazy">
+                <a href="{{ route('media.show', ['path' => $transaction->foto_nota]) }}" target="_blank" rel="noopener">
+                    <img src="{{ route('media.show', ['path' => $transaction->foto_nota]) }}" alt="Nota lama {{ $transaction->namaSupplier() }}" loading="lazy">
                 </a>
             @endif
             @foreach ($receipts as $nota)
                 <a href="{{ route('media.show', ['path' => $nota->path]) }}" target="_blank" rel="noopener">
-                    <img src="{{ route('media.show', ['path' => $nota->path]) }}" alt="Nota {{ $loop->iteration }} {{ $record->namaSupplier() }}" loading="lazy">
+                    <img src="{{ route('media.show', ['path' => $nota->path]) }}" alt="Nota {{ $loop->iteration }} {{ $transaction->namaSupplier() }}" loading="lazy">
                 </a>
             @endforeach
         </div>
