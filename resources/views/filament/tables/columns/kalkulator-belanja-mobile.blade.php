@@ -1,11 +1,16 @@
 @php
     /** @var \App\Models\KalkulatorBelanja $record */
-    $record = $getRecord();
+    $record = $record ?? $getRecord();
     $expenses = $record->pengeluaran;
     $receiptCount = $expenses->whereNotNull('foto_nota')->count();
     $remaining = $record->sisa_uang;
+    $standalone = $standalone ?? false;
+    $detailUrl = \App\Filament\Resources\KalkulatorBelanjaResource::getUrl('view', ['record' => $record]);
 @endphp
 
+@if ($standalone)
+    <a href="{{ $detailUrl }}" wire:navigate class="wm-kb-transaction-link">
+@endif
 <article class="wm-kb-transaction-card" aria-label="Riwayat {{ $record->judul }}">
     <header class="wm-kb-transaction-card__header">
         <span class="wm-kb-transaction-card__icon" aria-hidden="true">
@@ -52,3 +57,6 @@
         <strong>Lihat detail <span aria-hidden="true">›</span></strong>
     </footer>
 </article>
+@if ($standalone)
+    </a>
+@endif
