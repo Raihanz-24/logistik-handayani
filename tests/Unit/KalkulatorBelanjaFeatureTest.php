@@ -46,4 +46,24 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("'view' => Pages\\ViewKalkulatorBelanja::route('/{record}')", $resource);
         $this->assertStringContainsString("Filter::make('periode')", $resource);
     }
+
+    public function test_tampilan_mobile_memakai_kartu_transaksi_dan_form_saldo(): void
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $resource = (string) file_get_contents($projectRoot.'/app/Filament/Resources/KalkulatorBelanjaResource.php');
+        $mobileCard = (string) file_get_contents(
+            $projectRoot.'/resources/views/filament/tables/columns/kalkulator-belanja-mobile.blade.php',
+        );
+        $styles = (string) file_get_contents($projectRoot.'/resources/css/filament-dashboard.css');
+
+        $this->assertStringContainsString("ViewColumn::make('mobile_transaction')", $resource);
+        $this->assertStringContainsString("->hiddenFrom('md')", $resource);
+        $this->assertStringContainsString("->visibleFrom('md')", $resource);
+        $this->assertStringContainsString('Tables\\Actions\\ActionGroup::make', $resource);
+        $this->assertStringContainsString('wm-kb-summary-section', $resource);
+        $this->assertStringContainsString('Sisa saldo', $mobileCard);
+        $this->assertStringContainsString('Total keluar', $mobileCard);
+        $this->assertStringContainsString('.wm-kb-transaction-card', $styles);
+        $this->assertStringContainsString('.wm-kb-expense-repeater', $styles);
+    }
 }

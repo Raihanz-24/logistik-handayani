@@ -65,6 +65,7 @@ class KalkulatorBelanjaResource extends Resource
         return $form->schema([
             Section::make('Sesi Belanja')
                 ->description('Catatan keuangan ini berdiri sendiri dan tidak mengubah stok maupun mutasi barang.')
+                ->extraAttributes(['class' => 'wm-kb-section wm-kb-session-section'])
                 ->columns(2)
                 ->schema([
                     Forms\Components\DatePicker::make('tanggal')
@@ -94,25 +95,55 @@ class KalkulatorBelanjaResource extends Resource
                         ->maxLength(5000),
                 ]),
 
+            Section::make('Ringkasan Otomatis')
+                ->description('Saldo berubah otomatis sesuai nominal belanja yang dimasukkan.')
+                ->extraAttributes(['class' => 'wm-kb-section wm-kb-summary-section'])
+                ->columns(3)
+                ->schema([
+                    Forms\Components\Placeholder::make('uang_awal_preview')
+                        ->label('Uang Awal')
+                        ->content(fn (Get $get): string => self::rupiah(self::integerValue($get('uang_awal'))))
+                        ->extraAttributes(['class' => 'wm-kb-balance wm-kb-balance--initial']),
+                    Forms\Components\Placeholder::make('total_pengeluaran_preview')
+                        ->label('Total Pengeluaran')
+                        ->content(fn (Get $get): string => '- '.self::rupiah(self::formTotal($get('pengeluaran'))))
+                        ->extraAttributes(['class' => 'wm-kb-balance wm-kb-balance--out']),
+                    Forms\Components\Placeholder::make('sisa_uang_preview')
+                        ->label('Sisa Uang')
+                        ->content(function (Get $get): string {
+                            $remaining = self::integerValue($get('uang_awal')) - self::formTotal($get('pengeluaran'));
+
+                            return self::rupiah($remaining).($remaining < 0 ? ' — pengeluaran melebihi uang awal' : '');
+                        })
+                        ->extraAttributes(['class' => 'wm-kb-balance wm-kb-balance--remaining']),
+                ]),
+
             Section::make('Pengeluaran per Toko')
-                ->description('Tambahkan nominal belanja dan foto nota sebagai bukti untuk setiap supplier.')
+                ->description('Tambahkan satu kartu transaksi untuk setiap supplier. Foto nota bersifat opsional.')
+                ->extraAttributes(['class' => 'wm-kb-section wm-kb-expense-section'])
                 ->schema([
                     Repeater::make('pengeluaran')
                         ->label('Daftar Toko')
                         ->relationship()
                         ->orderColumn('urutan')
                         ->reorderable()
+                        ->collapsible()
                         ->minItems(1)
                         ->maxItems(30)
                         ->defaultItems(1)
                         ->required()
-                        ->addActionLabel('Tambah Toko')
+                        ->addActionLabel('Tambah Pengeluaran Toko')
+                        ->extraAttributes(['class' => 'wm-kb-expense-repeater'])
                         ->itemLabel(function (array $state): string {
                             $supplierId = (int) ($state['supplier_id'] ?? 0);
+                            $supplier = $supplierId > 0
+                                ? Supplier::query()->whereKey($supplierId)->value('nama_supplier')
+                                : null;
+                            $amount = self::integerValue($state['nominal'] ?? 0);
 
-                            return $supplierId > 0
-                                ? Supplier::query()->whereKey($supplierId)->value('nama_supplier') ?? 'Toko / Supplier'
-                                : 'Toko / Supplier belum dipilih';
+                            return $supplier
+                                ? $supplier.($amount > 0 ? ' · '.self::rupiah($amount) : '')
+                                : 'Pengeluaran baru';
                         })
                         ->schema([
                             Forms\Components\Select::make('supplier_id')
@@ -150,7 +181,7 @@ class KalkulatorBelanjaResource extends Resource
                                 ->minValue(1)
                                 ->maxValue(999_999_999_999)
                                 ->inputMode('numeric')
-                                ->live(debounce: 500)
+                                ->live(debounce: 400)
                                 ->required(),
                             Forms\Components\TextInput::make('keterangan')
                                 ->label('Keterangan')
@@ -194,24 +225,6 @@ class KalkulatorBelanjaResource extends Resource
                         ->columns(4)
                         ->columnSpanFull(),
                 ]),
-
-            Section::make('Ringkasan Otomatis')
-                ->columns(3)
-                ->schema([
-                    Forms\Components\Placeholder::make('uang_awal_preview')
-                        ->label('Uang Awal')
-                        ->content(fn (Get $get): string => self::rupiah(self::integerValue($get('uang_awal')))),
-                    Forms\Components\Placeholder::make('total_pengeluaran_preview')
-                        ->label('Total Pengeluaran')
-                        ->content(fn (Get $get): string => self::rupiah(self::formTotal($get('pengeluaran')))),
-                    Forms\Components\Placeholder::make('sisa_uang_preview')
-                        ->label('Sisa Uang')
-                        ->content(function (Get $get): string {
-                            $remaining = self::integerValue($get('uang_awal')) - self::formTotal($get('pengeluaran'));
-
-                            return self::rupiah($remaining).($remaining < 0 ? ' — pengeluaran melebihi uang awal' : '');
-                        }),
-                ]),
         ]);
     }
 
@@ -221,11 +234,16 @@ class KalkulatorBelanjaResource extends Resource
             ->defaultSort('tanggal', 'desc')
             ->recordUrl(fn (KalkulatorBelanja $record): string => static::getUrl('view', ['record' => $record]))
             ->columns([
+                Tables\Columns\ViewColumn::make('mobile_transaction')
+                    ->label('Riwayat Belanja')
+                    ->view('filament.tables.columns.kalkulator-belanja-mobile')
+                    ->hiddenFrom('md'),
                 Tables\Columns\TextColumn::make('judul')
                     ->label('Sesi Belanja')
                     ->description(fn (KalkulatorBelanja $record): string => $record->tanggal->format('d M Y'))
                     ->searchable()
                     ->sortable()
+                    ->visibleFrom('md')
                     ->wrap(),
                 Tables\Columns\TextColumn::make('daftar_supplier')
                     ->label('Pengeluaran per Toko')
@@ -238,19 +256,23 @@ class KalkulatorBelanjaResource extends Resource
                     ->bulleted()
                     ->limitList(3)
                     ->expandableLimitedList()
+                    ->visibleFrom('md')
                     ->wrap(),
                 Tables\Columns\TextColumn::make('uang_awal')
                     ->label('Uang Awal')
                     ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state))
+                    ->visibleFrom('md')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('total_pengeluaran')
                     ->label('Pengeluaran')
                     ->state(fn (KalkulatorBelanja $record): int => $record->total_pengeluaran)
+                    ->visibleFrom('md')
                     ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state)),
                 Tables\Columns\TextColumn::make('sisa_uang')
                     ->label('Sisa')
                     ->state(fn (KalkulatorBelanja $record): int => $record->sisa_uang)
                     ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state))
+                    ->visibleFrom('md')
                     ->color(fn (KalkulatorBelanja $record): string => $record->sisa_uang < 0 ? 'danger' : 'success')
                     ->weight('bold'),
                 Tables\Columns\TextColumn::make('pengeluaran_count')
@@ -319,13 +341,17 @@ class KalkulatorBelanjaResource extends Resource
                     )),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label('Lihat'),
-                Tables\Actions\EditAction::make()->label('Edit'),
-                Tables\Actions\DeleteAction::make()
-                    ->label('Hapus')
-                    ->requiresConfirmation()
-                    ->modalHeading('Hapus sesi belanja?')
-                    ->modalDescription('Daftar pengeluaran dan foto nota pada sesi ini ikut dihapus. Data supplier, stok, dan mutasi tidak akan berubah.'),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Lihat Detail'),
+                    Tables\Actions\EditAction::make()->label('Edit Sesi'),
+                    Tables\Actions\DeleteAction::make()
+                        ->label('Hapus Sesi')
+                        ->requiresConfirmation()
+                        ->modalHeading('Hapus sesi belanja?')
+                        ->modalDescription('Daftar pengeluaran dan foto nota pada sesi ini ikut dihapus. Data supplier, stok, dan mutasi tidak akan berubah.'),
+                ])
+                    ->label('Aksi')
+                    ->icon('heroicon-m-ellipsis-horizontal'),
             ])
             ->bulkActions([])
             ->emptyStateHeading('Belum ada sesi belanja')
