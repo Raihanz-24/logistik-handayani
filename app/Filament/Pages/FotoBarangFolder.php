@@ -54,6 +54,10 @@ class FotoBarangFolder extends Page
     public function folder(): FotoBarangSession
     {
         return $this->resolvedFolder ??= $this->visibleSessionsQuery()
+            ->with([
+                'pengeluaranBelanjas.supplier',
+                'pengeluaranBelanjas.kalkulatorBelanja',
+            ])
             ->withCount('items')
             ->where('uuid', $this->sessionUuid)
             ->firstOrFail();

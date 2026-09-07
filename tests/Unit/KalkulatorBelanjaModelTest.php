@@ -29,7 +29,8 @@ class KalkulatorBelanjaModelTest extends TestCase
         $expenseModel = (string) file_get_contents($projectRoot.'/app/Models/PengeluaranBelanja.php');
 
         $this->assertStringContainsString('$record->pengeluaran()->get()->each->delete()', $sessionModel);
-        $this->assertStringContainsString("Storage::disk('public')->delete(\$record->foto_nota)", $expenseModel);
+        $this->assertStringContainsString('$record->receiptPathsBeforeDelete[] = $record->foto_nota', $expenseModel);
+        $this->assertStringContainsString("Storage::disk('public')->delete(\$record->receiptPathsBeforeDelete)", $expenseModel);
         $this->assertStringContainsString("->value('nama_supplier')", $expenseModel);
         $this->assertStringContainsString('nama_supplier_snapshot', $expenseModel);
     }

@@ -5,10 +5,19 @@ namespace App\Filament\Resources\KalkulatorBelanjaResource\Pages;
 use App\Filament\Resources\KalkulatorBelanjaResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
+use Livewire\Attributes\On;
 
 class ViewKalkulatorBelanja extends ViewRecord
 {
     protected static string $resource = KalkulatorBelanjaResource::class;
+
+    #[On('belanja-updated')]
+    public function refreshBelanjaSummary(): void
+    {
+        if ($fresh = $this->record->fresh()) {
+            $this->record = $fresh;
+        }
+    }
 
     protected function getHeaderActions(): array
     {

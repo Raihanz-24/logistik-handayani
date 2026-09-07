@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\AuditLogger;
+use App\Services\BelanjaTransactionService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,6 +31,21 @@ class KalkulatorBelanja extends Model
     {
         static::created(fn (KalkulatorBelanja $record) => $record->audit('create', 'Membuat sesi kalkulator belanja'));
         static::updated(fn (KalkulatorBelanja $record) => $record->audit('update', 'Memperbarui sesi kalkulator belanja'));
+        static::updated(function (KalkulatorBelanja $record): void {
+            if (! $record->wasChanged('tanggal')) {
+                return;
+            }
+
+            $pairs = $record->pengeluaran()
+                ->with('items:id,pengeluaran_belanja_id,barang_id')
+                ->get()
+                ->flatMap(fn (PengeluaranBelanja $expense) => $expense->items->map(
+                    fn ($item): array => [(int) $expense->supplier_id, (int) $item->barang_id],
+                ))
+                ->all();
+
+            app(BelanjaTransactionService::class)->refreshPricePairs($pairs);
+        });
 
         static::deleting(function (KalkulatorBelanja $record): void {
             $record->pengeluaran()->get()->each->delete();

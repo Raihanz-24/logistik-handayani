@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 
@@ -79,5 +80,13 @@ class FotoBarangSession extends Model
     public function items(): HasMany
     {
         return $this->hasMany(FotoBarangItem::class)->orderBy('urutan');
+    }
+
+    public function pengeluaranBelanjas(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            PengeluaranBelanja::class,
+            'foto_barang_session_pengeluaran_belanja',
+        )->withTimestamps();
     }
 }

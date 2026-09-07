@@ -3,6 +3,7 @@
 
     @php
         $activeSession = $this->activeSession();
+        $pendingExpense = $this->pendingExpense();
         $sessions = $this->sessions();
         $cameraConfig = [
             'latitude' => $latitude,
@@ -48,6 +49,21 @@
                 <span><b>3</b> Selesai & bagikan</span>
             </div>
         </section>
+
+        @if ($pendingExpense)
+            <section class="fm-purchase-context">
+                <span><x-filament::icon icon="heroicon-o-link" /></span>
+                <div>
+                    <strong>Folder baru untuk {{ $pendingExpense->namaSupplier() }}</strong>
+                    <small>{{ $pendingExpense->kalkulatorBelanja->judul }} · {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $pendingExpense->nominal) }}</small>
+                    @if ($activeSession)
+                        <em>Selesaikan sesi aktif terlebih dahulu. Folder aktif tidak akan dihubungkan otomatis agar tidak salah transaksi.</em>
+                    @else
+                        <em>Folder yang dibuat berikutnya akan terhubung otomatis. Foto Maps biasa tetap dapat dibuat tanpa hubungan transaksi.</em>
+                    @endif
+                </div>
+            </section>
+        @endif
 
         @if (! $activeSession)
             <section class="fm-start-card">
@@ -495,6 +511,14 @@
                                 <span class="fm-session-row__main">
                                     <strong>{{ $session->judul }}</strong>
                                     <small>{{ $session->code() }} · {{ $session->dimulai_at->locale('id')->translatedFormat('d M Y, H:i') }} WIB</small>
+                                    @if ($session->pengeluaranBelanjas->isNotEmpty())
+                                        <em class="fm-session-row__purchase">
+                                            Belanja: {{ $session->pengeluaranBelanjas->take(2)->map->namaSupplier()->implode(', ') }}
+                                            @if ($session->pengeluaranBelanjas->count() > 2)
+                                                +{{ $session->pengeluaranBelanjas->count() - 2 }} lainnya
+                                            @endif
+                                        </em>
+                                    @endif
                                 </span>
                                 <span class="fm-session-row__count">{{ $session->items_count }} foto</span>
                                 <span @class(['fm-status', 'fm-status--done' => ! $session->isActive()])>
@@ -575,6 +599,7 @@
         .fm-flow b { display:grid; place-items:center; width:2rem; height:2rem; border-radius:.65rem; color:#182130; background:#fbbf24; }
         .fm-flow i { width:1.2rem; height:1px; background:rgba(255,255,255,.25); }
         .fm-start-card,.fm-capture-card,.fm-gallery,.fm-history,.fm-session-header { border:1px solid var(--fm-line); border-radius:1.15rem; background:var(--fi-body-bg,#fff); box-shadow:0 9px 25px rgba(15,23,42,.05); }
+        .fm-purchase-context{display:flex;align-items:flex-start;gap:.7rem;padding:.85rem 1rem;border:1px solid rgba(59,130,246,.3);border-radius:.9rem;background:rgba(59,130,246,.08)}.fm-purchase-context>span{display:grid;place-items:center;width:2.25rem;height:2.25rem;flex:0 0 auto;border-radius:.65rem;color:#2563eb;background:rgba(59,130,246,.14)}.fm-purchase-context svg{width:1.1rem}.fm-purchase-context>div{display:grid;gap:.15rem}.fm-purchase-context strong{color:var(--fm-ink);font-size:.76rem}.fm-purchase-context small,.fm-purchase-context em{color:var(--fm-muted);font-size:.62rem;line-height:1.45}.fm-purchase-context em{margin-top:.15rem;font-style:normal}
         .dark .fm-start-card,.dark .fm-capture-card,.dark .fm-gallery,.dark .fm-history,.dark .fm-session-header { background:#111c2b; }
         .fm-start-card,.fm-capture-card,.fm-gallery,.fm-history { padding:1.25rem; }
         .fm-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }

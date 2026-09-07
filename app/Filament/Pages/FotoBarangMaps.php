@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Jobs\ProcessFotoBarangImage;
 use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
+use App\Models\PengeluaranBelanja;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\FotoBarangDeletionService;
@@ -63,6 +64,8 @@ class FotoBarangMaps extends Page
 
     public string $historyDate = '';
 
+    public ?int $pendingPengeluaranId = null;
+
     public static function canAccess(): bool
     {
         return auth()->check();
@@ -72,6 +75,13 @@ class FotoBarangMaps extends Page
     {
         $this->resetSessionForm();
         $this->historyDate = now('Asia/Jakarta')->toDateString();
+
+        $requestedExpenseId = (int) request()->query('pengeluaran', 0);
+        $this->pendingPengeluaranId = $requestedExpenseId > 0 && $this->visibleExpensesQuery()
+            ->whereKey($requestedExpenseId)
+            ->exists()
+                ? $requestedExpenseId
+                : null;
 
         $requestedUuid = trim((string) request()->query('session', ''));
 
@@ -134,6 +144,22 @@ class FotoBarangMaps extends Page
 
         $this->activeSessionId = (int) $session->getKey();
 
+        if ($expense = $this->pendingExpense()) {
+            $session->pengeluaranBelanjas()->syncWithoutDetaching([$expense->getKey()]);
+
+            app(AuditLogger::class)->activity(
+                'foto_session_belanja_link',
+                'Menghubungkan sesi Foto Maps ke transaksi: '.$expense->namaSupplier(),
+                auth()->user(),
+                [
+                    'session_id' => $session->getKey(),
+                    'pengeluaran_belanja_id' => $expense->getKey(),
+                ],
+            );
+
+            $this->pendingPengeluaranId = null;
+        }
+
         app(AuditLogger::class)->activity(
             'foto_session_create',
             "Membuat sesi foto barang: {$session->judul}",
@@ -146,6 +172,17 @@ class FotoBarangMaps extends Page
             ->body('Foto berikutnya otomatis masuk ke folder '.$session->code().'.')
             ->success()
             ->send();
+    }
+
+    public function pendingExpense(): ?PengeluaranBelanja
+    {
+        if (! $this->pendingPengeluaranId) {
+            return null;
+        }
+
+        return $this->visibleExpensesQuery()
+            ->with(['supplier', 'kalkulatorBelanja'])
+            ->find($this->pendingPengeluaranId);
     }
 
     public function updatedPhoto(): void
@@ -678,7 +715,9 @@ class FotoBarangMaps extends Page
     /** @return LengthAwarePaginator<FotoBarangSession> */
     public function sessions(): LengthAwarePaginator
     {
-        $query = $this->visibleSessionsQuery()->withCount('items');
+        $query = $this->visibleSessionsQuery()
+            ->with('pengeluaranBelanjas.supplier')
+            ->withCount('items');
 
         if ($this->historyDate !== '') {
             $query->whereDate('dimulai_at', $this->historyDate);
@@ -727,6 +766,16 @@ class FotoBarangMaps extends Page
         abort_unless($user instanceof User, 403);
 
         return FotoBarangSession::query()->visibleTo($user);
+    }
+
+    private function visibleExpensesQuery(): Builder
+    {
+        $user = auth()->user();
+
+        abort_unless($user instanceof User, 403);
+
+        return PengeluaranBelanja::query()
+            ->whereHas('kalkulatorBelanja', fn (Builder $query): Builder => $query->visibleTo($user));
     }
 
     private function resetSessionForm(): void

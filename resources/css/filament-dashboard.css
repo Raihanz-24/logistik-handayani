@@ -896,15 +896,93 @@
     .wm-kb-balance .fi-fo-placeholder-content { font-size: 1rem; font-weight: 750; }
     .wm-kb-balance--out .fi-fo-placeholder-content { color: #dc2626; }
     .wm-kb-balance--remaining .fi-fo-placeholder-content { color: #15803d; }
-    .wm-kb-expense-repeater .fi-fo-repeater-item { overflow: hidden; border-radius: .9rem; box-shadow: 0 6px 18px rgba(15, 23, 42, .06); }
-    .wm-kb-expense-repeater .fi-fo-repeater-item-header { min-height: 3rem; padding: .75rem .85rem; }
-    .wm-kb-expense-repeater .fi-fo-repeater-item-content { padding: .9rem; }
+    .wm-kb-expense-repeater,.wm-kb-expense-repeater * { min-width: 0; }
+    .wm-kb-expense-repeater .fi-fo-repeater-item { overflow: hidden; border-radius: .95rem; box-shadow: 0 7px 20px rgba(15, 23, 42, .07); }
+    .wm-kb-expense-repeater .fi-fo-repeater-item-header { min-height: 3.2rem; padding: .8rem .9rem; background: rgba(248, 250, 252, .68); }
+    .dark .wm-kb-expense-repeater .fi-fo-repeater-item-header { background: rgba(15, 23, 42, .38); }
+    .wm-kb-expense-repeater .fi-fo-repeater-item-content { padding: 1rem .9rem; }
+    .wm-kb-expense-repeater .fi-fo-repeater-item-content > .grid { grid-template-columns: minmax(0, 1fr) !important; gap: 1rem !important; }
+    .wm-kb-expense-field { width: 100%; }
+    .wm-kb-expense-field .fi-fo-field-wrp-label { font-size: .78rem; }
+    .wm-kb-expense-field .fi-input-wrp { min-height: 2.85rem; border-radius: .75rem; }
+    .wm-kb-expense-field--amount .fi-input-wrp { border-color: rgba(245, 158, 11, .38); background: rgba(255, 251, 235, .55); }
+    .dark .wm-kb-expense-field--amount .fi-input-wrp { border-color: rgba(245, 158, 11, .28); background: rgba(120, 53, 15, .12); }
+    .wm-kb-expense-field--amount input { font-size: 1rem; font-weight: 750; }
+    .wm-kb-expense-field--receipt .fi-fo-field-wrp-helper-text { line-height: 1.45; }
+    .wm-kb-expense-field--receipt .fi-fo-file-upload { width: 100%; }
     .wm-kb-expense-repeater > div:last-child,.wm-kb-expense-repeater > div:last-child .fi-btn { width: 100%; }
     .wm-kb-expense-repeater > div:last-child .fi-btn { justify-content: center; min-height: 2.8rem; }
 }
 
+@media (min-width: 768px) {
+    .wm-kb-expense-repeater .fi-fo-repeater-item-content > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (min-width: 1280px) {
     .wm-kb-history-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* Purchase calculator: store transaction detail cards */
+.wm-kb-store-card {
+    display: flex;
+    min-width: 0;
+    height: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgb(226 232 240);
+    border-radius: 1rem;
+    background: rgb(255 255 255);
+    box-shadow: 0 8px 24px rgb(15 23 42 / .06);
+}
+.dark .wm-kb-store-card { border-color: rgb(51 65 85); background: rgb(15 23 42); }
+.wm-kb-store-card__header { display: flex; align-items: flex-start; gap: .7rem; padding: 1rem; border-bottom: 1px solid rgb(226 232 240); }
+.dark .wm-kb-store-card__header { border-color: rgb(51 65 85); }
+.wm-kb-store-card__icon { display: grid; width: 2.4rem; height: 2.4rem; flex: 0 0 auto; place-items: center; border-radius: .75rem; color: #b45309; background: #fef3c7; }
+.wm-kb-store-card__icon svg { width: 1.25rem; height: 1.25rem; }
+.dark .wm-kb-store-card__icon { color: #fbbf24; background: rgb(120 53 15 / .35); }
+.wm-kb-store-card__title { min-width: 0; flex: 1; }
+.wm-kb-store-card__title strong { display: block; overflow: hidden; color: rgb(15 23 42); font-size: .92rem; text-overflow: ellipsis; white-space: nowrap; }
+.wm-kb-store-card__title small { display: block; margin-top: .15rem; color: rgb(100 116 139); font-size: .7rem; }
+.dark .wm-kb-store-card__title strong { color: rgb(248 250 252); }
+.wm-kb-store-card__total { flex: 0 0 auto; color: #dc2626; font-size: .82rem; }
+.wm-kb-store-card__note { margin: .8rem 1rem 0; padding: .65rem .75rem; border-radius: .7rem; color: rgb(71 85 105); font-size: .75rem; line-height: 1.5; background: rgb(248 250 252); }
+.dark .wm-kb-store-card__note { color: rgb(203 213 225); background: rgb(30 41 59 / .75); }
+.wm-kb-store-card__items { padding: .7rem 1rem; }
+.wm-kb-store-item { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: .75rem; padding: .65rem 0; border-bottom: 1px dashed rgb(226 232 240); }
+.wm-kb-store-item:last-child { border-bottom: 0; }
+.dark .wm-kb-store-item { border-color: rgb(51 65 85); }
+.wm-kb-store-item span { min-width: 0; }
+.wm-kb-store-item strong,.wm-kb-store-item small,.wm-kb-store-item em { display: block; }
+.wm-kb-store-item strong { color: rgb(30 41 59); font-size: .78rem; }
+.wm-kb-store-item small { margin-top: .15rem; color: rgb(100 116 139); font-size: .68rem; line-height: 1.4; }
+.wm-kb-store-item em { margin-top: .2rem; color: rgb(100 116 139); font-size: .66rem; font-style: normal; }
+.wm-kb-store-item b { flex: 0 0 auto; color: rgb(15 23 42); font-size: .72rem; }
+.dark .wm-kb-store-item strong,.dark .wm-kb-store-item b { color: rgb(241 245 249); }
+.wm-kb-store-card__legacy { padding: .75rem; border: 1px dashed rgb(251 191 36); border-radius: .7rem; color: #92400e; font-size: .72rem; background: #fffbeb; }
+.dark .wm-kb-store-card__legacy { color: #fde68a; background: rgb(120 53 15 / .2); }
+.wm-kb-store-card__receipts { display: flex; gap: .45rem; overflow-x: auto; padding: 0 1rem .8rem; scrollbar-width: thin; }
+.wm-kb-store-card__receipts a { width: 3.25rem; height: 3.25rem; flex: 0 0 auto; overflow: hidden; border-radius: .6rem; border: 1px solid rgb(226 232 240); }
+.wm-kb-store-card__receipts img { width: 100%; height: 100%; object-fit: cover; }
+.wm-kb-store-card__footer { margin-top: auto; padding: .7rem 1rem; border-top: 1px solid rgb(226 232 240); background: rgb(248 250 252 / .75); }
+.dark .wm-kb-store-card__footer { border-color: rgb(51 65 85); background: rgb(30 41 59 / .45); }
+.wm-kb-store-card__folders { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: .68rem; }
+.wm-kb-store-card__folders svg { width: .9rem; height: .9rem; color: #d97706; }
+.wm-kb-store-card__folders a { padding: .2rem .4rem; border-radius: .4rem; color: #1d4ed8; background: #eff6ff; font-weight: 700; }
+.dark .wm-kb-store-card__folders a { color: #93c5fd; background: rgb(30 64 175 / .22); }
+.wm-kb-store-card__unlinked { color: rgb(100 116 139); font-size: .68rem; }
+.fm-session-row__purchase { display: block; width: fit-content; margin-top: .25rem; padding: .2rem .4rem; border-radius: .4rem; color: #1d4ed8; background: rgb(239 246 255); font-size: .58rem; font-style: normal; font-weight: 700; }
+.dark .fm-session-row__purchase { color: #93c5fd; background: rgb(30 64 175 / .22); }
+.wm-kb-item-subtotal .fi-fo-placeholder-content,.wm-kb-transaction-total .fi-fo-placeholder-content { font-weight: 800; }
+.wm-kb-transaction-total { padding: .9rem 1rem; border-radius: .8rem; color: #92400e; background: #fffbeb; }
+.dark .wm-kb-transaction-total { color: #fde68a; background: rgb(120 53 15 / .2); }
+
+@media (max-width: 767px) {
+    .wm-kb-detail-summary .fi-in-section-content { padding: 1rem; }
+    .wm-kb-store-card__header { padding: .85rem; }
+    .wm-kb-store-card__note { margin-inline: .85rem; }
+    .wm-kb-store-card__items { padding-inline: .85rem; }
+    .wm-kb-store-card__receipts { padding-inline: .85rem; }
+    .wm-kb-store-card__footer { padding-inline: .85rem; }
 }
 
 .stock-summary-label,

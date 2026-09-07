@@ -46,4 +46,14 @@ class Supplier extends Model
     {
         return $this->hasMany(Catatan::class);
     }
+
+    public function pengeluaranBelanjas(): HasMany
+    {
+        return $this->hasMany(PengeluaranBelanja::class);
+    }
+
+    public function hargaBarangs(): HasMany
+    {
+        return $this->hasMany(HargaBarangSupplier::class);
+    }
 }

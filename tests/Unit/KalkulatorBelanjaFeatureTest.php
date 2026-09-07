@@ -3,6 +3,8 @@
 namespace Tests\Unit;
 
 use App\Filament\Resources\KalkulatorBelanjaResource;
+use App\Services\BelanjaTransactionService;
+use App\Services\Pdf\BelanjaPdfDocument;
 use PHPUnit\Framework\TestCase;
 
 class KalkulatorBelanjaFeatureTest extends TestCase
@@ -33,18 +35,28 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringNotContainsString("DB::table('barang_lokasi'", $migration);
     }
 
-    public function test_resource_terhubung_supplier_dan_mendukung_foto_nota(): void
+    public function test_detail_transaksi_mendukung_barang_harga_supplier_dan_banyak_nota(): void
     {
-        $resource = (string) file_get_contents(
-            dirname(__DIR__, 2).'/app/Filament/Resources/KalkulatorBelanjaResource.php',
+        $root = dirname(__DIR__, 2);
+        $resource = (string) file_get_contents($root.'/app/Filament/Resources/KalkulatorBelanjaResource.php');
+        $relationManager = (string) file_get_contents(
+            $root.'/app/Filament/Resources/KalkulatorBelanjaResource/RelationManagers/PengeluaranRelationManager.php',
         );
 
-        $this->assertStringContainsString("Repeater::make('pengeluaran')", $resource);
-        $this->assertStringContainsString("Select::make('supplier_id')", $resource);
-        $this->assertStringContainsString("FileUpload::make('foto_nota')", $resource);
-        $this->assertStringContainsString('NotaBelanjaImageService::class', $resource);
+        $this->assertStringContainsString('PengeluaranRelationManager::class', $resource);
+        $this->assertStringContainsString("Select::make('supplier_id')", $relationManager);
+        $this->assertStringContainsString("Repeater::make('items')", $relationManager);
+        $this->assertStringContainsString("Select::make('barang_id')", $relationManager);
+        $this->assertStringContainsString("FileUpload::make('nota_paths')", $relationManager);
+        $this->assertStringContainsString('->multiple()', $relationManager);
+        $this->assertStringContainsString('->maxFiles(20)', $relationManager);
+        $this->assertStringContainsString('NotaBelanjaImageService::class', $relationManager);
+        $this->assertStringContainsString('latestPrice(', $relationManager);
+        $this->assertStringContainsString("Action::make('atur-foto-maps')", $relationManager);
+        $this->assertStringContainsString("Action::make('buka-foto-maps')", $relationManager);
+        $this->assertStringNotContainsString("make('diskon')", $relationManager);
+        $this->assertStringNotContainsString("make('biaya_tambahan')", $relationManager);
         $this->assertStringContainsString("'view' => Pages\\ViewKalkulatorBelanja::route('/{record}')", $resource);
-        $this->assertStringContainsString("Filter::make('periode')", $resource);
     }
 
     public function test_tampilan_mobile_memakai_kartu_transaksi_dan_form_saldo(): void
@@ -65,17 +77,82 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("ViewColumn::make('mobile_transaction')", $resource);
         $this->assertStringContainsString("->hiddenFrom('md')", $resource);
         $this->assertStringContainsString("->visibleFrom('md')", $resource);
-        $this->assertStringContainsString('Tables\\Actions\\ActionGroup::make', $resource);
         $this->assertStringContainsString('wm-kb-summary-section', $resource);
         $this->assertStringContainsString('Sisa saldo', $mobileCard);
         $this->assertStringContainsString('Total keluar', $mobileCard);
         $this->assertStringContainsString('.wm-kb-transaction-card', $styles);
-        $this->assertStringContainsString('.wm-kb-expense-repeater', $styles);
+        $this->assertStringContainsString("->columns(['default' => 1, 'md' => 2])", $resource);
+        $this->assertStringContainsString('.wm-kb-store-card', $styles);
         $this->assertStringContainsString('extends Page', $listPage);
         $this->assertStringContainsString("'total_out'", $listPage);
         $this->assertStringContainsString("'transactions'", $listPage);
         $this->assertStringContainsString('wm-kb-filter-card', $listView);
         $this->assertStringContainsString('wm-kb-summary-grid', $listView);
         $this->assertStringNotContainsString('$this->table', $listView);
+    }
+
+    public function test_migrasi_detail_belanja_hanya_menambah_tabel_baru(): void
+    {
+        $migration = (string) file_get_contents(
+            dirname(__DIR__, 2).'/database/migrations/2026_09_07_010000_add_purchase_details_and_photo_links.php',
+        );
+
+        $this->assertStringContainsString("Schema::create('pengeluaran_belanja_items'", $migration);
+        $this->assertStringContainsString("Schema::create('pengeluaran_belanja_notas'", $migration);
+        $this->assertStringContainsString("Schema::create('harga_barang_suppliers'", $migration);
+        $this->assertStringContainsString("Schema::create('foto_barang_session_pengeluaran_belanja'", $migration);
+        $this->assertStringNotContainsString('Schema::table(', $migration);
+        $this->assertStringNotContainsString("DB::table('mutasis'", $migration);
+        $this->assertStringNotContainsString("DB::table('barang_lokasi'", $migration);
+    }
+
+    public function test_subtotal_mendukung_jumlah_pecahan_dan_pembulatan_rupiah(): void
+    {
+        $service = new BelanjaTransactionService;
+
+        $this->assertSame(37_500, $service->subtotal('1.500', 25_000));
+        $this->assertSame(8_333, $service->subtotal('0.333', 25_024));
+        $this->assertSame(0, $service->subtotal(0, 25_000));
+    }
+
+    public function test_pdf_belanja_memuat_detail_dan_tidak_menyisipkan_foto(): void
+    {
+        $pdf = (new BelanjaPdfDocument)->render([[
+            'sequence' => 1,
+            'date' => '07/09/2026',
+            'session' => 'Belanja Bulanan',
+            'supplier' => 'Toko A',
+            'item' => 'BRG-001 Beras',
+            'quantity' => '2,5 kg',
+            'price' => 'Rp15.000',
+            'subtotal' => 'Rp37.500',
+            'note' => 'Keperluan dapur',
+            'evidence' => '2 nota · 1 folder',
+        ]], [
+            'period' => 'September 2026',
+            'session_count' => 1,
+            'transaction_count' => 1,
+            'total_out' => 37_500,
+            'generated_at' => '07 September 2026, 12:00',
+        ]);
+
+        $this->assertStringStartsWith('%PDF-1.4', $pdf);
+        $this->assertStringContainsString('BRG-001 Beras', $pdf);
+        $this->assertStringContainsString('Foto nota tidak disisipkan', $pdf);
+        $this->assertStringEndsWith('%%EOF', $pdf);
+    }
+
+    public function test_foto_maps_tetap_opsional_dan_dapat_dihubungkan_otomatis_dari_transaksi(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $page = (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangMaps.php');
+        $folder = (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangFolder.php');
+        $view = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-maps.blade.php');
+
+        $this->assertStringContainsString('public ?int $pendingPengeluaranId = null', $page);
+        $this->assertStringContainsString('syncWithoutDetaching', $page);
+        $this->assertStringContainsString('visibleExpensesQuery()', $page);
+        $this->assertStringContainsString('fm-purchase-context', $view);
+        $this->assertStringContainsString('pengeluaranBelanjas.kalkulatorBelanja', $folder);
     }
 }

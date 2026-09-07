@@ -4,7 +4,10 @@ namespace App\Filament\Resources\KalkulatorBelanjaResource\Pages;
 
 use App\Filament\Resources\KalkulatorBelanjaResource;
 use App\Models\PengeluaranBelanja;
+use App\Models\User;
+use App\Services\BelanjaPdfExportService;
 use Filament\Actions;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -35,6 +38,28 @@ class ListKalkulatorBelanjas extends Page
     protected function getHeaderActions(): array
     {
         return [
+            Actions\Action::make('export-pdf')
+                ->label('Export PDF')
+                ->icon('heroicon-m-document-arrow-down')
+                ->color('gray')
+                ->action(function () {
+                    $user = auth()->user();
+                    abort_unless($user instanceof User, 403);
+
+                    try {
+                        return app(BelanjaPdfExportService::class)->download($this->pdfExportContext(), $user);
+                    } catch (\Throwable $exception) {
+                        report($exception);
+
+                        Notification::make()
+                            ->title('Export PDF gagal diproses')
+                            ->body('Silakan coba kembali. Detail teknis sudah dicatat pada log server.')
+                            ->danger()
+                            ->send();
+
+                        return null;
+                    }
+                }),
             Actions\Action::make('buat-sesi-belanja')
                 ->label('Buat Sesi Belanja')
                 ->icon('heroicon-m-plus')
@@ -84,6 +109,17 @@ class ListKalkulatorBelanjas extends Page
         $this->resetPage();
     }
 
+    /** @return array{search: string, month: ?string, from: ?string, to: ?string} */
+    public function pdfExportContext(): array
+    {
+        return [
+            'search' => $this->search,
+            'month' => $this->filterMonth,
+            'from' => $this->dateFrom,
+            'to' => $this->dateTo,
+        ];
+    }
+
     protected function getViewData(): array
     {
         $query = $this->filteredQuery();
@@ -95,8 +131,14 @@ class ListKalkulatorBelanjas extends Page
         $expenseSummary = (clone $expenses)
             ->selectRaw('COALESCE(SUM(nominal), 0) as total_out')
             ->selectRaw('COUNT(*) as transaction_count')
-            ->selectRaw('COALESCE(SUM(CASE WHEN foto_nota IS NOT NULL THEN 1 ELSE 0 END), 0) as receipt_count')
             ->first();
+        $receiptTransactions = (clone $expenses)
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNotNull('foto_nota')
+                    ->orWhereHas('notas');
+            })
+            ->count();
         $records = (clone $query)
             ->orderByDesc('tanggal')
             ->orderByDesc('id')
@@ -107,7 +149,7 @@ class ListKalkulatorBelanjas extends Page
             'summary' => [
                 'total_out' => (int) ($expenseSummary?->total_out ?? 0),
                 'transactions' => (int) ($expenseSummary?->transaction_count ?? 0),
-                'receipts' => (int) ($expenseSummary?->receipt_count ?? 0),
+                'receipts' => $receiptTransactions,
                 'sessions' => $records->total(),
                 'period' => $this->periodLabel(),
             ],
@@ -144,7 +186,10 @@ class ListKalkulatorBelanjas extends Page
                     ->orWhereHas('pengeluaran', function (Builder $query) use ($like): void {
                         $query
                             ->where('nama_supplier_snapshot', 'like', $like)
-                            ->orWhereHas('supplier', fn (Builder $query): Builder => $query->where('nama_supplier', 'like', $like));
+                            ->orWhereHas('supplier', fn (Builder $query): Builder => $query->where('nama_supplier', 'like', $like))
+                            ->orWhereHas('items', fn (Builder $query): Builder => $query
+                                ->where('nama_barang_snapshot', 'like', $like)
+                                ->orWhere('kode_barang_snapshot', 'like', $like));
                     });
             });
         }

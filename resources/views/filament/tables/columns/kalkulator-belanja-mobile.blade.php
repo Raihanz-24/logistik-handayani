@@ -2,7 +2,7 @@
     /** @var \App\Models\KalkulatorBelanja $record */
     $record = $record ?? $getRecord();
     $expenses = $record->pengeluaran;
-    $receiptCount = $expenses->whereNotNull('foto_nota')->count();
+    $receiptCount = $expenses->sum(fn ($expense): int => $expense->jumlahNota());
     $remaining = $record->sisa_uang;
     $standalone = $standalone ?? false;
     $detailUrl = \App\Filament\Resources\KalkulatorBelanjaResource::getUrl('view', ['record' => $record]);
@@ -53,7 +53,7 @@
     </div>
 
     <footer class="wm-kb-transaction-card__footer">
-        <span>{{ $expenses->count() }} toko · {{ $receiptCount }} nota</span>
+        <span>{{ $expenses->count() }} toko · {{ $receiptCount }} foto nota</span>
         <strong>Lihat detail <span aria-hidden="true">›</span></strong>
     </footer>
 </article>
