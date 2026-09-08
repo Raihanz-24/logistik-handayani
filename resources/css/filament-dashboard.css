@@ -256,6 +256,105 @@
     letter-spacing: 0.02em;
 }
 
+/* Day mode sidebar: deep navy shell with a warm gold active state. */
+html:not(.dark) .fi-body .fi-sidebar {
+    border-right-color: rgba(245, 190, 52, 0.2);
+    background:
+        radial-gradient(circle at 15% 0, rgba(40, 91, 139, 0.32), transparent 34%),
+        linear-gradient(180deg, #102a46 0%, #0b1e34 58%, #081829 100%) !important;
+    box-shadow: 12px 0 34px rgba(8, 24, 41, 0.14);
+}
+
+html:not(.dark) .fi-body .fi-sidebar-header {
+    border-bottom-color: rgba(226, 174, 42, 0.2);
+    background: rgba(13, 35, 59, 0.96) !important;
+    box-shadow: 0 10px 26px rgba(4, 15, 27, 0.16);
+}
+
+html:not(.dark) .fi-body .fi-sidebar-header .fi-icon-btn {
+    color: #d9e5f1;
+}
+
+html:not(.dark) .fi-body .fi-sidebar-header .fi-icon-btn:hover {
+    color: #ffd96a;
+    background: rgba(255, 213, 74, 0.1);
+}
+
+html:not(.dark) .fi-body .fi-sidebar-nav {
+    background: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: #dca51c rgba(255, 255, 255, 0.055);
+}
+
+html:not(.dark) .fi-body .fi-sidebar-nav::-webkit-scrollbar {
+    width: 0.55rem;
+}
+
+html:not(.dark) .fi-body .fi-sidebar-nav::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.045);
+}
+
+html:not(.dark) .fi-body .fi-sidebar-nav::-webkit-scrollbar-thumb {
+    border: 2px solid #0b1e34;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #f4c84f, #c88d08);
+}
+
+html:not(.dark) .fi-body .fi-sidebar-nav::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #ffdc72, #dda516);
+}
+
+html:not(.dark) .fi-body .fi-sidebar .wm-sidebar-brand__title {
+    color: #f7fbff;
+}
+
+html:not(.dark) .fi-body .fi-sidebar .wm-sidebar-brand__subtitle {
+    color: #f6c84e;
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-group-label {
+    color: #91abc5;
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-button,
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-label {
+    color: #d5e0eb;
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-icon {
+    color: #8ea9c3;
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-button:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.085);
+    box-shadow: inset 3px 0 0 rgba(246, 200, 78, 0.55);
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-button:hover .fi-sidebar-item-label,
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-button:hover .fi-sidebar-item-icon {
+    color: #ffffff;
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-active .fi-sidebar-item-button {
+    color: #172335;
+    background: linear-gradient(135deg, #f8d568 0%, #e3aa24 100%);
+    box-shadow:
+        0 9px 22px rgba(202, 142, 10, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-active .fi-sidebar-item-label,
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-active .fi-sidebar-item-icon,
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-active svg {
+    color: #172335;
+}
+
+html:not(.dark) .fi-body .fi-sidebar .fi-sidebar-item-active .fi-sidebar-item-button:hover {
+    background: linear-gradient(135deg, #ffe184 0%, #edb634 100%);
+    box-shadow: 0 11px 25px rgba(202, 142, 10, 0.3);
+}
+
 /* Shared panel design system */
 .fi-body {
     color: var(--wd-text);
