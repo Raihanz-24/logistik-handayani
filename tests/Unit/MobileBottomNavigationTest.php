@@ -29,6 +29,10 @@ class MobileBottomNavigationTest extends TestCase
         $this->assertStringContainsString('@media (max-width: 1023px)', $styles);
         $this->assertStringContainsString('grid-template-columns:repeat(5', $styles);
         $this->assertStringContainsString('wire:navigate.hover', $view);
+        $this->assertStringContainsString('x-on:click="activateTarget($el.href)"', $view);
+        $this->assertStringContainsString('pendingPath: null', $swipeNavigation);
+        $this->assertStringContainsString('activateTarget(url)', $swipeNavigation);
+        $this->assertStringContainsString('this.pendingPath || this.currentPath', $swipeNavigation);
         $this->assertStringContainsString('mobileSwipeNavigation(@js($swipeNavigationPages))', $view);
         $this->assertStringContainsString('wm-swipe-cue', $view);
         $this->assertStringContainsString('event.preventDefault()', $swipeNavigation);
@@ -47,5 +51,6 @@ class MobileBottomNavigationTest extends TestCase
         $this->assertStringContainsString('wm-page-enter-previous', $styles);
         $this->assertStringContainsString('window.setTimeout(() => {', $swipeNavigation);
         $this->assertStringContainsString('}, 12000)', $swipeNavigation);
+        $this->assertStringContainsString('.wm-global-footer { padding-bottom:calc(5.85rem + env(safe-area-inset-bottom)); }', $styles);
     }
 }

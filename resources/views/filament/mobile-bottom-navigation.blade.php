@@ -90,6 +90,7 @@
                             'wm-mobile-nav__item',
                             'wm-mobile-nav__item--featured' => $item['featured'],
                         ])
+                        x-on:click="activateTarget($el.href)"
                         x-bind:class="isActive($el.href, {{ $item['exact'] ? 'true' : 'false' }}) && 'is-active'"
                         x-bind:aria-current="isActive($el.href, {{ $item['exact'] ? 'true' : 'false' }}) ? 'page' : null"
                     >

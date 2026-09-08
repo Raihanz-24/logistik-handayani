@@ -1,6 +1,7 @@
 const mobileSwipeNavigation = (pages = []) => ({
     pages: Array.isArray(pages) ? pages : [],
     currentPath: window.location.pathname,
+    pendingPath: null,
     cueDirection: null,
     cueProgress: 0,
     gesture: null,
@@ -8,6 +9,7 @@ const mobileSwipeNavigation = (pages = []) => ({
     listeners: {},
     visualTimer: null,
     navigationTimer: null,
+    optimisticTimer: null,
 
     init() {
         this.listeners.start = (event) => this.startSwipe(event);
@@ -18,6 +20,7 @@ const mobileSwipeNavigation = (pages = []) => ({
             const direction = document.documentElement.dataset.swipeNavigationDirection || null;
             window.clearTimeout(this.navigationTimer);
             this.currentPath = window.location.pathname;
+            this.pendingPath = null;
             this.navigating = false;
             this.gesture = null;
             this.resetCue();
@@ -44,6 +47,7 @@ const mobileSwipeNavigation = (pages = []) => ({
         document.removeEventListener('livewire:navigated', this.listeners.navigated);
         window.clearTimeout(this.visualTimer);
         window.clearTimeout(this.navigationTimer);
+        window.clearTimeout(this.optimisticTimer);
         if (! this.navigating) this.clearPageVisual();
     },
 
@@ -56,10 +60,25 @@ const mobileSwipeNavigation = (pages = []) => ({
     },
 
     isActive(url, exact = false) {
-        const current = this.normalizePath(this.currentPath);
+        const current = this.normalizePath(this.pendingPath || this.currentPath);
         const target = this.normalizePath(new URL(url, window.location.origin).pathname);
 
         return exact ? current === target : current === target || current.startsWith(`${target}/`);
+    },
+
+    activateTarget(url) {
+        const target = this.normalizePath(new URL(url, window.location.origin).pathname);
+
+        if (target === this.normalizePath(this.currentPath)) {
+            this.pendingPath = null;
+            return;
+        }
+
+        this.pendingPath = target;
+        window.clearTimeout(this.optimisticTimer);
+        this.optimisticTimer = window.setTimeout(() => {
+            this.pendingPath = null;
+        }, 12000);
     },
 
     activePageIndex() {
@@ -186,6 +205,8 @@ const mobileSwipeNavigation = (pages = []) => ({
         }
 
         const direction = deltaX < 0 ? 'next' : 'previous';
+        const targetPage = this.pages[targetIndex];
+        this.activateTarget(targetPage.url);
         this.cueProgress = 1;
         this.navigating = true;
         this.commitPageVisual(direction);
@@ -198,7 +219,7 @@ const mobileSwipeNavigation = (pages = []) => ({
         }, 12000);
 
         window.setTimeout(() => {
-            const page = this.pages[targetIndex];
+            const page = targetPage;
             const targetPath = this.pagePath(page);
             const link = Array.from(this.$el.querySelectorAll('a[href]'))
                 .find((item) => this.normalizePath(new URL(item.href).pathname) === targetPath);
