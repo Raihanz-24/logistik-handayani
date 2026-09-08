@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BackupDownloadController;
 use App\Http\Controllers\FotoBarangMediaController;
 use App\Http\Controllers\PublicStorageController;
 use App\Http\Middleware\AuditUserActivity;
@@ -13,6 +14,10 @@ Route::get('/media/{path}', PublicStorageController::class)
 Route::get('/', function () {
     return redirect(route('filament.admin.pages.dashboard'));
 });
+
+Route::middleware('auth')->get('/backup/{backup}/{file}', BackupDownloadController::class)
+    ->whereIn('file', ['database', 'files'])
+    ->name('backup.download');
 
 Route::middleware('auth')->prefix('foto-barang-media')->group(function (): void {
     Route::post('/{session}/upload', [FotoBarangMediaController::class, 'store'])
