@@ -21,6 +21,11 @@ const fotoBarangFolder = (config = {}) => ({
     actionMessage: '',
     downloadBusy: false,
     shareAllBusy: false,
+    labelOpen: false,
+    labelBusy: false,
+    labelIds: [],
+    labelItemId: '',
+    labelHasExisting: false,
 
     initialize(nextConfig = {}) {
         this.photos = Array.isArray(nextConfig.photos) ? nextConfig.photos : [];
@@ -53,6 +58,76 @@ const fotoBarangFolder = (config = {}) => ({
         this.selectionMode = false;
         this.selectedIds = [];
         this.longPressTriggered = false;
+    },
+
+    requestLabel(ids, currentItemId = null) {
+        const normalized = (Array.isArray(ids) ? ids : [ids])
+            .map((id) => Number(id))
+            .filter((id) => Number.isInteger(id) && id > 0 && this.photos.some((photo) => Number(photo.id) === id))
+            .slice(0, 100);
+        if (normalized.length === 0) return;
+
+        const assignedIds = normalized
+            .map((photoId) => this.photos.find((photo) => Number(photo.id) === photoId)?.purchaseItemId)
+            .filter((itemId) => Number(itemId) > 0)
+            .map(Number);
+        const uniqueAssignedIds = [...new Set(assignedIds)];
+
+        this.labelIds = normalized;
+        this.labelItemId = Number(currentItemId) > 0
+            ? String(Number(currentItemId))
+            : (uniqueAssignedIds.length === 1 ? String(uniqueAssignedIds[0]) : '');
+        this.labelHasExisting = assignedIds.length > 0;
+        this.labelOpen = true;
+        this.$nextTick(() => {
+            const dialog = this.$refs.labelDialog;
+            if (! dialog || dialog.open) return;
+            try {
+                dialog.showModal();
+            } catch (error) {
+                dialog.setAttribute('open', '');
+            }
+        });
+    },
+
+    closeLabelDialog() {
+        if (this.labelBusy) return;
+        this.labelOpen = false;
+        this.labelIds = [];
+        this.labelItemId = '';
+        this.labelHasExisting = false;
+        const dialog = this.$refs.labelDialog;
+        if (dialog?.open && typeof dialog.close === 'function') dialog.close();
+        else dialog?.removeAttribute('open');
+        this.restoreScroll();
+    },
+
+    async saveLabel(remove = false) {
+        if (this.labelBusy || this.labelIds.length === 0 || (! remove && this.labelItemId === '')) return;
+        this.labelBusy = true;
+
+        try {
+            const result = await this.$wire.savePurchaseItemLabels(
+                this.labelIds,
+                remove ? null : Number(this.labelItemId),
+            );
+            if (! result?.saved) throw new Error(result?.message || 'Label barang gagal disimpan.');
+
+            const affectedIds = new Set((result.photo_ids || this.labelIds).map(Number));
+            this.photos = this.photos.map((photo) => affectedIds.has(Number(photo.id))
+                ? { ...photo, purchaseItemId: remove ? null : Number(this.labelItemId) }
+                : photo);
+            this.actionMessage = remove
+                ? `${affectedIds.size} label barang berhasil dilepas.`
+                : `${result.label || 'Barang'} ditetapkan ke ${affectedIds.size} foto.`;
+            this.labelBusy = false;
+            this.closeLabelDialog();
+            this.clearSelection();
+            await this.$wire.$refresh();
+        } catch (error) {
+            this.actionMessage = error?.message || 'Label barang gagal disimpan. Silakan coba kembali.';
+            this.labelBusy = false;
+        }
     },
 
     toggleSelection(photoId) {

@@ -163,6 +163,32 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString('syncWithoutDetaching', $page);
         $this->assertStringContainsString('visibleExpensesQuery()', $page);
         $this->assertStringContainsString('fm-purchase-context', $view);
-        $this->assertStringContainsString('pengeluaranBelanjas.kalkulatorBelanja', $folder);
+        $this->assertStringContainsString("with(['supplier', 'kalkulatorBelanja', 'items'])", $folder);
+    }
+
+    public function test_foto_maps_dapat_diberi_label_barang_hanya_dari_transaksi_terhubung(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $migration = (string) file_get_contents(
+            $root.'/database/migrations/2026_09_07_020000_create_foto_barang_item_belanja_links.php',
+        );
+        $service = (string) file_get_contents($root.'/app/Services/FotoBarangPurchaseItemLinkService.php');
+        $page = (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangFolder.php');
+        $view = (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-folder.blade.php');
+        $script = (string) file_get_contents($root.'/resources/js/foto-barang-folder.js');
+
+        $this->assertStringContainsString("Schema::create('foto_barang_item_belanja_links'", $migration);
+        $this->assertStringContainsString("->unique('foto_barang_item_id'", $migration);
+        $this->assertStringNotContainsString('Schema::table(', $migration);
+        $this->assertStringNotContainsString("DB::table('mutasis'", $migration);
+        $this->assertStringNotContainsString("DB::table('barang_lokasi'", $migration);
+        $this->assertStringContainsString("whereHas('pengeluaranBelanja.fotoBarangSessions'", $service);
+        $this->assertStringContainsString("whereHas('pengeluaranBelanja.kalkulatorBelanja'", $service);
+        $this->assertStringContainsString('public function savePurchaseItemLabels', $page);
+        $this->assertStringContainsString('Supplier:', $view);
+        $this->assertStringContainsString('Tentukan Barang', $view);
+        $this->assertStringContainsString('Tetapkan Barang', $view);
+        $this->assertStringContainsString('Lepas Label', $view);
+        $this->assertStringContainsString('this.$wire.savePurchaseItemLabels', $script);
     }
 }

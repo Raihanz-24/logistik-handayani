@@ -3,11 +3,13 @@
 namespace App\Services;
 
 use App\Models\Barang;
+use App\Models\FotoBarangItemBelanjaLink;
 use App\Models\HargaBarangSupplier;
 use App\Models\KalkulatorBelanja;
 use App\Models\PengeluaranBelanja;
 use App\Models\PengeluaranBelanjaItem;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -87,6 +89,20 @@ class BelanjaTransactionService
         }
 
         $oldPaths = $expense?->notas()->pluck('path')->all() ?? [];
+        $photoIdsByBarang = [];
+
+        if ($expense && Schema::hasTable('foto_barang_item_belanja_links')) {
+            $photoIdsByBarang = $expense->items()
+                ->with('photoLinks:foto_barang_item_id,pengeluaran_belanja_item_id')
+                ->get(['id', 'barang_id'])
+                ->mapWithKeys(fn (PengeluaranBelanjaItem $item): array => [
+                    (int) $item->barang_id => $item->photoLinks
+                        ->pluck('foto_barang_item_id')
+                        ->map(fn (mixed $photoId): int => (int) $photoId)
+                        ->all(),
+                ])
+                ->all();
+        }
         $oldPairs = $expense?->items()->get(['barang_id'])->map(
             fn (PengeluaranBelanjaItem $item): array => [
                 (int) $expense->supplier_id,
@@ -102,6 +118,7 @@ class BelanjaTransactionService
                 $itemRows,
                 $total,
                 $paths,
+                $photoIdsByBarang,
             ): PengeluaranBelanja {
                 $record = $expense ?? new PengeluaranBelanja;
                 $record->fill([
@@ -120,7 +137,25 @@ class BelanjaTransactionService
                 }
 
                 $record->items()->delete();
-                $record->items()->createMany($itemRows);
+                $createdItems = $record->items()->createMany($itemRows);
+
+                if ($photoIdsByBarang !== [] && Schema::hasTable('foto_barang_item_belanja_links')) {
+                    $now = now();
+                    $restoredLinks = $createdItems->flatMap(function (PengeluaranBelanjaItem $item) use ($photoIdsByBarang, $now): array {
+                        return collect($photoIdsByBarang[(int) $item->barang_id] ?? [])
+                            ->map(fn (int $photoId): array => [
+                                'foto_barang_item_id' => $photoId,
+                                'pengeluaran_belanja_item_id' => (int) $item->getKey(),
+                                'created_at' => $now,
+                                'updated_at' => $now,
+                            ])
+                            ->all();
+                    })->all();
+
+                    if ($restoredLinks !== []) {
+                        FotoBarangItemBelanjaLink::query()->insert($restoredLinks);
+                    }
+                }
 
                 $record->notas()->whereNotIn('path', $paths)->delete();
 

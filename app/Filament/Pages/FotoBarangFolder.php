@@ -8,10 +8,12 @@ use App\Models\FotoBarangSession;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\FotoBarangDeletionService;
+use App\Services\FotoBarangPurchaseItemLinkService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Schema;
 use Livewire\WithPagination;
 use RuntimeException;
 use Throwable;
@@ -53,10 +55,16 @@ class FotoBarangFolder extends Page
 
     public function folder(): FotoBarangSession
     {
+        $user = auth()->user();
+
+        abort_unless($user instanceof User, 403);
+
         return $this->resolvedFolder ??= $this->visibleSessionsQuery()
             ->with([
-                'pengeluaranBelanjas.supplier',
-                'pengeluaranBelanjas.kalkulatorBelanja',
+                'pengeluaranBelanjas' => fn ($query) => $query
+                    ->whereHas('kalkulatorBelanja', fn (Builder $sessionQuery): Builder => $sessionQuery
+                        ->visibleTo($user))
+                    ->with(['supplier', 'kalkulatorBelanja', 'items']),
             ])
             ->withCount('items')
             ->where('uuid', $this->sessionUuid)
@@ -66,11 +74,92 @@ class FotoBarangFolder extends Page
     /** @return LengthAwarePaginator<FotoBarangItem> */
     public function photos(): LengthAwarePaginator
     {
-        return $this->folder()
+        $query = $this->folder()
             ->items()
             ->reorder()
-            ->latest('urutan')
-            ->paginate(12, ['*'], 'photosPage');
+            ->latest('urutan');
+
+        if ($this->purchaseLabelsAvailable()) {
+            $query->with([
+                'purchaseLink.purchaseItem.pengeluaranBelanja.supplier',
+            ]);
+        }
+
+        return $query->paginate(12, ['*'], 'photosPage');
+    }
+
+    /**
+     * @return array<int, array{label: string, options: array<int, array{id: int, label: string}>}>
+     */
+    public function purchaseItemOptions(): array
+    {
+        if (! $this->purchaseLabelsAvailable()) {
+            return [];
+        }
+
+        return $this->folder()->pengeluaranBelanjas
+            ->map(function ($expense): array {
+                $sessionTitle = $expense->kalkulatorBelanja?->judul ?: 'Sesi belanja';
+
+                return [
+                    'label' => $expense->namaSupplier().' — '.$sessionTitle,
+                    'options' => $expense->items->map(fn ($item): array => [
+                        'id' => (int) $item->getKey(),
+                        'label' => $item->namaBarang().' — Rp'
+                            .number_format((int) $item->harga_satuan, 0, ',', '.'),
+                    ])->values()->all(),
+                ];
+            })
+            ->filter(fn (array $group): bool => $group['options'] !== [])
+            ->values()
+            ->all();
+    }
+
+    /** @return array{saved: bool, photo_ids: array<int, int>, label?: ?string, message?: string} */
+    public function savePurchaseItemLabels(
+        FotoBarangPurchaseItemLinkService $linkService,
+        array $photoIds,
+        int|string|null $purchaseItemId,
+    ): array {
+        $this->skipRender();
+
+        if (! $this->purchaseLabelsAvailable()) {
+            return [
+                'saved' => false,
+                'photo_ids' => [],
+                'message' => 'Fitur label barang belum siap. Jalankan migration terbaru.',
+            ];
+        }
+
+        $normalizedItemId = is_numeric($purchaseItemId) && (int) $purchaseItemId > 0
+            ? (int) $purchaseItemId
+            : null;
+
+        try {
+            $result = $linkService->assign($this->folder(), $photoIds, $normalizedItemId);
+
+            Notification::make()
+                ->title($normalizedItemId ? 'Barang berhasil ditetapkan' : 'Label barang berhasil dilepas')
+                ->body($normalizedItemId ? $result['label'].' diterapkan ke '.count($result['photo_ids']).' foto.' : null)
+                ->success()
+                ->send();
+
+            return [
+                'saved' => true,
+                'photo_ids' => $result['photo_ids'],
+                'label' => $result['label'],
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return [
+                'saved' => false,
+                'photo_ids' => [],
+                'message' => $exception instanceof RuntimeException
+                    ? $exception->getMessage()
+                    : 'Label barang gagal disimpan. Silakan coba kembali.',
+            ];
+        }
     }
 
     /** @return array{deleted: bool, photo_ids: array<int, int>, message?: string} */
@@ -203,6 +292,11 @@ class FotoBarangFolder extends Page
         }
 
         return number_format(max(1, $bytes / 1024), 0, ',', '.').' KB';
+    }
+
+    public function purchaseLabelsAvailable(): bool
+    {
+        return Schema::hasTable('foto_barang_item_belanja_links');
     }
 
     private function visibleSessionsQuery(): Builder

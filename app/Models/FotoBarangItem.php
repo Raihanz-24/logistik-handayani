@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Schema;
 
 class FotoBarangItem extends Model
@@ -73,6 +74,11 @@ class FotoBarangItem extends Model
     public function edits(): HasMany
     {
         return $this->hasMany(FotoBarangEdit::class, 'foto_barang_item_id')->latest();
+    }
+
+    public function purchaseLink(): HasOne
+    {
+        return $this->hasOne(FotoBarangItemBelanjaLink::class, 'foto_barang_item_id');
     }
 
     public function fileName(): string

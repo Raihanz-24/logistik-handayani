@@ -11,6 +11,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\BelanjaTransactionService;
+use App\Services\FotoBarangPurchaseItemLinkService;
 use App\Services\NotaBelanjaImageService;
 use Filament\Forms;
 use Filament\Forms\Components\FileUpload;
@@ -25,6 +26,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class PengeluaranRelationManager extends RelationManager
@@ -137,6 +139,13 @@ class PengeluaranRelationManager extends RelationManager
 
                         $before = $record->fotoBarangSessions()->pluck('foto_barang_sessions.id')->all();
                         $record->fotoBarangSessions()->sync($validIds->all());
+
+                        if (Schema::hasTable('foto_barang_item_belanja_links')) {
+                            app(FotoBarangPurchaseItemLinkService::class)->pruneSessions([
+                                ...$before,
+                                ...$validIds->all(),
+                            ]);
+                        }
 
                         app(AuditLogger::class)->activity(
                             'pengeluaran_belanja_foto_maps_sync',

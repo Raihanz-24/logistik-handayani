@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PengeluaranBelanjaItem extends Model
 {
@@ -38,6 +39,11 @@ class PengeluaranBelanjaItem extends Model
     public function barang(): BelongsTo
     {
         return $this->belongsTo(Barang::class);
+    }
+
+    public function photoLinks(): HasMany
+    {
+        return $this->hasMany(FotoBarangItemBelanjaLink::class, 'pengeluaran_belanja_item_id');
     }
 
     public function namaBarang(): string
