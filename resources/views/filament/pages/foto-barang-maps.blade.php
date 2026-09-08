@@ -1,6 +1,4 @@
 <x-filament-panels::page>
-    @vite('resources/js/foto-barang-maps.js')
-
     @php
         $activeSession = $this->activeSession();
         $pendingExpense = $this->pendingExpense();
@@ -85,7 +83,12 @@
 
                     <div class="fm-form__footer">
                         <p><x-filament::icon icon="heroicon-o-map-pin" /> Alamat otomatis dari GPS · © OpenStreetMap contributors.</p>
-                        <x-filament::button type="submit" icon="heroicon-m-camera" wire:loading.attr="disabled">
+                        <x-filament::button
+                            type="submit"
+                            icon="heroicon-m-camera"
+                            wire:loading.attr="disabled"
+                            wire:target="startSession"
+                        >
                             Mulai Sesi Foto
                         </x-filament::button>
                     </div>

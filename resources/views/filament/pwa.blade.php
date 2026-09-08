@@ -11,6 +11,10 @@
 
 {{-- Load the listener before authentication so it survives Filament's SPA login redirect. --}}
 @vite('resources/js/pwa-navigation-skeleton.js')
+{{-- Gallery controls must already exist before Filament loads a folder through SPA navigation. --}}
+@vite('resources/js/foto-barang-folder.js')
+{{-- Camera controls must persist when Foto Maps is opened through Filament SPA navigation. --}}
+@vite('resources/js/foto-barang-maps.js')
 
 <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
 <meta name="application-name" content="Logistik Handayani">

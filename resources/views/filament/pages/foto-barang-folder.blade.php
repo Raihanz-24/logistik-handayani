@@ -1,6 +1,4 @@
 <x-filament-panels::page>
-    @vite('resources/js/foto-barang-folder.js')
-
     @php
         $folder = $this->folder();
         $photos = $this->photos();
@@ -138,7 +136,7 @@
                             ? rtrim(rtrim(number_format((float) $purchaseItem->jumlah, 3, ',', '.'), '0'), ',')
                             : null;
                     @endphp
-                    <article class="ff-card" x-bind:class="isSelected({{ $photo->id }}) && 'is-selected'">
+                    <article wire:key="foto-folder-{{ $photo->id }}" class="ff-card" x-bind:class="isSelected({{ $photo->id }}) && 'is-selected'">
                         <button
                             type="button"
                             class="ff-card__image"
@@ -155,8 +153,9 @@
                                 alt="Foto barang urutan {{ $photo->urutan }}"
                                 loading="{{ $loop->index < 2 ? 'eager' : 'lazy' }}"
                                 decoding="async"
-                                x-on:load="$el.classList.add('is-ready'); $el.parentElement.classList.add('is-ready')"
-                                x-on:error="$el.parentElement.classList.add('is-failed')"
+                                x-init="settleThumbnail($el)"
+                                x-on:load="thumbnailReady($el)"
+                                x-on:error="thumbnailFailed($el)"
                                 draggable="false"
                             >
                             <span class="ff-sequence">#{{ str_pad((string) $photo->urutan, 2, '0', STR_PAD_LEFT) }}</span>

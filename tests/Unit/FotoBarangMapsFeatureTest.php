@@ -274,8 +274,14 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('x-ref="cameraConfig"', $mainView);
         $this->assertStringContainsString('initializeCamera(JSON.parse($refs.cameraConfig.textContent))', $mainView);
         $this->assertStringNotContainsString("x-data='fotoBarangMaps({", $mainView);
-        $this->assertStringContainsString("@vite('resources/js/foto-barang-maps.js')", $mainView);
-        $this->assertStringContainsString("@vite('resources/js/foto-barang-folder.js')", $folderView);
+        $pwaView = (string) file_get_contents($root.'/resources/views/filament/pwa.blade.php');
+        $this->assertStringContainsString("@vite('resources/js/foto-barang-maps.js')", $pwaView);
+        $this->assertStringNotContainsString("@vite('resources/js/foto-barang-maps.js')", $mainView);
+        $this->assertStringContainsString('wire:target="startSession"', $mainView);
+        $this->assertStringContainsString("@vite('resources/js/foto-barang-folder.js')", $pwaView);
+        $this->assertStringNotContainsString("@vite('resources/js/foto-barang-folder.js')", $folderView);
+        $this->assertStringContainsString('x-init="settleThumbnail($el)"', $folderView);
+        $this->assertStringContainsString('reconcileThumbnails()', $folderScript);
         $this->assertStringNotContainsString('navigator.mediaDevices.getUserMedia', $mainView);
 
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Regular.ttf');

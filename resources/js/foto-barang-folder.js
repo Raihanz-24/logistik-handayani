@@ -33,6 +33,33 @@ const fotoBarangFolder = (config = {}) => ({
         this.archiveUrl = nextConfig.archiveUrl || '';
         this.selectedArchiveUrl = nextConfig.selectedArchiveUrl || '';
         this.totalPhotos = Number(nextConfig.totalPhotos || 0);
+        this.$nextTick(() => this.reconcileThumbnails());
+    },
+
+    thumbnailReady(image) {
+        if (! image) return;
+        image.classList.add('is-ready');
+        image.parentElement?.classList.remove('is-failed');
+        image.parentElement?.classList.add('is-ready');
+    },
+
+    thumbnailFailed(image) {
+        if (! image) return;
+        image.classList.remove('is-ready');
+        image.parentElement?.classList.remove('is-ready');
+        image.parentElement?.classList.add('is-failed');
+    },
+
+    settleThumbnail(image) {
+        if (! image?.complete) return;
+        if (image.naturalWidth > 0) this.thumbnailReady(image);
+        else this.thumbnailFailed(image);
+    },
+
+    reconcileThumbnails() {
+        this.$root?.querySelectorAll('.ff-card__image img').forEach((image) => {
+            this.settleThumbnail(image);
+        });
     },
 
     destroy() {
