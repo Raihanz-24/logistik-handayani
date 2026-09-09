@@ -107,6 +107,7 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 'Catatan',
                 'Master Data',
+                'Laporan',
                 'Pengaturan',
                 'Bantuan',
             ])
