@@ -474,7 +474,7 @@
                     <span class="fm-section-kicker">Folder tersimpan</span>
                     <h2>Riwayat sesi foto</h2>
                     <p>
-                        @if ($historyDate !== '')
+                        @if ($historyDate !== '' && $historyDate !== 'all')
                             Menampilkan folder tanggal {{ \Carbon\CarbonImmutable::parse($historyDate)->locale('id')->translatedFormat('d F Y') }}.
                         @else
                             Menampilkan seluruh tanggal, terbaru lebih dahulu.
@@ -490,7 +490,7 @@
                 <button type="button" wire:click="showTodaySessions" @class(['is-active' => $historyDate === now('Asia/Jakarta')->toDateString()])>
                     Hari ini
                 </button>
-                <button type="button" wire:click="showAllSessionDates" @class(['is-active' => $historyDate === ''])>
+                <button type="button" wire:click="showAllSessionDates" @class(['is-active' => in_array($historyDate, ['', 'all'], true)])>
                     Semua tanggal
                 </button>
                 <label>
@@ -506,7 +506,7 @@
                     @foreach ($sessions as $session)
                         <div class="fm-session-row-wrap">
                             <a
-                                href="{{ \App\Filament\Pages\FotoBarangFolder::getUrl(['session' => $session->uuid]) }}"
+                                href="{{ $this->folderUrl($session) }}"
                                 wire:navigate
                                 @class(['fm-session-row', 'is-current' => $activeSession?->is($session)])
                             >

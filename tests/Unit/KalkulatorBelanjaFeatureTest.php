@@ -190,5 +190,34 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString('Tetapkan Barang', $view);
         $this->assertStringContainsString('Lepas Label', $view);
         $this->assertStringContainsString('this.$wire.savePurchaseItemLabels', $script);
+        $this->assertStringContainsString('public function purchaseItemPayload', $page);
+        $this->assertStringContainsString('result.purchase || null', $script);
+        $this->assertStringContainsString('public function returnToMapsUrl', $page);
+        $this->assertStringContainsString('public static function photoUrl', $page);
+        $this->assertStringContainsString('focusLinkedPhoto()', $script);
+        $this->assertStringNotContainsString('await this.$wire.$refresh();', $this->saveLabelMethod($script));
+    }
+
+    public function test_transaksi_barang_dapat_membuka_foto_berlabel(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $relationManager = (string) file_get_contents(
+            $root.'/app/Filament/Resources/KalkulatorBelanjaResource/RelationManagers/PengeluaranRelationManager.php',
+        );
+        $transactionCard = (string) file_get_contents(
+            $root.'/resources/views/filament/tables/columns/pengeluaran-belanja-card.blade.php',
+        );
+
+        $this->assertStringContainsString("'items.photoLinks.photo.session'", $relationManager);
+        $this->assertStringContainsString('FotoBarangFolder::photoUrl', $transactionCard);
+        $this->assertStringContainsString('wm-kb-store-item__photos', $transactionCard);
+        $this->assertStringContainsString('wire:navigate', $transactionCard);
+    }
+
+    private function saveLabelMethod(string $script): string
+    {
+        preg_match('/async saveLabel\(remove = false\) \{(.*?)\n    \},\n\n    toggleSelection/s', $script, $matches);
+
+        return $matches[1] ?? '';
     }
 }

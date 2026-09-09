@@ -13,6 +13,9 @@
             'purchaseItemId' => $photo->relationLoaded('purchaseLink')
                 ? $photo->purchaseLink?->pengeluaran_belanja_item_id
                 : null,
+            'purchase' => $this->purchaseItemPayload(
+                $photo->relationLoaded('purchaseLink') ? $photo->purchaseLink?->purchaseItem : null,
+            ),
         ])->all();
         $folderConfig = [
             'photos' => $photoData,
@@ -20,6 +23,7 @@
             'archiveUrl' => route('foto-barang.archive', $folder),
             'selectedArchiveUrl' => route('foto-barang.selected-archive', $folder),
             'totalPhotos' => $folder->items_count,
+            'focusPhotoId' => $this->focusPhotoId,
         ];
     @endphp
 
@@ -34,7 +38,7 @@
             <div class="ff-header__copy">
                 <a
                     class="ff-back"
-                    href="{{ \App\Filament\Pages\FotoBarangMaps::getUrl(['session' => $folder->uuid]) }}"
+                    href="{{ $this->returnToMapsUrl() }}"
                     wire:navigate
                 >
                     <x-filament::icon icon="heroicon-m-arrow-left" /> Kembali ke Kamera Maps
@@ -63,7 +67,7 @@
                     <span>Folder ini tetap aman jika hubungannya dilepas.</span>
                     <nav>
                         @foreach ($folder->pengeluaranBelanjas as $expense)
-                            <a href="{{ \App\Filament\Resources\KalkulatorBelanjaResource::getUrl('view', ['record' => $expense->kalkulatorBelanja]) }}">
+                            <a href="{{ \App\Filament\Resources\KalkulatorBelanjaResource::getUrl('view', ['record' => $expense->kalkulatorBelanja]) }}" wire:navigate>
                                 Supplier: {{ $expense->namaSupplier() }} · {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $expense->nominal) }}
                             </a>
                         @endforeach
@@ -128,15 +132,16 @@
                         $version = $photo->updated_at->getTimestamp();
                         $thumbnailUrl = route('foto-barang.thumbnail', [$folder, $photo]).'?v='.$version;
                         $downloadUrl = route('foto-barang.download', [$folder, $photo]);
-                        $purchaseItem = $photo->relationLoaded('purchaseLink')
-                            ? $photo->purchaseLink?->purchaseItem
-                            : null;
-                        $purchaseExpense = $purchaseItem?->pengeluaranBelanja;
-                        $purchaseQuantity = $purchaseItem
-                            ? rtrim(rtrim(number_format((float) $purchaseItem->jumlah, 3, ',', '.'), '0'), ',')
-                            : null;
                     @endphp
-                    <article wire:key="foto-folder-{{ $photo->id }}" class="ff-card" x-bind:class="isSelected({{ $photo->id }}) && 'is-selected'">
+                    <article
+                        wire:key="foto-folder-{{ $photo->id }}"
+                        class="ff-card"
+                        data-photo-id="{{ $photo->id }}"
+                        x-bind:class="{
+                            'is-selected': isSelected({{ $photo->id }}),
+                            'is-focused': Number(highlightedPhotoId) === {{ $photo->id }},
+                        }"
+                    >
                         <button
                             type="button"
                             class="ff-card__image"
@@ -176,15 +181,29 @@
                                 <span class="ff-status is-pending">Sedang diproses</span>
                             @endif
                             <small>{{ $this->formatBytes((int) $photo->ukuran_hasil) }} · {{ $photo->lebar }}×{{ $photo->tinggi }} px</small>
-                            @if ($purchaseItem)
+                            @if (false)
                                 <div class="ff-product-label">
                                     <span>{{ $purchaseExpense?->namaSupplier() }}</span>
                                     <strong>{{ $purchaseItem->namaBarang() }}</strong>
                                     <small>{{ $purchaseQuantity }} {{ $purchaseItem->satuan_snapshot }} × {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $purchaseItem->harga_satuan) }}</small>
                                     <b>Subtotal {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $purchaseItem->subtotal) }}</b>
                                 </div>
-                            @elseif ($purchaseItemGroups !== [])
+                            @elseif (false)
                                 <div class="ff-product-empty">Barang pada foto belum ditentukan</div>
+                            @endif
+
+                            <template x-if="photos[{{ $loop->index }}]?.purchase">
+                                <div class="ff-product-label">
+                                    <span x-text="photos[{{ $loop->index }}].purchase.supplier"></span>
+                                    <strong x-text="photos[{{ $loop->index }}].purchase.name"></strong>
+                                    <small x-text="`${photos[{{ $loop->index }}].purchase.quantity} ${photos[{{ $loop->index }}].purchase.unit} × ${photos[{{ $loop->index }}].purchase.price}`"></small>
+                                    <b x-text="`Subtotal ${photos[{{ $loop->index }}].purchase.subtotal}`"></b>
+                                </div>
+                            </template>
+                            @if ($purchaseItemGroups !== [])
+                                <template x-if="! photos[{{ $loop->index }}]?.purchase">
+                                    <div class="ff-product-empty">Barang pada foto belum ditentukan</div>
+                                </template>
                             @endif
 
                             @if ($purchaseItemGroups !== [])
@@ -193,10 +212,10 @@
                                     class="ff-card__label-action"
                                     x-show="! selectionMode"
                                     x-cloak
-                                    x-on:click="requestLabel({{ $photo->id }}, {{ $purchaseItem?->getKey() ?? 'null' }})"
+                                    x-on:click="requestLabel({{ $photo->id }}, photos[{{ $loop->index }}]?.purchaseItemId || null)"
                                 >
                                     <x-filament::icon icon="heroicon-m-tag" />
-                                    {{ $purchaseItem ? 'Ubah Barang' : 'Tentukan Barang' }}
+                                    <span x-text="photos[{{ $loop->index }}]?.purchase ? 'Ubah Barang' : 'Tentukan Barang'"></span>
                                 </button>
                             @endif
                         </div>
@@ -205,6 +224,16 @@
                             <button type="button" x-on:click="sharePhoto(photos[{{ $loop->index }}])">
                                 <x-filament::icon icon="heroicon-m-share" /> Bagikan
                             </button>
+                            <a
+                                class="ff-card__transaction-action"
+                                x-show="photos[{{ $loop->index }}]?.purchase?.transactionUrl"
+                                x-cloak
+                                x-bind:href="photos[{{ $loop->index }}]?.purchase?.transactionUrl"
+                                x-on:click.stop
+                                wire:navigate
+                            >
+                                <x-filament::icon icon="heroicon-m-receipt-percent" /> Transaksi
+                            </a>
                             <a href="{{ $downloadUrl }}"><x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh</a>
                             @if (! $photo->processingCompleted())
                                 <button type="button" wire:click="retryPhotoProcessing({{ $photo->id }})">
@@ -329,6 +358,11 @@
             color: #7c3aed;
         }
 
+        .ff-card.is-focused {
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, .23), 0 12px 28px rgba(245, 158, 11, .14);
+        }
+
         .ff-product-label {
             display: grid;
             gap: .18rem;
@@ -390,6 +424,12 @@
 
         .ff-card__label-action svg {
             width: .85rem;
+        }
+
+        .ff-card__transaction-action {
+            color: #6d28d9 !important;
+            border-color: rgba(124, 58, 237, .28) !important;
+            background: rgba(124, 58, 237, .08) !important;
         }
 
         .dark .ff-product-label,

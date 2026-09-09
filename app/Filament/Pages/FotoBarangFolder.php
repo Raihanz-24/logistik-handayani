@@ -2,9 +2,11 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\KalkulatorBelanjaResource;
 use App\Jobs\ProcessFotoBarangImage;
 use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
+use App\Models\PengeluaranBelanjaItem;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\FotoBarangDeletionService;
@@ -32,6 +34,12 @@ class FotoBarangFolder extends Page
 
     public string $sessionUuid = '';
 
+    public ?int $focusPhotoId = null;
+
+    public string $returnHistoryDate = '';
+
+    public ?int $returnSessionsPage = null;
+
     private ?FotoBarangSession $resolvedFolder = null;
 
     public function mount(string $session): void
@@ -41,6 +49,13 @@ class FotoBarangFolder extends Page
             ->firstOrFail();
 
         $this->sessionUuid = (string) $folder->uuid;
+        $this->focusPhotoId = max(0, (int) request()->query('photo', 0)) ?: null;
+        $this->returnHistoryDate = trim((string) request()->query('tanggal', ''));
+        $this->returnSessionsPage = max(1, (int) request()->query('fotoSessionsPage', 1));
+
+        if ($this->focusPhotoId) {
+            $this->openFocusedPhotoPage($folder);
+        }
     }
 
     public static function canAccess(): bool
@@ -82,6 +97,7 @@ class FotoBarangFolder extends Page
         if ($this->purchaseLabelsAvailable()) {
             $query->with([
                 'purchaseLink.purchaseItem.pengeluaranBelanja.supplier',
+                'purchaseLink.purchaseItem.pengeluaranBelanja.kalkulatorBelanja',
             ]);
         }
 
@@ -148,6 +164,11 @@ class FotoBarangFolder extends Page
                 'saved' => true,
                 'photo_ids' => $result['photo_ids'],
                 'label' => $result['label'],
+                'purchase' => $normalizedItemId
+                    ? $this->purchaseItemPayload(PengeluaranBelanjaItem::query()
+                        ->with(['pengeluaranBelanja.supplier', 'pengeluaranBelanja.kalkulatorBelanja'])
+                        ->find($normalizedItemId))
+                    : null,
             ];
         } catch (Throwable $exception) {
             report($exception);
@@ -297,6 +318,74 @@ class FotoBarangFolder extends Page
     public function purchaseLabelsAvailable(): bool
     {
         return Schema::hasTable('foto_barang_item_belanja_links');
+    }
+
+    /** @return array<string, int|string>|null */
+    public function purchaseItemPayload(?PengeluaranBelanjaItem $item): ?array
+    {
+        if (! $item) {
+            return null;
+        }
+
+        $item->loadMissing(['pengeluaranBelanja.supplier', 'pengeluaranBelanja.kalkulatorBelanja']);
+        $expense = $item->pengeluaranBelanja;
+
+        if (! $expense || ! $expense->kalkulatorBelanja) {
+            return null;
+        }
+
+        $quantity = rtrim(rtrim(number_format((float) $item->jumlah, 3, ',', '.'), '0'), ',');
+
+        return [
+            'id' => (int) $item->getKey(),
+            'supplier' => $expense->namaSupplier(),
+            'name' => $item->namaBarang(),
+            'quantity' => $quantity,
+            'unit' => (string) $item->satuan_snapshot,
+            'price' => KalkulatorBelanjaResource::rupiah((int) $item->harga_satuan),
+            'subtotal' => KalkulatorBelanjaResource::rupiah((int) $item->subtotal),
+            'transactionUrl' => KalkulatorBelanjaResource::getUrl('view', ['record' => $expense->kalkulatorBelanja]),
+        ];
+    }
+
+    public function returnToMapsUrl(): string
+    {
+        $url = FotoBarangMaps::getUrl(['session' => $this->sessionUuid]);
+        $query = array_filter([
+            'tanggal' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->returnHistoryDate) || $this->returnHistoryDate === 'all'
+                ? $this->returnHistoryDate
+                : null,
+            'fotoSessionsPage' => $this->returnSessionsPage && $this->returnSessionsPage > 1
+                ? $this->returnSessionsPage
+                : null,
+        ], fn (mixed $value): bool => $value !== null);
+
+        if ($query === []) {
+            return $url;
+        }
+
+        return $url.(str_contains($url, '?') ? '&' : '?').http_build_query($query);
+    }
+
+    public static function photoUrl(FotoBarangSession $folder, FotoBarangItem $photo): string
+    {
+        $url = static::getUrl(['session' => $folder->uuid]);
+
+        return $url.(str_contains($url, '?') ? '&' : '?').http_build_query(['photo' => $photo->getKey()]);
+    }
+
+    private function openFocusedPhotoPage(FotoBarangSession $folder): void
+    {
+        $photo = $folder->items()->whereKey($this->focusPhotoId)->first(['id', 'urutan']);
+
+        if (! $photo) {
+            $this->focusPhotoId = null;
+
+            return;
+        }
+
+        $beforeCount = $folder->items()->where('urutan', '>', $photo->urutan)->count();
+        $this->setPage((int) floor($beforeCount / 12) + 1, 'photosPage');
     }
 
     private function visibleSessionsQuery(): Builder

@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Url;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 use Livewire\WithPagination;
@@ -62,6 +63,7 @@ class FotoBarangMaps extends Page
 
     public int $uploadKey = 0;
 
+    #[Url(as: 'tanggal')]
     public string $historyDate = '';
 
     public ?int $pendingPengeluaranId = null;
@@ -74,7 +76,9 @@ class FotoBarangMaps extends Page
     public function mount(): void
     {
         $this->resetSessionForm();
-        $this->historyDate = now('Asia/Jakarta')->toDateString();
+        $this->historyDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->historyDate) || $this->historyDate === 'all'
+            ? $this->historyDate
+            : now('Asia/Jakarta')->toDateString();
 
         $requestedExpenseId = (int) request()->query('pengeluaran', 0);
         $this->pendingPengeluaranId = $requestedExpenseId > 0 && $this->visibleExpensesQuery()
@@ -719,7 +723,7 @@ class FotoBarangMaps extends Page
             ->with('pengeluaranBelanjas.supplier')
             ->withCount('items');
 
-        if ($this->historyDate !== '') {
+        if ($this->historyDate !== '' && $this->historyDate !== 'all') {
             $query->whereDate('dimulai_at', $this->historyDate);
         }
 
@@ -741,8 +745,23 @@ class FotoBarangMaps extends Page
 
     public function showAllSessionDates(): void
     {
-        $this->historyDate = '';
+        $this->historyDate = 'all';
         $this->resetPage('fotoSessionsPage');
+    }
+
+    public function folderUrl(FotoBarangSession $session): string
+    {
+        $url = FotoBarangFolder::getUrl(['session' => $session->uuid]);
+        $query = [
+            'tanggal' => $this->historyDate,
+        ];
+        $page = $this->getPage('fotoSessionsPage');
+
+        if ($page > 1) {
+            $query['fotoSessionsPage'] = $page;
+        }
+
+        return $url.(str_contains($url, '?') ? '&' : '?').http_build_query($query);
     }
 
     public function formatBytes(int $bytes): string

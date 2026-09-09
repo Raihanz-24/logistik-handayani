@@ -29,13 +29,39 @@
         @forelse ($items as $item)
             @php
                 $quantity = rtrim(rtrim(number_format((float) $item->jumlah, 3, ',', '.'), '0'), ',');
+                $photoLinks = $item->photoLinks
+                    ->filter(fn ($link): bool => $link->photo?->session !== null)
+                    ->values();
+                $firstPhotoLink = $photoLinks->first();
+                $firstPhotoUrl = $firstPhotoLink
+                    ? \App\Filament\Pages\FotoBarangFolder::photoUrl($firstPhotoLink->photo->session, $firstPhotoLink->photo)
+                    : null;
             @endphp
             <div class="wm-kb-store-item">
                 <span>
-                    <strong>{{ $item->namaBarang() }}</strong>
+                    @if ($firstPhotoUrl)
+                        <a class="wm-kb-store-item__photo-link" href="{{ $firstPhotoUrl }}" wire:navigate>
+                            <strong>{{ $item->namaBarang() }}</strong>
+                            <x-heroicon-m-camera />
+                        </a>
+                    @else
+                        <strong>{{ $item->namaBarang() }}</strong>
+                    @endif
                     <small>{{ $item->kode_barang_snapshot }} · {{ $quantity }} {{ $item->satuan_snapshot ?: '' }} × {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $item->harga_satuan) }}</small>
                     @if ($item->keterangan)
                         <em>{{ $item->keterangan }}</em>
+                    @endif
+                    @if ($photoLinks->isNotEmpty())
+                        <nav class="wm-kb-store-item__photos" aria-label="Foto barang {{ $item->namaBarang() }}">
+                            @foreach ($photoLinks as $photoLink)
+                                <a
+                                    href="{{ \App\Filament\Pages\FotoBarangFolder::photoUrl($photoLink->photo->session, $photoLink->photo) }}"
+                                    wire:navigate
+                                >
+                                    <x-heroicon-m-photo /> Foto #{{ str_pad((string) $photoLink->photo->urutan, 2, '0', STR_PAD_LEFT) }}
+                                </a>
+                            @endforeach
+                        </nav>
                     @endif
                 </span>
                 <b>{{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $item->subtotal) }}</b>

@@ -50,6 +50,7 @@ class PengeluaranRelationManager extends RelationManager
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->with([
                 'supplier',
                 'items.barang',
+                'items.photoLinks.photo.session',
                 'notas',
                 'fotoBarangSessions',
             ]))

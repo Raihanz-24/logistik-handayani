@@ -282,6 +282,10 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringNotContainsString("@vite('resources/js/foto-barang-folder.js')", $folderView);
         $this->assertStringContainsString('x-init="settleThumbnail($el)"', $folderView);
         $this->assertStringContainsString('reconcileThumbnails()', $folderScript);
+        $this->assertStringContainsString("#[Url(as: 'tanggal')]", $page);
+        $this->assertStringContainsString('public function folderUrl', $page);
+        $this->assertStringContainsString('returnToMapsUrl()', $folderView);
+        $this->assertStringContainsString('focusPhotoId', $folderScript);
         $this->assertStringNotContainsString('navigator.mediaDevices.getUserMedia', $mainView);
 
         $this->assertFileExists($root.'/resources/fonts/RobotoCondensed-Regular.ttf');

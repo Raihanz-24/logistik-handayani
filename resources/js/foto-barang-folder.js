@@ -4,6 +4,8 @@ const fotoBarangFolder = (config = {}) => ({
     archiveUrl: config.archiveUrl || '',
     selectedArchiveUrl: config.selectedArchiveUrl || '',
     totalPhotos: Number(config.totalPhotos || 0),
+    focusPhotoId: Number(config.focusPhotoId || 0),
+    highlightedPhotoId: null,
     selectionMode: false,
     selectedIds: [],
     longPressTimer: null,
@@ -33,7 +35,11 @@ const fotoBarangFolder = (config = {}) => ({
         this.archiveUrl = nextConfig.archiveUrl || '';
         this.selectedArchiveUrl = nextConfig.selectedArchiveUrl || '';
         this.totalPhotos = Number(nextConfig.totalPhotos || 0);
-        this.$nextTick(() => this.reconcileThumbnails());
+        this.focusPhotoId = Number(nextConfig.focusPhotoId || 0);
+        this.$nextTick(() => {
+            this.reconcileThumbnails();
+            this.focusLinkedPhoto();
+        });
     },
 
     thumbnailReady(image) {
@@ -60,6 +66,19 @@ const fotoBarangFolder = (config = {}) => ({
         this.$root?.querySelectorAll('.ff-card__image img').forEach((image) => {
             this.settleThumbnail(image);
         });
+    },
+
+    focusLinkedPhoto() {
+        if (! Number.isInteger(this.focusPhotoId) || this.focusPhotoId < 1) return;
+
+        const target = this.$root?.querySelector(`[data-photo-id="${this.focusPhotoId}"]`);
+        if (! target) return;
+
+        this.highlightedPhotoId = this.focusPhotoId;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.setTimeout(() => {
+            if (this.highlightedPhotoId === this.focusPhotoId) this.highlightedPhotoId = null;
+        }, 2800);
     },
 
     destroy() {
@@ -141,8 +160,13 @@ const fotoBarangFolder = (config = {}) => ({
             if (! result?.saved) throw new Error(result?.message || 'Label barang gagal disimpan.');
 
             const affectedIds = new Set((result.photo_ids || this.labelIds).map(Number));
+            const purchase = remove ? null : (result.purchase || null);
             this.photos = this.photos.map((photo) => affectedIds.has(Number(photo.id))
-                ? { ...photo, purchaseItemId: remove ? null : Number(this.labelItemId) }
+                ? {
+                    ...photo,
+                    purchaseItemId: remove ? null : Number(this.labelItemId),
+                    purchase,
+                }
                 : photo);
             this.actionMessage = remove
                 ? `${affectedIds.size} label barang berhasil dilepas.`
@@ -150,7 +174,6 @@ const fotoBarangFolder = (config = {}) => ({
             this.labelBusy = false;
             this.closeLabelDialog();
             this.clearSelection();
-            await this.$wire.$refresh();
         } catch (error) {
             this.actionMessage = error?.message || 'Label barang gagal disimpan. Silakan coba kembali.';
             this.labelBusy = false;
