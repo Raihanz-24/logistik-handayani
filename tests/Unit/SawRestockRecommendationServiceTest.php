@@ -93,4 +93,13 @@ class SawRestockRecommendationServiceTest extends TestCase
         $this->assertStringContainsString('Minggu ini', $view);
         $this->assertStringContainsString('Bulan ini', $view);
     }
+
+    public function test_saw_usage_only_counts_approved_outgoing_mutations_to_usage_locations(): void
+    {
+        $service = (string) file_get_contents(dirname(__DIR__, 2).'/app/Services/SawRestockRecommendationService.php');
+
+        $this->assertStringContainsString("->join('lokasis as lokasi_tujuan'", $service);
+        $this->assertStringContainsString("->where('lokasi_tujuan.jenis_lokasi', Lokasi::JENIS_PEMAKAIAN)", $service);
+        $this->assertStringContainsString("->where('mutasis.jenis_mutasi', 'keluar')", $service);
+    }
 }

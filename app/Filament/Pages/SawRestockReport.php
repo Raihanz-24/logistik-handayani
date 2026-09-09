@@ -118,7 +118,7 @@ class SawRestockReport extends Page implements HasForms
 
         /** @var array{start: CarbonImmutable, end: CarbonImmutable, weights: array<string, float>, recommendations: Collection<int, array<string, mixed>>} $result */
         $result = app(DashboardCacheService::class)->remember(
-            "saw-report:v1:{$start->toDateString()}:{$end->toDateString()}:{$configKey}",
+            "saw-report:v2:{$start->toDateString()}:{$end->toDateString()}:{$configKey}",
             fn (): array => app(SawRestockRecommendationService::class)->calculate($start, $end, PHP_INT_MAX),
         );
 

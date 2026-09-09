@@ -44,7 +44,7 @@ class RestockRecommendation extends Widget
         ]));
 
         $result = app(DashboardCacheService::class)->remember(
-            "restock:v1:{$startKey}:{$endKey}:{$configKey}",
+            "restock:v2:{$startKey}:{$endKey}:{$configKey}",
             fn (): array => app(SawRestockRecommendationService::class)->calculate($start, $end),
         );
 

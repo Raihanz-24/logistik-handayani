@@ -31,13 +31,18 @@ class SawRestockRecommendationService
         $limit ??= (int) config('saw-restock.limit', 10);
 
         $usageByBarang = Mutasi::query()
-            ->select('barang_id')
+            // Pemakaian hanya terjadi saat barang keluar menuju lokasi pemakaian.
+            // Transfer antar gudang tetap mengubah stok, tetapi bukan konsumsi barang
+            // dan karena itu tidak boleh memengaruhi skor SAW.
+            ->join('lokasis as lokasi_tujuan', 'lokasi_tujuan.id', '=', 'mutasis.lokasi_tujuan_id')
+            ->select('mutasis.barang_id')
             ->selectRaw('COUNT(*) as frekuensi_pemakaian')
-            ->selectRaw('COALESCE(SUM(jumlah), 0) as jumlah_pemakaian')
-            ->where('jenis_mutasi', 'keluar')
-            ->where('status', 'approved')
-            ->whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
-            ->groupBy('barang_id')
+            ->selectRaw('COALESCE(SUM(mutasis.jumlah), 0) as jumlah_pemakaian')
+            ->where('mutasis.jenis_mutasi', 'keluar')
+            ->where('mutasis.status', 'approved')
+            ->where('lokasi_tujuan.jenis_lokasi', Lokasi::JENIS_PEMAKAIAN)
+            ->whereBetween('mutasis.tanggal', [$start->toDateString(), $end->toDateString()])
+            ->groupBy('mutasis.barang_id')
             ->get()
             ->keyBy('barang_id');
 
