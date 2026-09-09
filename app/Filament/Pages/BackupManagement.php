@@ -109,12 +109,14 @@ class BackupManagement extends Page implements HasForms
                             ])
                             ->default(0)
                             ->required()
+                            ->dehydratedWhenHidden()
                             ->visible(fn ($get): bool => $get('frequency') === 'weekly'),
                         Select::make('monthly_day')
                             ->label('Tanggal backup')
                             ->options(collect(range(1, 31))->mapWithKeys(fn (int $day): array => [$day => 'Tanggal '.$day])->all())
                             ->default(1)
                             ->required()
+                            ->dehydratedWhenHidden()
                             ->helperText('Jika tanggal tidak ada pada bulan tersebut, backup berjalan pada hari terakhir bulan itu.')
                             ->visible(fn ($get): bool => $get('frequency') === 'monthly'),
                         Toggle::make('include_files')
@@ -136,37 +138,49 @@ class BackupManagement extends Page implements HasForms
 
     public function saveSettings(): void
     {
-        $setting = BackupSetting::query()->first() ?? new BackupSetting;
-        // Fields that are hidden by the selected frequency are deliberately
-        // not dehydrated by Filament. Merge them with the saved/default state
-        // so changing daily, weekly, or monthly never makes saving fail.
-        $data = array_replace($this->settingsState($setting->exists ? $setting : null), $this->form->getState());
+        try {
+            $setting = BackupSetting::query()->first() ?? new BackupSetting;
+            // The merge remains as a fallback for old Livewire snapshots;
+            // hidden schedule fields are also explicitly dehydrated above.
+            $data = array_replace($this->settingsState($setting->exists ? $setting : null), $this->form->getState());
 
-        $setting->fill([
-            ...$data,
-            'weekly_day' => (int) $data['weekly_day'],
-            'monthly_day' => (int) $data['monthly_day'],
-            'keep_count' => (int) $data['keep_count'],
-            'backup_time' => substr((string) $data['backup_time'], 0, 5).':00',
-        ]);
-        $setting->save();
+            $setting->fill([
+                ...$data,
+                'weekly_day' => (int) $data['weekly_day'],
+                'monthly_day' => (int) $data['monthly_day'],
+                'keep_count' => (int) $data['keep_count'],
+                'backup_time' => substr((string) $data['backup_time'], 0, 5).':00',
+            ]);
+            $setting->save();
 
-        app(AuditLogger::class)->activity(
-            'backup_settings_update',
-            'Memperbarui pengaturan backup otomatis.',
-            auth()->user(),
-            [
-                'enabled' => $setting->enabled,
-                'frequency' => $setting->frequency,
-                'backup_time' => $setting->backup_time,
-                'include_files' => $setting->include_files,
-            ],
-        );
+            $this->form->fill($this->settingsState($setting));
 
-        Notification::make()
-            ->title('Pengaturan backup disimpan')
-            ->success()
-            ->send();
+            app(AuditLogger::class)->activity(
+                'backup_settings_update',
+                'Memperbarui pengaturan backup otomatis.',
+                auth()->user(),
+                [
+                    'enabled' => $setting->enabled,
+                    'frequency' => $setting->frequency,
+                    'backup_time' => $setting->backup_time,
+                    'include_files' => $setting->include_files,
+                ],
+            );
+
+            Notification::make()
+                ->title('Pengaturan backup disimpan')
+                ->success()
+                ->send();
+        } catch (Throwable $exception) {
+            report($exception);
+
+            Notification::make()
+                ->title('Pengaturan belum tersimpan')
+                ->body('Terjadi kendala saat menyimpan. Silakan muat ulang halaman lalu coba kembali.')
+                ->danger()
+                ->persistent()
+                ->send();
+        }
     }
 
     public function runNow(AppBackupService $backupService): void
