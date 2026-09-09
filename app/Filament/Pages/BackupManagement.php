@@ -50,8 +50,13 @@ class BackupManagement extends Page implements HasForms
     {
         abort_unless(static::canAccess(), 403);
 
-        $setting = BackupSetting::query()->first();
-        $this->form->fill([
+        $this->form->fill($this->settingsState(BackupSetting::query()->first()));
+    }
+
+    /** @return array<string, bool|int|string> */
+    private function settingsState(?BackupSetting $setting): array
+    {
+        return [
             'enabled' => $setting?->enabled ?? false,
             'frequency' => $setting?->frequency ?? 'daily',
             'backup_time' => substr((string) ($setting?->backup_time ?? '02:00:00'), 0, 5),
@@ -59,7 +64,7 @@ class BackupManagement extends Page implements HasForms
             'monthly_day' => (string) ($setting?->monthly_day ?? 1),
             'include_files' => $setting?->include_files ?? true,
             'keep_count' => $setting?->keep_count ?? 10,
-        ]);
+        ];
     }
 
     public function form(Form $form): Form
@@ -131,8 +136,12 @@ class BackupManagement extends Page implements HasForms
 
     public function saveSettings(): void
     {
-        $data = $this->form->getState();
         $setting = BackupSetting::query()->first() ?? new BackupSetting;
+        // Fields that are hidden by the selected frequency are deliberately
+        // not dehydrated by Filament. Merge them with the saved/default state
+        // so changing daily, weekly, or monthly never makes saving fail.
+        $data = array_replace($this->settingsState($setting->exists ? $setting : null), $this->form->getState());
+
         $setting->fill([
             ...$data,
             'weekly_day' => (int) $data['weekly_day'],
