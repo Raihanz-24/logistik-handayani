@@ -48,6 +48,7 @@
             </div>
         </section>
 
+        @if ($this->canManagePhotos())
         @if ($pendingExpense)
             <section class="fm-purchase-context">
                 <span><x-filament::icon icon="heroicon-o-link" /></span>
@@ -468,6 +469,19 @@
             </div>
         @endif
 
+        @else
+            <section class="fm-start-card">
+                <div class="fm-section-heading">
+                    <div>
+                        <span class="fm-section-kicker">Mode lihat</span>
+                        <h2>Folder hasil Foto Maps</h2>
+                        <p>Akun ini hanya dapat melihat folder dan foto yang telah selesai. Kamera, pelabelan, serta penghapusan tidak tersedia.</p>
+                    </div>
+                    <x-filament::icon icon="heroicon-o-folder-open" />
+                </div>
+            </section>
+        @endif
+
         <section class="fm-history">
             <div class="fm-section-heading">
                 <div>
@@ -529,7 +543,7 @@
                                 </span>
                                 <x-filament::icon icon="heroicon-m-chevron-right" />
                             </a>
-                            @if (! $session->isActive())
+                            @if ($this->canManagePhotos() && ! $session->isActive())
                                 <button
                                     type="button"
                                     class="fm-session-delete"

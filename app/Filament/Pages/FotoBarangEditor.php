@@ -46,7 +46,10 @@ class FotoBarangEditor extends Page
 
     public static function canAccess(): bool
     {
-        return auth()->check();
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || $user->can('access_foto_barang_editor'));
     }
 
     public function mount(): void

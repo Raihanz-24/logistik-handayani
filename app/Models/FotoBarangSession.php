@@ -54,6 +54,14 @@ class FotoBarangSession extends Model
             return $query;
         }
 
+        if ($user->can('view_foto_barang_maps')) {
+            return $query->where(function (Builder $visible) use ($user): void {
+                $visible
+                    ->where('status', self::STATUS_SELESAI)
+                    ->orWhere('user_id', $user->getKey());
+            });
+        }
+
         return $query->where('user_id', $user->getKey());
     }
 

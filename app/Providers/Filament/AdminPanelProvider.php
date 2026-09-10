@@ -112,10 +112,11 @@ class AdminPanelProvider extends PanelProvider
                 'Bantuan',
             ])
             ->spa()
-            // Role pages are provided by Filament Shield. Use a full navigation here so
-            // create, view, and edit never inherit a stale SPA response in the PWA.
+            // Permission management is deliberately loaded as a full page. This avoids
+            // stale Livewire/SPA responses while changing a role in the PWA.
             ->spaUrlExceptions([
                 '*/admin/shield/roles/*',
+                '*/admin/peran*',
             ])
             ->profile(isSimple: false)
             ->unsavedChangesAlerts()

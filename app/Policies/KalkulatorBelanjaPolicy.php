@@ -9,36 +9,31 @@ class KalkulatorBelanjaPolicy
 {
     public function viewAny(User $user): bool
     {
-        return true;
+        return $user->can('view_any_kalkulator_belanja');
     }
 
     public function view(User $user, KalkulatorBelanja $record): bool
     {
-        return $this->ownsOrSuperAdmin($user, $record);
+        return $user->can('view_kalkulator_belanja');
     }
 
     public function create(User $user): bool
     {
-        return true;
+        return $user->can('create_kalkulator_belanja');
     }
 
     public function update(User $user, KalkulatorBelanja $record): bool
     {
-        return $this->ownsOrSuperAdmin($user, $record);
+        return $user->can('update_kalkulator_belanja');
     }
 
     public function delete(User $user, KalkulatorBelanja $record): bool
     {
-        return $this->ownsOrSuperAdmin($user, $record);
+        return $user->can('delete_kalkulator_belanja');
     }
 
     public function deleteAny(User $user): bool
     {
-        return true;
-    }
-
-    private function ownsOrSuperAdmin(User $user, KalkulatorBelanja $record): bool
-    {
-        return $user->hasRole('super_admin') || (int) $record->user_id === (int) $user->getKey();
+        return $user->can('delete_kalkulator_belanja');
     }
 }

@@ -28,22 +28,22 @@ class SupplierResource extends Resource
 
     public static function canViewAny(): bool
     {
-        return auth()->check();
+        return auth()->user()?->can('view_any_supplier') ?? false;
     }
 
     public static function canCreate(): bool
     {
-        return auth()->check();
+        return auth()->user()?->can('create_supplier') ?? false;
     }
 
     public static function canEdit(Model $record): bool
     {
-        return auth()->check();
+        return auth()->user()?->can('update_supplier') ?? false;
     }
 
     public static function canDelete(Model $record): bool
     {
-        return auth()->check() && ! $record->mutasis()->exists();
+        return (auth()->user()?->can('delete_supplier') ?? false) && ! $record->mutasis()->exists();
     }
 
     public static function form(Form $form): Form

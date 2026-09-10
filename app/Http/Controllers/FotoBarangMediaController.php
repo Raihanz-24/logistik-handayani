@@ -30,6 +30,8 @@ class FotoBarangMediaController extends Controller
         FotoBarangImageService $imageService,
         AuditLogger $auditLogger,
     ): JsonResponse {
+        $user = $request->user();
+        abort_unless($user instanceof User && ($user->hasRole('super_admin') || $user->can('manage_foto_barang_maps')), 403);
         $this->authorizeAccess($request, $session);
         abort_unless($session->isActive(), 422, 'Sesi foto sudah selesai.');
 
@@ -295,7 +297,10 @@ class FotoBarangMediaController extends Controller
         $user = $request->user();
 
         abort_unless($user instanceof User, 403);
-        abort_unless($user->hasRole('super_admin') || $session->user_id === $user->getKey(), 403);
+        $canManageOwnSession = $user->can('manage_foto_barang_maps') && $session->user_id === $user->getKey();
+        $canViewCompletedSession = $user->can('view_foto_barang_maps') && ! $session->isActive();
+
+        abort_unless($user->hasRole('super_admin') || $canManageOwnSession || $canViewCompletedSession, 403);
 
         if ($photo !== null) {
             abort_unless($photo->foto_barang_session_id === $session->getKey(), 404);

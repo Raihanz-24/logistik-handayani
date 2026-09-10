@@ -9,36 +9,31 @@ class CatatanPolicy
 {
     public function viewAny(User $user): bool
     {
-        return true;
+        return $user->can('view_any_catatan');
     }
 
     public function view(User $user, Catatan $catatan): bool
     {
-        return $this->ownsOrSuperAdmin($user, $catatan);
+        return $user->can('view_catatan');
     }
 
     public function create(User $user): bool
     {
-        return true;
+        return $user->can('create_catatan');
     }
 
     public function update(User $user, Catatan $catatan): bool
     {
-        return $this->ownsOrSuperAdmin($user, $catatan);
+        return $user->can('update_catatan');
     }
 
     public function delete(User $user, Catatan $catatan): bool
     {
-        return $this->ownsOrSuperAdmin($user, $catatan);
+        return $user->can('delete_catatan');
     }
 
     public function deleteAny(User $user): bool
     {
-        return true;
-    }
-
-    private function ownsOrSuperAdmin(User $user, Catatan $catatan): bool
-    {
-        return $user->hasRole('super_admin') || (int) $catatan->user_id === (int) $user->getKey();
+        return $user->can('delete_catatan');
     }
 }

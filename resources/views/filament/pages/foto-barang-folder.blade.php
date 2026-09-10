@@ -4,6 +4,7 @@
         $photos = $this->photos();
         $purchaseItemGroups = $this->purchaseItemOptions();
         $sequentialLabelContext = $this->sequentialLabelContext();
+        $canManagePhotos = $this->canManagePhotos();
         $photoData = $photos->getCollection()->values()->map(fn ($photo): array => [
             'id' => $photo->id,
             'sequence' => $photo->urutan,
@@ -88,7 +89,7 @@
                 <button type="button" x-show="! selectionMode && photos.length" x-on:click="beginSelection()">
                     <x-filament::icon icon="heroicon-m-check-circle" /> Pilih Foto
                 </button>
-                @if ($sequentialLabelContext['transactions'] !== [])
+                @if ($canManagePhotos && $sequentialLabelContext['transactions'] !== [])
                     <button
                         type="button"
                         class="is-label-sequential"
@@ -117,7 +118,7 @@
             <div>
                 <button type="button" x-on:click="selectPage()">Pilih halaman ini</button>
                 <button type="button" x-on:click="clearSelection()">Batal</button>
-                @if ($purchaseItemGroups !== [])
+                @if ($canManagePhotos && $purchaseItemGroups !== [])
                     <button type="button" class="is-label" x-on:click="requestLabel(selectedIds)" x-bind:disabled="! selectedIds.length">
                         <x-filament::icon icon="heroicon-m-tag" /> Tetapkan Barang
                     </button>
@@ -126,9 +127,11 @@
                     <x-filament::icon icon="heroicon-m-arrow-down-tray" />
                     <span x-text="downloadBusy ? 'Menyiapkan...' : 'Unduh Terpilih'"></span>
                 </button>
-                <button type="button" class="is-delete" x-on:click="requestDelete(selectedIds)" x-bind:disabled="! selectedIds.length">
-                    <x-filament::icon icon="heroicon-m-trash" /> Hapus
-                </button>
+                @if ($canManagePhotos)
+                    <button type="button" class="is-delete" x-on:click="requestDelete(selectedIds)" x-bind:disabled="! selectedIds.length">
+                        <x-filament::icon icon="heroicon-m-trash" /> Hapus
+                    </button>
+                @endif
             </div>
         </section>
 
@@ -213,13 +216,13 @@
                                     <b x-text="`Subtotal ${photos[{{ $loop->index }}].purchase.subtotal}`"></b>
                                 </div>
                             </template>
-                            @if ($purchaseItemGroups !== [])
+                            @if ($canManagePhotos && $purchaseItemGroups !== [])
                                 <template x-if="! photos[{{ $loop->index }}]?.purchase">
                                     <div class="ff-product-empty">Barang pada foto belum ditentukan</div>
                                 </template>
                             @endif
 
-                            @if ($purchaseItemGroups !== [])
+                            @if ($canManagePhotos && $purchaseItemGroups !== [])
                                 <button
                                     type="button"
                                     class="ff-card__label-action"
@@ -248,14 +251,16 @@
                                 <x-filament::icon icon="heroicon-m-receipt-percent" /> Transaksi
                             </a>
                             <a href="{{ $downloadUrl }}"><x-filament::icon icon="heroicon-m-arrow-down-tray" /> Unduh</a>
-                            @if (! $photo->processingCompleted())
+                            @if ($canManagePhotos && ! $photo->processingCompleted())
                                 <button type="button" wire:click="retryPhotoProcessing({{ $photo->id }})">
                                     <x-filament::icon icon="heroicon-m-arrow-path" /> Ulangi
                                 </button>
                             @endif
-                            <button type="button" class="is-delete" x-on:click="requestDelete({{ $photo->id }})" aria-label="Hapus foto">
-                                <x-filament::icon icon="heroicon-m-trash" />
-                            </button>
+                            @if ($canManagePhotos)
+                                <button type="button" class="is-delete" x-on:click="requestDelete({{ $photo->id }})" aria-label="Hapus foto">
+                                    <x-filament::icon icon="heroicon-m-trash" />
+                                </button>
+                            @endif
                         </div>
                     </article>
                 @endforeach
@@ -280,9 +285,13 @@
                     <strong x-text="currentPhoto() ? '#' + String(currentPhoto().sequence).padStart(2, '0') : 'Foto'"></strong>
                     <span><b x-text="viewerIndex + 1"></b> dari <b x-text="photos.length"></b> di halaman ini</span>
                 </div>
-                <button type="button" class="is-delete" x-on:click="requestDelete(currentPhoto()?.id)" aria-label="Hapus foto">
-                    <x-filament::icon icon="heroicon-m-trash" />
-                </button>
+                @if ($canManagePhotos)
+                    <button type="button" class="is-delete" x-on:click="requestDelete(currentPhoto()?.id)" aria-label="Hapus foto">
+                        <x-filament::icon icon="heroicon-m-trash" />
+                    </button>
+                @else
+                    <span></span>
+                @endif
             </header>
             <main x-on:touchstart.passive="beginSwipe($event)" x-on:touchend.passive="endSwipe($event)">
                 <button type="button" class="is-prev" x-on:click="showPhoto(-1)" x-show="photos.length > 1"><x-filament::icon icon="heroicon-m-chevron-left" /></button>
@@ -309,6 +318,7 @@
             </footer>
         </dialog>
 
+        @if ($canManagePhotos)
         <dialog class="ff-confirm" x-ref="confirmDialog" x-on:cancel.prevent="closeConfirm()">
             <div>
                 <span class="ff-confirm__icon"><x-filament::icon icon="heroicon-o-trash" /></span>
@@ -326,8 +336,9 @@
                 </div>
             </div>
         </dialog>
+        @endif
 
-        @if ($purchaseItemGroups !== [])
+        @if ($canManagePhotos && $purchaseItemGroups !== [])
             <dialog class="ff-label-dialog" x-ref="labelDialog" x-on:cancel.prevent="closeLabelDialog()">
                 <div>
                     <span class="ff-label-dialog__icon"><x-filament::icon icon="heroicon-o-tag" /></span>
@@ -361,7 +372,7 @@
             </dialog>
         @endif
 
-        @if ($sequentialLabelContext['transactions'] !== [])
+        @if ($canManagePhotos && $sequentialLabelContext['transactions'] !== [])
             <dialog class="ff-label-dialog" x-ref="sequentialLabelDialog" x-on:cancel.prevent="closeSequentialLabelDialog()">
                 <div>
                     <span class="ff-label-dialog__icon"><x-filament::icon icon="heroicon-o-numbered-list" /></span>

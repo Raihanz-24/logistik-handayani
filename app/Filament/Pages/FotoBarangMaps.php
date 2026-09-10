@@ -70,7 +70,20 @@ class FotoBarangMaps extends Page
 
     public static function canAccess(): bool
     {
-        return auth()->check();
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin')
+                || $user->can('view_foto_barang_maps')
+                || $user->can('manage_foto_barang_maps'));
+    }
+
+    public function canManagePhotos(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || $user->can('manage_foto_barang_maps'));
     }
 
     public function mount(): void
@@ -112,6 +125,8 @@ class FotoBarangMaps extends Page
 
     public function startSession(): void
     {
+        $this->ensureCanManagePhotos();
+
         $data = $this->validate([
             'judul' => ['required', 'string', 'max:150'],
         ], [
@@ -191,6 +206,8 @@ class FotoBarangMaps extends Page
 
     public function updatedPhoto(): void
     {
+        $this->ensureCanManagePhotos();
+
         $isLiveCapture = filled($this->capturedAt) || filled($this->clientCaptureId);
 
         if ($isLiveCapture) {
@@ -226,6 +243,8 @@ class FotoBarangMaps extends Page
 
     public function savePhoto(): void
     {
+        $this->ensureCanManagePhotos();
+
         $isLiveCapture = filled($this->capturedAt) || filled($this->clientCaptureId);
 
         if ($isLiveCapture) {
@@ -316,6 +335,8 @@ class FotoBarangMaps extends Page
 
     public function updateCoordinates(float $latitude, float $longitude, ?float $accuracy = null): void
     {
+        $this->ensureCanManagePhotos();
+
         if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
             return;
         }
@@ -332,6 +353,8 @@ class FotoBarangMaps extends Page
         float $longitude,
         ?float $accuracy = null,
     ): array {
+        $this->ensureCanManagePhotos();
+
         if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
             return [
                 'name' => 'Lokasi GPS tidak valid',
@@ -381,6 +404,8 @@ class FotoBarangMaps extends Page
     /** @return array{name: string, address: string, latitude: float, longitude: float, resolved: bool, mode: string} */
     public function applyHandayaniTemplateLocation(): array
     {
+        $this->ensureCanManagePhotos();
+
         $latitude = round((float) config('foto_barang.handayani_location.latitude', -7.717710), 7);
         $longitude = round((float) config('foto_barang.handayani_location.longitude', 113.537297), 7);
         $location = [
@@ -440,6 +465,8 @@ class FotoBarangMaps extends Page
         string $capturedAt,
         ?string $clientCaptureId = null,
     ): void {
+        $this->ensureCanManagePhotos();
+
         $this->updateCoordinates($latitude, $longitude, $accuracy);
 
         try {
@@ -465,6 +492,8 @@ class FotoBarangMaps extends Page
 
     public function finishSession(bool $allowEmptyLocal = false): void
     {
+        $this->ensureCanManagePhotos();
+
         $session = $this->findVisibleSession((int) $this->activeSessionId);
 
         if (! $session->isActive()) {
@@ -509,6 +538,8 @@ class FotoBarangMaps extends Page
     /** @return array{deleted: bool, photo_id: int} */
     public function deletePhoto(int $photoId): array
     {
+        $this->ensureCanManagePhotos();
+
         $session = $this->findVisibleSession((int) $this->activeSessionId);
         $photo = $session->items()->whereKey($photoId)->firstOrFail();
         $disk = Storage::disk('local');
@@ -541,6 +572,8 @@ class FotoBarangMaps extends Page
         array $photoIds,
         string $confirmation,
     ): array {
+        $this->ensureCanManagePhotos();
+
         $this->skipRender();
 
         if (Str::lower(trim($confirmation)) !== 'hapus') {
@@ -605,6 +638,8 @@ class FotoBarangMaps extends Page
     /** @return array{deleted: bool, uuid: string|null} */
     public function deleteSessionFolder(int $sessionId, string $confirmation): array
     {
+        $this->ensureCanManagePhotos();
+
         if (Str::lower(trim($confirmation)) !== 'hapus') {
             Notification::make()->title('Ketik hapus untuk melanjutkan')->danger()->send();
 
@@ -654,6 +689,8 @@ class FotoBarangMaps extends Page
 
     public function retryPhotoProcessing(int $photoId): void
     {
+        $this->ensureCanManagePhotos();
+
         $session = $this->findVisibleSession((int) $this->activeSessionId);
         $photo = $session->items()->whereKey($photoId)->firstOrFail();
 
@@ -688,6 +725,8 @@ class FotoBarangMaps extends Page
 
     public function newSession(): void
     {
+        $this->ensureCanManagePhotos();
+
         $current = $this->activeSession();
 
         if ($current?->isActive()) {
@@ -776,6 +815,11 @@ class FotoBarangMaps extends Page
     private function findVisibleSession(int $sessionId): FotoBarangSession
     {
         return $this->visibleSessionsQuery()->findOrFail($sessionId);
+    }
+
+    private function ensureCanManagePhotos(): void
+    {
+        abort_unless($this->canManagePhotos(), 403);
     }
 
     private function visibleSessionsQuery(): Builder

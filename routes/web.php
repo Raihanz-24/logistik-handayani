@@ -15,6 +15,11 @@ Route::get('/', function () {
     return redirect(route('filament.admin.pages.dashboard'));
 });
 
+// Filament Shield's generated role route was replaced with the application-owned
+// permission page. Keep old bookmarked Shield URLs from ending in a 404.
+Route::redirect('/admin/shield/roles/{legacyPath?}', '/admin/peran')
+    ->where('legacyPath', '.*');
+
 Route::middleware('auth')->get('/backup/{backup}/{file}', BackupDownloadController::class)
     ->whereIn('file', ['database', 'files'])
     ->name('backup.download');

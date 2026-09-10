@@ -61,7 +61,7 @@ class Catatan extends Model
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if ($user->hasRole('super_admin')) {
+        if ($user->hasRole('super_admin') || $user->can('view_any_catatan')) {
             return $query;
         }
 

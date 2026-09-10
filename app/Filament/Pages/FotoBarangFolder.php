@@ -60,7 +60,20 @@ class FotoBarangFolder extends Page
 
     public static function canAccess(): bool
     {
-        return auth()->check();
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin')
+                || $user->can('view_foto_barang_maps')
+                || $user->can('manage_foto_barang_maps'));
+    }
+
+    public function canManagePhotos(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || $user->can('manage_foto_barang_maps'));
     }
 
     public function getTitle(): string
@@ -161,6 +174,7 @@ class FotoBarangFolder extends Page
         array $photoIds,
         int|string|null $purchaseItemId,
     ): array {
+        $this->ensureCanManagePhotos();
         $this->skipRender();
 
         if (! $this->purchaseLabelsAvailable()) {
@@ -212,6 +226,7 @@ class FotoBarangFolder extends Page
         FotoBarangPurchaseItemLinkService $linkService,
         int|string|null $expenseId,
     ): array {
+        $this->ensureCanManagePhotos();
         $this->skipRender();
 
         if (! $this->purchaseLabelsAvailable()) {
@@ -271,6 +286,7 @@ class FotoBarangFolder extends Page
         array $photoIds,
         string $confirmation,
     ): array {
+        $this->ensureCanManagePhotos();
         $this->skipRender();
 
         if (strtolower(trim($confirmation)) !== 'hapus') {
@@ -336,6 +352,8 @@ class FotoBarangFolder extends Page
 
     public function retryPhotoProcessing(int $photoId): void
     {
+        $this->ensureCanManagePhotos();
+
         $folder = $this->folder();
         $photo = $folder->items()->whereKey($photoId)->firstOrFail();
 
@@ -477,5 +495,10 @@ class FotoBarangFolder extends Page
         abort_unless($user instanceof User, 403);
 
         return FotoBarangSession::query()->visibleTo($user);
+    }
+
+    private function ensureCanManagePhotos(): void
+    {
+        abort_unless($this->canManagePhotos(), 403);
     }
 }
