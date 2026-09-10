@@ -16,6 +16,11 @@ use Illuminate\Validation\ValidationException;
 
 class BelanjaTransactionService
 {
+    public const MARKET_CATEGORY_SLUG = 'pasar';
+
+    /** @var array<int, string> */
+    public const FLEXIBLE_MARKET_UNITS = ['gr', 'kg', 'biji', 'buah', 'ekor'];
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -35,6 +40,7 @@ class BelanjaTransactionService
             'items.*.barang_id' => ['required', 'integer', 'distinct', 'exists:barangs,id'],
             'items.*.jumlah' => ['required', 'numeric', 'gt:0', 'max:999999999.999'],
             'items.*.harga_satuan' => ['required', 'integer', 'min:1', 'max:999999999999'],
+            'items.*.satuan' => ['nullable', 'string', 'max:50'],
             'items.*.keterangan' => ['nullable', 'string', 'max:500'],
             'nota_paths' => ['nullable', 'array', 'max:20'],
             'nota_paths.*' => ['required', 'string', 'distinct', 'max:500'],
@@ -47,6 +53,7 @@ class BelanjaTransactionService
 
         $paths = $this->validatedReceiptPaths($validated['nota_paths'] ?? [], $expense);
         $barangs = Barang::query()
+            ->with('kategoriBarangs:id,nama,slug')
             ->whereKey(collect($validated['items'])->pluck('barang_id')->all())
             ->get()
             ->keyBy('id');
@@ -64,6 +71,7 @@ class BelanjaTransactionService
 
             $quantity = $this->normalizeQuantity($item['jumlah']);
             $unitPrice = (int) $item['harga_satuan'];
+            $unit = $this->purchaseUnitFor($barang, $item['satuan'] ?? null, $index);
             $subtotal = $this->subtotal($quantity, $unitPrice);
             $total += $subtotal;
 
@@ -77,7 +85,7 @@ class BelanjaTransactionService
                 'barang_id' => (int) $barang->getKey(),
                 'kode_barang_snapshot' => (string) $barang->kode_barang,
                 'nama_barang_snapshot' => (string) $barang->nama_barang,
-                'satuan_snapshot' => (string) $barang->satuan,
+                'satuan_snapshot' => $unit,
                 'jumlah' => $quantity,
                 'harga_satuan' => $unitPrice,
                 'subtotal' => $subtotal,
@@ -103,6 +111,14 @@ class BelanjaTransactionService
                 ])
                 ->all();
         }
+        $newBarangIds = collect($itemRows)
+            ->pluck('barang_id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->all();
+        $releasedPhotoLabelCount = collect($photoIdsByBarang)
+            ->reject(fn (array $photoIds, int|string $barangId): bool => in_array((int) $barangId, $newBarangIds, true))
+            ->flatten()
+            ->count();
         $oldPairs = $expense?->items()->get(['barang_id'])->map(
             fn (PengeluaranBelanjaItem $item): array => [
                 (int) $expense->supplier_id,
@@ -196,6 +212,7 @@ class BelanjaTransactionService
                 'jumlah_barang' => count($itemRows),
                 'jumlah_nota' => count($paths),
                 'total' => $total,
+                'foto_maps_label_dilepas' => $releasedPhotoLabelCount,
             ],
         );
 
@@ -204,7 +221,29 @@ class BelanjaTransactionService
 
     public function delete(PengeluaranBelanja $expense): bool
     {
-        return (bool) $expense->delete();
+        $releasedPhotoLabelCount = Schema::hasTable('foto_barang_item_belanja_links')
+            ? $expense->items()->withCount('photoLinks')->get()->sum('photo_links_count')
+            : 0;
+        $expenseId = (int) $expense->getKey();
+        $sessionId = (int) $expense->kalkulator_belanja_id;
+        $supplier = $expense->namaSupplier();
+        $deleted = (bool) $expense->delete();
+
+        if ($deleted && $releasedPhotoLabelCount > 0) {
+            app(AuditLogger::class)->activity(
+                'pengeluaran_belanja_photo_labels_release',
+                'Melepas '.$releasedPhotoLabelCount.' label Foto Maps dari transaksi yang dihapus: '.$supplier,
+                auth()->user(),
+                [
+                    'pengeluaran_belanja_id' => $expenseId,
+                    'kalkulator_belanja_id' => $sessionId,
+                    'photo_label_count' => $releasedPhotoLabelCount,
+                    'photos_deleted' => false,
+                ],
+            );
+        }
+
+        return $deleted;
     }
 
     /** @return array{price: ?int, date: ?string} */
@@ -275,6 +314,89 @@ class BelanjaTransactionService
         ];
     }
 
+    /** @return array{market: bool, unit: string, units: array<int, string>} */
+    public function purchaseItemContext(int $barangId): array
+    {
+        $barang = Barang::query()
+            ->with('kategoriBarangs:id,nama,slug')
+            ->find($barangId);
+
+        if (! $barang) {
+            return ['market' => false, 'unit' => '', 'units' => []];
+        }
+
+        $market = $this->isMarketItem($barang);
+
+        return [
+            'market' => $market,
+            'unit' => (string) $barang->satuan,
+            'units' => $market ? self::FLEXIBLE_MARKET_UNITS : [(string) $barang->satuan],
+        ];
+    }
+
+    /** @return array<int, array{unit: string, price: int, date: ?string}> */
+    public function priceHistory(int $supplierId, int $barangId, int $limit = 4): array
+    {
+        if ($supplierId < 1 || $barangId < 1) {
+            return [];
+        }
+
+        $records = PengeluaranBelanjaItem::query()
+            ->select([
+                'pengeluaran_belanja_items.satuan_snapshot',
+                'pengeluaran_belanja_items.harga_satuan',
+                'kalkulator_belanjas.tanggal',
+            ])
+            ->join(
+                'pengeluaran_belanjas',
+                'pengeluaran_belanjas.id',
+                '=',
+                'pengeluaran_belanja_items.pengeluaran_belanja_id',
+            )
+            ->join(
+                'kalkulator_belanjas',
+                'kalkulator_belanjas.id',
+                '=',
+                'pengeluaran_belanjas.kalkulator_belanja_id',
+            )
+            ->where('pengeluaran_belanjas.supplier_id', $supplierId)
+            ->where('pengeluaran_belanja_items.barang_id', $barangId)
+            ->orderByDesc('kalkulator_belanjas.tanggal')
+            ->orderByDesc('pengeluaran_belanja_items.updated_at')
+            ->orderByDesc('pengeluaran_belanja_items.id')
+            ->limit(100)
+            ->get();
+
+        return $records
+            ->map(fn (PengeluaranBelanjaItem $record): array => [
+                'unit' => trim((string) $record->satuan_snapshot),
+                'price' => (int) $record->harga_satuan,
+                'date' => $record->tanggal ? (string) $record->tanggal : null,
+            ])
+            ->filter(fn (array $record): bool => $record['unit'] !== '')
+            ->unique(fn (array $record): string => mb_strtolower($record['unit']))
+            ->take(max(1, min($limit, 10)))
+            ->values()
+            ->all();
+    }
+
+    /** @return array{price: ?int, date: ?string} */
+    public function latestPriceForUnit(int $supplierId, int $barangId, ?string $unit): array
+    {
+        $normalizedUnit = mb_strtolower(trim((string) $unit));
+
+        if ($normalizedUnit === '') {
+            return ['price' => null, 'date' => null];
+        }
+
+        $latest = collect($this->priceHistory($supplierId, $barangId, 10))
+            ->first(fn (array $record): bool => mb_strtolower($record['unit']) === $normalizedUnit);
+
+        return $latest
+            ? ['price' => $latest['price'], 'date' => $latest['date']]
+            : ['price' => null, 'date' => null];
+    }
+
     /** @param array<int, array{0: int, 1: int}> $pairs */
     public function refreshPricePairs(array $pairs): void
     {
@@ -299,6 +421,33 @@ class BelanjaTransactionService
     private function normalizeQuantity(mixed $quantity): string
     {
         return number_format(round((float) $quantity, 3), 3, '.', '');
+    }
+
+    private function purchaseUnitFor(Barang $barang, mixed $requestedUnit, int $index): string
+    {
+        if (! $this->isMarketItem($barang)) {
+            return (string) $barang->satuan;
+        }
+
+        $unit = mb_strtolower(trim((string) $requestedUnit));
+
+        if (! in_array($unit, self::FLEXIBLE_MARKET_UNITS, true)) {
+            throw ValidationException::withMessages([
+                "items.{$index}.satuan" => 'Pilih satuan pasar yang valid: gr, kg, biji, buah, atau ekor.',
+            ]);
+        }
+
+        return $unit;
+    }
+
+    private function isMarketItem(Barang $barang): bool
+    {
+        $categories = $barang->relationLoaded('kategoriBarangs')
+            ? $barang->kategoriBarangs
+            : $barang->kategoriBarangs()->get(['kategori_barangs.id', 'nama', 'slug']);
+
+        return $categories->contains(fn ($category): bool => mb_strtolower((string) $category->slug) === self::MARKET_CATEGORY_SLUG
+            || mb_strtolower(trim((string) $category->nama)) === 'pasar');
     }
 
     /**

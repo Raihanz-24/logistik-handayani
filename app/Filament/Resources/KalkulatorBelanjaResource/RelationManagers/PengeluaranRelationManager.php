@@ -83,7 +83,7 @@ class PengeluaranRelationManager extends RelationManager
                 Tables\Actions\EditAction::make('ubah-transaksi')
                     ->label('Ubah')
                     ->modalHeading('Ubah transaksi toko')
-                    ->modalDescription('Perubahan harga hanya menjadi harga terakhir jika tanggal sesi ini paling baru.')
+                    ->modalDescription('Subtotal dan total diperbarui otomatis. Jika detail barang dihapus, label Foto Maps hanya dilepas—foto tetap aman.')
                     ->modalWidth('7xl')
                     ->stickyModalHeader()
                     ->stickyModalFooter()
@@ -92,6 +92,7 @@ class PengeluaranRelationManager extends RelationManager
                         ...$data,
                         'items' => $record->items->map(fn ($item): array => [
                             'barang_id' => $item->barang_id,
+                            'satuan' => $item->satuan_snapshot,
                             'jumlah' => $item->jumlah,
                             'harga_satuan' => $item->harga_satuan,
                             'keterangan' => $item->keterangan,
@@ -215,9 +216,10 @@ class PengeluaranRelationManager extends RelationManager
                                     continue;
                                 }
 
-                                $latest = app(BelanjaTransactionService::class)->latestPrice(
+                                $latest = $this->suggestedPrice(
                                     (int) $state,
                                     (int) $item['barang_id'],
+                                    $item['satuan'] ?? null,
                                 );
                                 $item['harga_satuan'] = $latest['price'];
                             }
@@ -286,14 +288,14 @@ class PengeluaranRelationManager extends RelationManager
                                 ->live()
                                 ->disableOptionsWhenSelectedInSiblingRepeaterItems()
                                 ->afterStateUpdated(function (mixed $state, Get $get, Set $set): void {
-                                    $latest = app(BelanjaTransactionService::class)->latestPrice(
+                                    $context = app(BelanjaTransactionService::class)->purchaseItemContext((int) $state);
+                                    $set('satuan', $context['market'] ? null : $context['unit']);
+                                    $latest = $this->suggestedPrice(
                                         (int) $get('../../supplier_id'),
                                         (int) $state,
+                                        $context['market'] ? null : $context['unit'],
                                     );
-
-                                    if ($latest['price'] !== null) {
-                                        $set('harga_satuan', $latest['price']);
-                                    }
+                                    $set('harga_satuan', $latest['price']);
                                 })
                                 ->required()
                                 ->columnSpan(['default' => 1, 'lg' => 4]),
@@ -307,11 +309,40 @@ class PengeluaranRelationManager extends RelationManager
                                 ->live(onBlur: true)
                                 ->required()
                                 ->columnSpan(['default' => 1, 'lg' => 2]),
+                            Forms\Components\Select::make('satuan')
+                                ->label('Satuan')
+                                ->options(function (Get $get): array {
+                                    $context = app(BelanjaTransactionService::class)->purchaseItemContext(
+                                        (int) $get('barang_id'),
+                                    );
+
+                                    return $context['market']
+                                        ? array_combine($context['units'], $context['units']) ?: []
+                                        : [];
+                                })
+                                ->native(false)
+                                ->live()
+                                ->visible(fn (Get $get): bool => app(BelanjaTransactionService::class)
+                                    ->purchaseItemContext((int) $get('barang_id'))['market'])
+                                ->required(fn (Get $get): bool => app(BelanjaTransactionService::class)
+                                    ->purchaseItemContext((int) $get('barang_id'))['market'])
+                                ->afterStateUpdated(function (mixed $state, Get $get, Set $set): void {
+                                    $latest = app(BelanjaTransactionService::class)->latestPriceForUnit(
+                                        (int) $get('../../supplier_id'),
+                                        (int) $get('barang_id'),
+                                        is_string($state) ? $state : null,
+                                    );
+                                    $set('harga_satuan', $latest['price']);
+                                })
+                                ->helperText('Satuan pasar dapat dipilih sesuai pembelian.')
+                                ->columnSpan(['default' => 1, 'lg' => 1]),
                             Forms\Components\Placeholder::make('satuan_preview')
                                 ->label('Satuan')
                                 ->content(fn (Get $get): string => (string) (Barang::query()
                                     ->whereKey((int) $get('barang_id'))
                                     ->value('satuan') ?: '-'))
+                                ->visible(fn (Get $get): bool => ! app(BelanjaTransactionService::class)
+                                    ->purchaseItemContext((int) $get('barang_id'))['market'])
                                 ->columnSpan(['default' => 1, 'lg' => 1]),
                             Forms\Components\TextInput::make('harga_satuan')
                                 ->label('Harga Satuan')
@@ -325,18 +356,11 @@ class PengeluaranRelationManager extends RelationManager
                                 ->inputMode('numeric')
                                 ->live(onBlur: true)
                                 ->helperText(function (Get $get): string {
-                                    $latest = app(BelanjaTransactionService::class)->latestPrice(
+                                    return $this->priceHistoryText(
                                         (int) $get('../../supplier_id'),
                                         (int) $get('barang_id'),
                                     );
 
-                                    if ($latest['price'] === null) {
-                                        return 'Belum ada riwayat harga pada supplier ini.';
-                                    }
-
-                                    $date = Carbon::parse($latest['date'])->translatedFormat('d M Y');
-
-                                    return 'Harga terakhir '.self::rupiah($latest['price']).' · '.$date;
                                 })
                                 ->required()
                                 ->columnSpan(['default' => 1, 'lg' => 2]),
@@ -397,6 +421,45 @@ class PengeluaranRelationManager extends RelationManager
                         ->helperText('JPG, PNG, atau WebP · maksimal 10 MB per foto · maksimal 20 foto.'),
                 ]),
         ];
+    }
+
+    /** @return array{price: ?int, date: ?string} */
+    private function suggestedPrice(int $supplierId, int $barangId, ?string $unit): array
+    {
+        $service = app(BelanjaTransactionService::class);
+        $context = $service->purchaseItemContext($barangId);
+
+        return $context['market']
+            ? $service->latestPriceForUnit($supplierId, $barangId, $unit)
+            : $service->latestPrice($supplierId, $barangId);
+    }
+
+    private function priceHistoryText(int $supplierId, int $barangId): string
+    {
+        $service = app(BelanjaTransactionService::class);
+        $context = $service->purchaseItemContext($barangId);
+
+        if ($context['market']) {
+            $history = $service->priceHistory($supplierId, $barangId);
+
+            if ($history === []) {
+                return 'Belum ada harga terakhir pada supplier ini.';
+            }
+
+            return 'Harga terakhir: '.collect($history)
+                ->map(fn (array $item): string => self::rupiah($item['price']).' / '.$item['unit'])
+                ->implode(' · ');
+        }
+
+        $latest = $service->latestPrice($supplierId, $barangId);
+
+        if ($latest['price'] === null) {
+            return 'Belum ada riwayat harga pada supplier ini.';
+        }
+
+        $date = Carbon::parse($latest['date'])->translatedFormat('d M Y');
+
+        return 'Harga terakhir '.self::rupiah($latest['price']).' · '.$date;
     }
 
     private function ownerSession(): KalkulatorBelanja

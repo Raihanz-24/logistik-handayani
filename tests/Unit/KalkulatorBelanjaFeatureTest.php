@@ -45,6 +45,7 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $transactionCard = (string) file_get_contents(
             $root.'/resources/views/filament/tables/columns/pengeluaran-belanja-card.blade.php',
         );
+        $service = (string) file_get_contents($root.'/app/Services/BelanjaTransactionService.php');
 
         $this->assertStringContainsString('PengeluaranRelationManager::class', $resource);
         $this->assertStringContainsString("protected static ?string \$navigationLabel = 'Transaksi Belanja';", $resource);
@@ -57,6 +58,11 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("FileUpload::make('nota_paths')", $relationManager);
         $this->assertStringContainsString('->multiple()', $relationManager);
         $this->assertStringContainsString('->maxFiles(20)', $relationManager);
+        $this->assertStringContainsString("Select::make('satuan')", $relationManager);
+        $this->assertStringContainsString('Satuan pasar dapat dipilih sesuai pembelian.', $relationManager);
+        $this->assertStringContainsString('Harga terakhir:', $relationManager);
+        $this->assertStringContainsString("'satuan' => \$item->satuan_snapshot", $relationManager);
+        $this->assertStringContainsString('label Foto Maps hanya dilepas', $relationManager);
         $this->assertStringContainsString('NotaBelanjaImageService::class', $relationManager);
         $this->assertStringContainsString('latestPrice(', $relationManager);
         $this->assertStringContainsString("Action::make('atur-foto-maps')", $relationManager);
@@ -71,6 +77,11 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("'view' => Pages\\ViewKalkulatorBelanja::route('/{record}')", $resource);
         $this->assertStringContainsString('Opsional. Kosongkan bila sesi ini hanya untuk mencatat pengeluaran.', $resource);
         $this->assertStringContainsString('->dehydrateStateUsing(fn (mixed $state): int => self::integerValue($state))', $resource);
+        $this->assertStringContainsString('FLEXIBLE_MARKET_UNITS', $service);
+        $this->assertStringContainsString('public function purchaseItemContext', $service);
+        $this->assertStringContainsString('public function priceHistory', $service);
+        $this->assertStringContainsString('public function latestPriceForUnit', $service);
+        $this->assertStringContainsString("'satuan_snapshot' => \$unit", $service);
     }
 
     public function test_tampilan_mobile_memakai_kartu_transaksi_dan_form_saldo(): void
