@@ -19,7 +19,11 @@ class RolePermissionManagementTest extends TestCase
         $this->assertStringContainsString("'view_any_kalkulator_belanja'", $catalog);
         $this->assertStringContainsString("'create_kalkulator_belanja'", $catalog);
         $this->assertStringContainsString("'update_kalkulator_belanja'", $catalog);
+        $this->assertStringContainsString('public static function groups', $catalog);
+        $this->assertStringContainsString("'foto_maps'", $catalog);
         $this->assertStringContainsString("protected static ?string \$slug = 'peran';", $resource);
+        $this->assertStringContainsString('Tabs::make', $resource);
+        $this->assertStringContainsString('permission_groups.', $resource);
         $this->assertStringContainsString("Pages\\CreateRole::route('/buat')", $resource);
         $this->assertStringContainsString("Pages\\EditRole::route('/{record}/ubah')", $resource);
         $this->assertStringContainsString("Route::redirect('/admin/shield/roles/{legacyPath?}', '/admin/peran')", $routes);

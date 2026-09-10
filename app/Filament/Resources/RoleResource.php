@@ -69,14 +69,21 @@ class RoleResource extends Resource
                         ->unique(ignoreRecord: true),
                 ]),
             Section::make('Hak Akses')
-                ->description('Centang hanya akses yang diperlukan. Izin foto editor sengaja dipisahkan dari Foto Maps.')
+                ->description('Pilih tab sesuai halaman agar checklist lebih mudah dibaca. Editor Foto Maps tetap terpisah dari izin melihat Foto Maps.')
                 ->schema([
-                    Forms\Components\CheckboxList::make('permissions')
-                        ->label('Izin untuk peran ini')
-                        ->options(fn (): array => RolePermissionCatalog::options())
-                        ->columns(['default' => 1, 'md' => 2])
-                        ->bulkToggleable()
-                        ->searchable()
+                    Forms\Components\Tabs::make('Kelompok Izin')
+                        ->tabs(collect(RolePermissionCatalog::groups())
+                            ->map(fn (array $group, string $key): Forms\Components\Tabs\Tab => Forms\Components\Tabs\Tab::make($group['label'])
+                                ->schema([
+                                    Forms\Components\CheckboxList::make("permission_groups.{$key}")
+                                        ->label('Pilih akses yang diperlukan')
+                                        ->options($group['options'])
+                                        ->columns(['default' => 1, 'md' => 2])
+                                        ->bulkToggleable()
+                                        ->searchable(),
+                                ]))
+                            ->values()
+                            ->all())
                         ->columnSpanFull(),
                 ]),
         ]);

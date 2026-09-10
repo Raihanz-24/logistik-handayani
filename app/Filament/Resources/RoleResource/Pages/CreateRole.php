@@ -24,7 +24,7 @@ class CreateRole extends CreateRecord
             ]);
         }
 
-        $this->selectedPermissions = $data['permissions'] ?? [];
+        $this->selectedPermissions = RolePermissionCatalog::flattenGroups($data['permission_groups'] ?? []);
 
         return [
             ...Arr::only($data, ['name']),

@@ -18,14 +18,16 @@ class EditRole extends EditRecord
 
     protected function mutateFormDataBeforeFill(array $data): array
     {
-        $data['permissions'] = $this->getRecord()->permissions()->pluck('name')->all();
+        $data['permission_groups'] = RolePermissionCatalog::groupedValues(
+            $this->getRecord()->permissions()->pluck('name')->all(),
+        );
 
         return $data;
     }
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        $this->selectedPermissions = $data['permissions'] ?? [];
+        $this->selectedPermissions = RolePermissionCatalog::flattenGroups($data['permission_groups'] ?? []);
 
         if ($this->getRecord()->name === 'super_admin') {
             unset($data['name']);
