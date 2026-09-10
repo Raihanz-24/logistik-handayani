@@ -27,11 +27,11 @@ class KalkulatorBelanjaResource extends Resource
 
     protected static ?string $navigationGroup = 'Catatan';
 
-    protected static ?string $navigationLabel = 'Kalkulator Belanja';
+    protected static ?string $navigationLabel = 'Transaksi Belanja';
 
-    protected static ?string $modelLabel = 'Kalkulator Belanja';
+    protected static ?string $modelLabel = 'Transaksi Belanja';
 
-    protected static ?string $pluralModelLabel = 'Kalkulator Belanja';
+    protected static ?string $pluralModelLabel = 'Transaksi Belanja';
 
     protected static ?string $recordTitleAttribute = 'judul';
 
@@ -75,13 +75,14 @@ class KalkulatorBelanjaResource extends Resource
                     Forms\Components\TextInput::make('uang_awal')
                         ->label('Uang Awal')
                         ->prefix('Rp')
+                        ->helperText('Opsional. Kosongkan bila sesi ini hanya untuk mencatat pengeluaran.')
                         ->numeric()
                         ->integer()
-                        ->minValue(1)
+                        ->minValue(0)
                         ->maxValue(999_999_999_999)
                         ->inputMode('numeric')
                         ->live(debounce: 500)
-                        ->required(),
+                        ->dehydrateStateUsing(fn (mixed $state): int => self::integerValue($state)),
                     Forms\Components\Textarea::make('catatan')
                         ->label('Catatan Sesi')
                         ->placeholder('Opsional')
@@ -96,7 +97,9 @@ class KalkulatorBelanjaResource extends Resource
                 ->schema([
                     Forms\Components\Placeholder::make('uang_awal_preview')
                         ->label('Uang Awal')
-                        ->content(fn (Get $get): string => self::rupiah(self::integerValue($get('uang_awal'))))
+                        ->content(fn (Get $get): string => filled($get('uang_awal'))
+                            ? self::rupiah(self::integerValue($get('uang_awal')))
+                            : 'Tidak dicatat')
                         ->extraAttributes(['class' => 'wm-kb-balance wm-kb-balance--initial']),
                     Forms\Components\Placeholder::make('total_pengeluaran_preview')
                         ->label('Total Pengeluaran')
@@ -105,6 +108,10 @@ class KalkulatorBelanjaResource extends Resource
                     Forms\Components\Placeholder::make('sisa_uang_preview')
                         ->label('Sisa Uang')
                         ->content(function (Get $get, ?KalkulatorBelanja $record): string {
+                            if (! filled($get('uang_awal'))) {
+                                return 'Tidak dicatat';
+                            }
+
                             $remaining = self::integerValue($get('uang_awal')) - ($record?->total_pengeluaran ?? 0);
 
                             return self::rupiah($remaining).($remaining < 0 ? ' — pengeluaran melebihi uang awal' : '');
@@ -146,7 +153,12 @@ class KalkulatorBelanjaResource extends Resource
                     ->wrap(),
                 Tables\Columns\TextColumn::make('uang_awal')
                     ->label('Uang Awal')
-                    ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state))
+                    ->state(fn (KalkulatorBelanja $record): ?int => $record->hasInitialMoney()
+                        ? (int) $record->uang_awal
+                        : null)
+                    ->formatStateUsing(fn (mixed $state): string => $state === null
+                        ? 'Tidak dicatat'
+                        : self::rupiah((int) $state))
                     ->visibleFrom('md'),
                 Tables\Columns\TextColumn::make('total_pengeluaran')
                     ->label('Pengeluaran')
@@ -155,9 +167,13 @@ class KalkulatorBelanjaResource extends Resource
                     ->visibleFrom('md'),
                 Tables\Columns\TextColumn::make('sisa_uang')
                     ->label('Sisa')
-                    ->state(fn (KalkulatorBelanja $record): int => $record->sisa_uang)
-                    ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state))
-                    ->color(fn (KalkulatorBelanja $record): string => $record->sisa_uang < 0 ? 'danger' : 'success')
+                    ->state(fn (KalkulatorBelanja $record): ?int => $record->hasInitialMoney()
+                        ? $record->sisa_uang
+                        : null)
+                    ->formatStateUsing(fn (mixed $state): string => $state === null ? '-' : self::rupiah((int) $state))
+                    ->color(fn (KalkulatorBelanja $record): string => ! $record->hasInitialMoney()
+                        ? 'gray'
+                        : ($record->sisa_uang < 0 ? 'danger' : 'success'))
                     ->weight('bold')
                     ->visibleFrom('md'),
             ])
@@ -177,17 +193,22 @@ class KalkulatorBelanjaResource extends Resource
                     TextEntry::make('tanggal')->label('Tanggal')->date('d F Y'),
                     TextEntry::make('uang_awal')
                         ->label('Uang Awal')
-                        ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state)),
+                        ->state(fn (KalkulatorBelanja $record): string => $record->hasInitialMoney()
+                            ? self::rupiah((int) $record->uang_awal)
+                            : 'Tidak dicatat'),
                     TextEntry::make('total_pengeluaran')
                         ->label('Total Pengeluaran')
                         ->state(fn (KalkulatorBelanja $record): int => $record->total_pengeluaran)
                         ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state)),
                     TextEntry::make('sisa_uang')
                         ->label('Sisa Uang')
-                        ->state(fn (KalkulatorBelanja $record): int => $record->sisa_uang)
-                        ->formatStateUsing(fn (mixed $state): string => self::rupiah((int) $state))
+                        ->state(fn (KalkulatorBelanja $record): string => $record->hasInitialMoney()
+                            ? self::rupiah($record->sisa_uang)
+                            : '-')
                         ->badge()
-                        ->color(fn (KalkulatorBelanja $record): string => $record->sisa_uang < 0 ? 'danger' : 'success'),
+                        ->color(fn (KalkulatorBelanja $record): string => ! $record->hasInitialMoney()
+                            ? 'gray'
+                            : ($record->sisa_uang < 0 ? 'danger' : 'success')),
                     TextEntry::make('catatan')
                         ->label('Catatan Sesi')
                         ->placeholder('-')

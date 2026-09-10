@@ -22,6 +22,17 @@ class KalkulatorBelanjaModelTest extends TestCase
         $this->assertSame(2_000_000, $session->sisa_uang);
     }
 
+    public function test_sesi_tanpa_uang_awal_tetap_dapat_mencatat_pengeluaran(): void
+    {
+        $session = new KalkulatorBelanja(['uang_awal' => 0]);
+        $session->setRelation('pengeluaran', collect([
+            new PengeluaranBelanja(['nominal' => 125_000]),
+        ]));
+
+        $this->assertFalse($session->hasInitialMoney());
+        $this->assertSame(125_000, $session->total_pengeluaran);
+    }
+
     public function test_model_menjaga_snapshot_supplier_dan_membersihkan_foto_nota_saat_dihapus(): void
     {
         $projectRoot = dirname(__DIR__, 2);

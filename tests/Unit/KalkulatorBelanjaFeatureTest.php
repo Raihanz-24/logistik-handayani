@@ -47,6 +47,8 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         );
 
         $this->assertStringContainsString('PengeluaranRelationManager::class', $resource);
+        $this->assertStringContainsString("protected static ?string \$navigationLabel = 'Transaksi Belanja';", $resource);
+        $this->assertStringContainsString("protected static ?string \$modelLabel = 'Transaksi Belanja';", $resource);
         $this->assertStringContainsString("Select::make('supplier_id')", $relationManager);
         $this->assertStringContainsString("Repeater::make('items')", $relationManager);
         $this->assertStringContainsString("Select::make('barang_id')", $relationManager);
@@ -67,6 +69,8 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringNotContainsString("make('diskon')", $relationManager);
         $this->assertStringNotContainsString("make('biaya_tambahan')", $relationManager);
         $this->assertStringContainsString("'view' => Pages\\ViewKalkulatorBelanja::route('/{record}')", $resource);
+        $this->assertStringContainsString('Opsional. Kosongkan bila sesi ini hanya untuk mencatat pengeluaran.', $resource);
+        $this->assertStringContainsString('->dehydrateStateUsing(fn (mixed $state): int => self::integerValue($state))', $resource);
     }
 
     public function test_tampilan_mobile_memakai_kartu_transaksi_dan_form_saldo(): void

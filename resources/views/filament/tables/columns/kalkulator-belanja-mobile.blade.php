@@ -31,11 +31,11 @@
     <div class="wm-kb-transaction-card__balance">
         <span>
             <small>Uang awal</small>
-            <strong>{{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $record->uang_awal) }}</strong>
+            <strong>{{ $record->hasInitialMoney() ? \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $record->uang_awal) : 'Tidak dicatat' }}</strong>
         </span>
-        <span class="{{ $remaining < 0 ? 'is-negative' : '' }}">
+        <span class="{{ $record->hasInitialMoney() && $remaining < 0 ? 'is-negative' : '' }}">
             <small>Sisa saldo</small>
-            <strong>{{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah($remaining) }}</strong>
+            <strong>{{ $record->hasInitialMoney() ? \App\Filament\Resources\KalkulatorBelanjaResource::rupiah($remaining) : '-' }}</strong>
         </span>
     </div>
 

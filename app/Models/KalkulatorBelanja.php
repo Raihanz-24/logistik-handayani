@@ -91,6 +91,11 @@ class KalkulatorBelanja extends Model
         return (int) $this->uang_awal - $this->total_pengeluaran;
     }
 
+    public function hasInitialMoney(): bool
+    {
+        return (int) $this->uang_awal > 0;
+    }
+
     private function audit(string $action, string $description): void
     {
         app(AuditLogger::class)->activity(
