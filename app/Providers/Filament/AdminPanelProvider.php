@@ -112,6 +112,11 @@ class AdminPanelProvider extends PanelProvider
                 'Bantuan',
             ])
             ->spa()
+            // Role pages are provided by Filament Shield. Use a full navigation here so
+            // create, view, and edit never inherit a stale SPA response in the PWA.
+            ->spaUrlExceptions([
+                '*/admin/shield/roles/*',
+            ])
             ->profile(isSimple: false)
             ->unsavedChangesAlerts()
             ->globalSearchKeyBindings(['command+k', 'ctrl+k'])

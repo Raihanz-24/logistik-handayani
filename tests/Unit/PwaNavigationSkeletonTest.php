@@ -17,6 +17,7 @@ class PwaNavigationSkeletonTest extends TestCase
         $serviceWorker = (string) file_get_contents($root.'/public/service-worker.js');
 
         $this->assertStringContainsString("view('filament.pwa-navigation-skeleton')", $provider);
+        $this->assertStringContainsString("'*/admin/shield/roles/*'", $provider);
         $this->assertStringContainsString("@vite('resources/js/pwa-navigation-skeleton.js')", $pwaView);
         $this->assertStringNotContainsString("@auth\n    @vite('resources/js/pwa-navigation-skeleton.js')", $pwaView);
         $this->assertStringNotContainsString('@vite(', $view);
