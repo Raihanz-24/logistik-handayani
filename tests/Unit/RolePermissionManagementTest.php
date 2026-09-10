@@ -22,7 +22,8 @@ class RolePermissionManagementTest extends TestCase
         $this->assertStringContainsString('public static function groups', $catalog);
         $this->assertStringContainsString("'foto_maps'", $catalog);
         $this->assertStringContainsString("protected static ?string \$slug = 'peran';", $resource);
-        $this->assertStringContainsString('Tabs::make', $resource);
+        $this->assertStringContainsString('permissionSections', $resource);
+        $this->assertStringContainsString('->collapsible()', $resource);
         $this->assertStringContainsString('permission_groups.', $resource);
         $this->assertStringContainsString("Pages\\CreateRole::route('/buat')", $resource);
         $this->assertStringContainsString("Pages\\EditRole::route('/{record}/ubah')", $resource);

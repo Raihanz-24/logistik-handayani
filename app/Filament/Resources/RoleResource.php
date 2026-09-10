@@ -69,23 +69,8 @@ class RoleResource extends Resource
                         ->unique(ignoreRecord: true),
                 ]),
             Section::make('Hak Akses')
-                ->description('Pilih tab sesuai halaman agar checklist lebih mudah dibaca. Editor Foto Maps tetap terpisah dari izin melihat Foto Maps.')
-                ->schema([
-                    Forms\Components\Tabs::make('Kelompok Izin')
-                        ->tabs(collect(RolePermissionCatalog::groups())
-                            ->map(fn (array $group, string $key): Forms\Components\Tabs\Tab => Forms\Components\Tabs\Tab::make($group['label'])
-                                ->schema([
-                                    Forms\Components\CheckboxList::make("permission_groups.{$key}")
-                                        ->label('Pilih akses yang diperlukan')
-                                        ->options($group['options'])
-                                        ->columns(['default' => 1, 'md' => 2])
-                                        ->bulkToggleable()
-                                        ->searchable(),
-                                ]))
-                            ->values()
-                            ->all())
-                        ->columnSpanFull(),
-                ]),
+                ->description('Izin dipisahkan per modul. Buka hanya bagian yang ingin diatur agar checklist tetap ringkas.')
+                ->schema(static::permissionSections()),
         ]);
     }
 
@@ -125,5 +110,27 @@ class RoleResource extends Resource
             'create' => Pages\CreateRole::route('/buat'),
             'edit' => Pages\EditRole::route('/{record}/ubah'),
         ];
+    }
+
+    /** @return array<int, Section> */
+    private static function permissionSections(): array
+    {
+        return collect(RolePermissionCatalog::groups())
+            ->map(function (array $group, string $key): Section {
+                return Section::make($group['label'])
+                    ->collapsible()
+                    ->collapsed($key !== 'transaksi_belanja')
+                    ->compact()
+                    ->schema([
+                        Forms\Components\CheckboxList::make("permission_groups.{$key}")
+                            ->label('Pilih akses yang diperlukan')
+                            ->options($group['options'])
+                            ->columns(['default' => 1, 'md' => 2])
+                            ->bulkToggleable()
+                            ->searchable(),
+                    ]);
+            })
+            ->values()
+            ->all();
     }
 }
