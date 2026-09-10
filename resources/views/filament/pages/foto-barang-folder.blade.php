@@ -3,6 +3,7 @@
         $folder = $this->folder();
         $photos = $this->photos();
         $purchaseItemGroups = $this->purchaseItemOptions();
+        $sequentialLabelContext = $this->sequentialLabelContext();
         $photoData = $photos->getCollection()->values()->map(fn ($photo): array => [
             'id' => $photo->id,
             'sequence' => $photo->urutan,
@@ -24,6 +25,8 @@
             'selectedArchiveUrl' => route('foto-barang.selected-archive', $folder),
             'totalPhotos' => $folder->items_count,
             'focusPhotoId' => $this->focusPhotoId,
+            'sequentialTransactions' => $sequentialLabelContext['transactions'],
+            'unlabeledPhotoCount' => $sequentialLabelContext['unlabeled_photo_count'],
         ];
     @endphp
 
@@ -85,6 +88,16 @@
                 <button type="button" x-show="! selectionMode && photos.length" x-on:click="beginSelection()">
                     <x-filament::icon icon="heroicon-m-check-circle" /> Pilih Foto
                 </button>
+                @if ($sequentialLabelContext['transactions'] !== [])
+                    <button
+                        type="button"
+                        class="is-label-sequential"
+                        x-show="unlabeledPhotoCount > 0"
+                        x-on:click="requestSequentialLabel()"
+                    >
+                        <x-filament::icon icon="heroicon-m-numbered-list" /> Label Otomatis Urut
+                    </button>
+                @endif
                 @if ($folder->items_count > 0)
                     <button type="button" x-on:click="shareAll()" x-bind:disabled="shareAllBusy">
                         <x-filament::icon icon="heroicon-m-share" />
@@ -347,6 +360,44 @@
                 </div>
             </dialog>
         @endif
+
+        @if ($sequentialLabelContext['transactions'] !== [])
+            <dialog class="ff-label-dialog" x-ref="sequentialLabelDialog" x-on:cancel.prevent="closeSequentialLabelDialog()">
+                <div>
+                    <span class="ff-label-dialog__icon"><x-filament::icon icon="heroicon-o-numbered-list" /></span>
+                    <h2>Label otomatis sesuai urutan</h2>
+                    <p>
+                        Foto tanpa label akan dipasangkan dari foto pertama ke barang pertama pada transaksi yang dipilih.
+                        Label yang sudah ada tidak akan ditimpa.
+                    </p>
+
+                    <label>
+                        <span>Transaksi belanja</span>
+                        <select x-model="sequentialExpenseId" x-bind:disabled="sequentialBusy">
+                            <option value="">Pilih transaksi</option>
+                            <template x-for="transaction in sequentialTransactions" :key="transaction.id">
+                                <option x-bind:value="transaction.id" x-text="transaction.label"></option>
+                            </template>
+                        </select>
+                    </label>
+
+                    <div class="ff-sequential-check">
+                        <span><b x-text="unlabeledPhotoCount"></b> foto tanpa label</span>
+                        <span><b x-text="selectedSequentialTransaction()?.item_count || 0"></b> barang transaksi</span>
+                    </div>
+                    <p class="ff-sequential-check__warning" x-show="sequentialExpenseId && ! sequentialCountsMatch()" x-cloak>
+                        Jumlah harus sama. Sistem tidak akan menyimpan perubahan apa pun.
+                    </p>
+
+                    <div class="ff-label-dialog__actions is-sequential">
+                        <button type="button" x-on:click="closeSequentialLabelDialog()" x-bind:disabled="sequentialBusy">Batal</button>
+                        <button type="button" class="is-save" x-on:click="saveSequentialLabel()" x-bind:disabled="sequentialBusy || ! sequentialCountsMatch()">
+                            <span x-text="sequentialBusy ? 'Memverifikasi...' : 'Label Sesuai Urutan'"></span>
+                        </button>
+                    </div>
+                </div>
+            </dialog>
+        @endif
     </div>
 
     <style>
@@ -356,6 +407,12 @@
     <style>
         .ff-selection .is-label {
             color: #7c3aed;
+        }
+
+        .ff-toolbar .is-label-sequential {
+            color: #7c3aed;
+            border-color: rgba(124, 58, 237, .28);
+            background: rgba(124, 58, 237, .08);
         }
 
         .ff-card.is-focused {
@@ -558,6 +615,41 @@
         .ff-label-dialog__actions .is-save {
             border-color: #7c3aed;
             background: #6d28d9;
+        }
+
+        .ff-label-dialog__actions.is-sequential {
+            grid-template-columns: 1fr 1.45fr;
+        }
+
+        .ff-sequential-check {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: .5rem;
+            width: 100%;
+            margin-top: .9rem;
+        }
+
+        .ff-sequential-check span {
+            display: grid;
+            gap: .15rem;
+            padding: .55rem;
+            border: 1px solid rgba(139, 92, 246, .22);
+            border-radius: .62rem;
+            color: #cbd5e1;
+            background: rgba(139, 92, 246, .08);
+            font-size: .62rem;
+        }
+
+        .ff-sequential-check b {
+            color: #fff;
+            font-size: .92rem;
+        }
+
+        .ff-sequential-check__warning {
+            width: 100%;
+            margin-top: .55rem !important;
+            color: #fecaca !important;
+            font-weight: 750;
         }
 
         .ff-label-dialog__actions button:disabled {

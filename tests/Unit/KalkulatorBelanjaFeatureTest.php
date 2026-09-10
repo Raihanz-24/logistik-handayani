@@ -200,6 +200,12 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString('public static function photoUrl', $page);
         $this->assertStringContainsString('focusLinkedPhoto()', $script);
         $this->assertStringNotContainsString('await this.$wire.$refresh();', $this->saveLabelMethod($script));
+        $this->assertStringContainsString('public function assignSequential', $service);
+        $this->assertStringContainsString("doesntHave('purchaseLink')", $service);
+        $this->assertStringContainsString("'Jumlah harus sama:", $service);
+        $this->assertStringContainsString('public function saveSequentialPurchaseItemLabels', $page);
+        $this->assertStringContainsString('Label Otomatis Urut', $view);
+        $this->assertStringContainsString('saveSequentialLabel()', $script);
     }
 
     public function test_transaksi_barang_dapat_membuka_foto_berlabel(): void

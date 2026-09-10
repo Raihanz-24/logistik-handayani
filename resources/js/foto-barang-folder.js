@@ -28,6 +28,11 @@ const fotoBarangFolder = (config = {}) => ({
     labelIds: [],
     labelItemId: '',
     labelHasExisting: false,
+    sequentialTransactions: Array.isArray(config.sequentialTransactions) ? config.sequentialTransactions : [],
+    unlabeledPhotoCount: Number(config.unlabeledPhotoCount || 0),
+    sequentialOpen: false,
+    sequentialBusy: false,
+    sequentialExpenseId: '',
 
     initialize(nextConfig = {}) {
         this.photos = Array.isArray(nextConfig.photos) ? nextConfig.photos : [];
@@ -36,6 +41,8 @@ const fotoBarangFolder = (config = {}) => ({
         this.selectedArchiveUrl = nextConfig.selectedArchiveUrl || '';
         this.totalPhotos = Number(nextConfig.totalPhotos || 0);
         this.focusPhotoId = Number(nextConfig.focusPhotoId || 0);
+        this.sequentialTransactions = Array.isArray(nextConfig.sequentialTransactions) ? nextConfig.sequentialTransactions : [];
+        this.unlabeledPhotoCount = Number(nextConfig.unlabeledPhotoCount || 0);
         this.$nextTick(() => {
             this.reconcileThumbnails();
             this.focusLinkedPhoto();
@@ -177,6 +184,79 @@ const fotoBarangFolder = (config = {}) => ({
         } catch (error) {
             this.actionMessage = error?.message || 'Label barang gagal disimpan. Silakan coba kembali.';
             this.labelBusy = false;
+        }
+    },
+
+    selectedSequentialTransaction() {
+        const expenseId = Number(this.sequentialExpenseId);
+
+        return this.sequentialTransactions.find((transaction) => Number(transaction.id) === expenseId) || null;
+    },
+
+    sequentialCountsMatch() {
+        const transaction = this.selectedSequentialTransaction();
+
+        return Boolean(transaction) && Number(transaction.item_count) === this.unlabeledPhotoCount;
+    },
+
+    requestSequentialLabel() {
+        if (this.sequentialBusy || this.unlabeledPhotoCount < 1 || this.sequentialTransactions.length === 0) return;
+
+        if (! this.sequentialExpenseId && this.sequentialTransactions.length === 1) {
+            this.sequentialExpenseId = String(this.sequentialTransactions[0].id);
+        }
+
+        this.sequentialOpen = true;
+        this.$nextTick(() => {
+            const dialog = this.$refs.sequentialLabelDialog;
+            if (! dialog || dialog.open) return;
+            try {
+                dialog.showModal();
+            } catch (error) {
+                dialog.setAttribute('open', '');
+            }
+        });
+    },
+
+    closeSequentialLabelDialog() {
+        if (this.sequentialBusy) return;
+        this.sequentialOpen = false;
+        const dialog = this.$refs.sequentialLabelDialog;
+        if (dialog?.open && typeof dialog.close === 'function') dialog.close();
+        else dialog?.removeAttribute('open');
+        this.restoreScroll();
+    },
+
+    async saveSequentialLabel() {
+        if (this.sequentialBusy || ! this.sequentialCountsMatch()) return;
+        this.sequentialBusy = true;
+
+        try {
+            const result = await this.$wire.saveSequentialPurchaseItemLabels(Number(this.sequentialExpenseId));
+            if (! result?.saved) throw new Error(result?.message || 'Pelabelan berurutan gagal disimpan.');
+
+            const assignments = new Map((result.assignments || []).map((assignment) => [
+                Number(assignment.photo_id),
+                assignment.purchase || null,
+            ]));
+            this.photos = this.photos.map((photo) => {
+                const purchase = assignments.get(Number(photo.id));
+                if (! purchase) return photo;
+
+                return {
+                    ...photo,
+                    purchaseItemId: Number(purchase.id),
+                    purchase,
+                };
+            });
+            this.unlabeledPhotoCount = Number(result.unlabeled_photo_count || 0);
+            this.actionMessage = `${assignments.size} foto diberi label mengikuti urutan transaksi.`;
+            this.sequentialBusy = false;
+            this.closeSequentialLabelDialog();
+            this.clearSelection();
+        } catch (error) {
+            this.actionMessage = error?.message || 'Pelabelan berurutan gagal disimpan. Silakan coba kembali.';
+            this.sequentialBusy = false;
         }
     },
 

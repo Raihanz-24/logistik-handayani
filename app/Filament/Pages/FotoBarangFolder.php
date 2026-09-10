@@ -131,6 +131,30 @@ class FotoBarangFolder extends Page
             ->all();
     }
 
+    /** @return array{unlabeled_photo_count: int, transactions: array<int, array{id: int, label: string, item_count: int}>} */
+    public function sequentialLabelContext(): array
+    {
+        if (! $this->purchaseLabelsAvailable()) {
+            return ['unlabeled_photo_count' => 0, 'transactions' => []];
+        }
+
+        $transactions = $this->folder()->pengeluaranBelanjas
+            ->filter(fn ($expense): bool => $expense->items->isNotEmpty())
+            ->sortBy(fn ($expense): string => sprintf('%010d-%010d', (int) $expense->urutan, (int) $expense->getKey()))
+            ->map(fn ($expense): array => [
+                'id' => (int) $expense->getKey(),
+                'label' => $expense->namaSupplier().' — '.$expense->items->count().' barang',
+                'item_count' => $expense->items->count(),
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'unlabeled_photo_count' => $this->folder()->items()->doesntHave('purchaseLink')->count(),
+            'transactions' => $transactions,
+        ];
+    }
+
     /** @return array{saved: bool, photo_ids: array<int, int>, label?: ?string, message?: string} */
     public function savePurchaseItemLabels(
         FotoBarangPurchaseItemLinkService $linkService,
@@ -179,6 +203,64 @@ class FotoBarangFolder extends Page
                 'message' => $exception instanceof RuntimeException
                     ? $exception->getMessage()
                     : 'Label barang gagal disimpan. Silakan coba kembali.',
+            ];
+        }
+    }
+
+    /** @return array{saved: bool, photo_ids: array<int, int>, assignments?: array<int, array{photo_id: int, purchase: array<string, int|string>|null}>, unlabeled_photo_count?: int, message?: string} */
+    public function saveSequentialPurchaseItemLabels(
+        FotoBarangPurchaseItemLinkService $linkService,
+        int|string|null $expenseId,
+    ): array {
+        $this->skipRender();
+
+        if (! $this->purchaseLabelsAvailable()) {
+            return [
+                'saved' => false,
+                'photo_ids' => [],
+                'message' => 'Fitur label barang belum siap. Jalankan migration terbaru.',
+            ];
+        }
+
+        try {
+            $result = $linkService->assignSequential($this->folder(), (int) $expenseId);
+            $items = PengeluaranBelanjaItem::query()
+                ->with(['pengeluaranBelanja.supplier', 'pengeluaranBelanja.kalkulatorBelanja'])
+                ->whereIn('id', $result['purchase_item_ids'])
+                ->get()
+                ->keyBy('id');
+            $assignments = collect($result['assignments'])->map(function (array $assignment) use ($items): array {
+                $item = $items->get($assignment['purchase_item_id']);
+
+                return [
+                    'photo_id' => $assignment['photo_id'],
+                    'purchase' => $item instanceof PengeluaranBelanjaItem
+                        ? $this->purchaseItemPayload($item)
+                        : null,
+                ];
+            })->values()->all();
+
+            Notification::make()
+                ->title(count($assignments).' foto berhasil diberi label berurutan')
+                ->body('Urutan foto dan barang diverifikasi kembali oleh server sebelum disimpan.')
+                ->success()
+                ->send();
+
+            return [
+                'saved' => true,
+                'photo_ids' => $result['photo_ids'],
+                'assignments' => $assignments,
+                'unlabeled_photo_count' => $this->folder()->items()->doesntHave('purchaseLink')->count(),
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return [
+                'saved' => false,
+                'photo_ids' => [],
+                'message' => $exception instanceof RuntimeException
+                    ? $exception->getMessage()
+                    : 'Pelabelan berurutan gagal disimpan. Silakan coba kembali.',
             ];
         }
     }
