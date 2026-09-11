@@ -4,6 +4,7 @@ const fotoBarangMaps = (config = {}) => ({
             locating: false,
             resolvingAddress: false,
             templateApplying: false,
+            handayaniTemplateControlVisible: true,
             locationMode: 'gps',
             gpsRequestId: 0,
             latitude: config.latitude ?? null,
@@ -139,6 +140,9 @@ const fotoBarangMaps = (config = {}) => ({
 
                 try {
                     this.beepEnabled = window.localStorage.getItem('handayani-foto-maps-beep') !== 'off';
+                    this.handayaniTemplateControlVisible = window.localStorage.getItem(
+                        'handayani-foto-maps-template-control',
+                    ) !== 'hidden';
                     const storedRecovery = window.localStorage.getItem('handayani-foto-maps-recovery');
                     recovery = storedRecovery ? JSON.parse(storedRecovery) : null;
 
@@ -155,6 +159,18 @@ const fotoBarangMaps = (config = {}) => ({
                 }
 
                 return recovery;
+            },
+            setHandayaniTemplateControlVisible(visible) {
+                this.handayaniTemplateControlVisible = Boolean(visible);
+
+                try {
+                    window.localStorage.setItem(
+                        'handayani-foto-maps-template-control',
+                        this.handayaniTemplateControlVisible ? 'visible' : 'hidden',
+                    );
+                } catch (error) {
+                    // Pengaturan hanya kosmetik; GPS dan template tetap aman dipakai.
+                }
             },
             persistSessionRecovery(cameraWasOpen = this.cameraOpen) {
                 if (! this.sessionUuid) return;

@@ -123,6 +123,8 @@ class FotoBarangEditorTest extends TestCase
         $this->assertStringContainsString("hasRole('super_admin')", $shortcut);
         $this->assertStringContainsString('heroicon-m-ellipsis-vertical', $shortcut);
         $this->assertStringContainsString('Editor Foto Maps', $shortcut);
+        $this->assertStringContainsString('Tampilkan Template Handayani', $shortcut);
+        $this->assertStringContainsString('handayani-template-control-changed', $shortcut);
         $this->assertStringContainsString('PanelsRenderHook::GLOBAL_SEARCH_AFTER', $provider);
 
         preg_match(

@@ -201,6 +201,8 @@ class FotoBarangMapsFeatureTest extends TestCase
         $this->assertStringContainsString('useHandayaniTemplateLocation()', $view);
         $this->assertStringContainsString("this.locationMode === 'template'", $view);
         $this->assertStringContainsString('Template Handayani', $view);
+        $this->assertStringContainsString('handayaniTemplateControlVisible', $view);
+        $this->assertStringContainsString('handayani-foto-maps-template-control', $view);
         $this->assertStringContainsString('await this.refreshGps(false)', $view);
         $this->assertStringContainsString("config('foto_barang.handayani_location.latitude'", $page);
         $this->assertStringContainsString("'foto_barang.handayani_location.address'", $page);

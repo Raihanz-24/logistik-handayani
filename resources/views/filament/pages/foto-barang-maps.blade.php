@@ -28,6 +28,7 @@
         x-on:foto-barang-saved.window="handlePhotoSaved()"
         x-on:foto-barang-failed.window="handlePhotoFailed()"
         x-on:foto-barang-deleted.window="serverCapturedCount = Math.max(0, serverCapturedCount - 1); capturedCount = Math.max(0, capturedCount - 1)"
+        x-on:handayani-template-control-changed.window="setHandayaniTemplateControlVisible($event.detail?.visible)"
         x-on:online.window="retryPendingUploads()"
     >
         <script type="application/json" x-ref="cameraConfig">@json($cameraConfig)</script>
@@ -205,6 +206,8 @@
                                 <button
                                     type="button"
                                     class="fm-gps__template"
+                                    x-show="handayaniTemplateControlVisible"
+                                    x-cloak
                                     x-on:click="useHandayaniTemplateLocation()"
                                     x-bind:disabled="templateApplying"
                                     x-bind:class="locationMode === 'template' && 'is-active'"
