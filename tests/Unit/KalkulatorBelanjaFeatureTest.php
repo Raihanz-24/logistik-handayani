@@ -82,6 +82,9 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString('public function priceHistory', $service);
         $this->assertStringContainsString('public function latestPriceForUnit', $service);
         $this->assertStringContainsString("'satuan_snapshot' => \$unit", $service);
+        $this->assertStringContainsString("'items.*.harga_satuan' => ['nullable', 'integer', 'min:0'", $service);
+        $this->assertStringContainsString("->where('pengeluaran_belanja_items.harga_satuan', '>', 0)", $service);
+        $this->assertStringContainsString('Boleh dikosongkan dahulu.', $relationManager);
     }
 
     public function test_tampilan_mobile_memakai_kartu_transaksi_dan_form_saldo(): void
@@ -212,11 +215,16 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString('focusLinkedPhoto()', $script);
         $this->assertStringNotContainsString('await this.$wire.$refresh();', $this->saveLabelMethod($script));
         $this->assertStringContainsString('public function assignSequential', $service);
+        $this->assertStringContainsString('public function autoAssignCapturedPhoto', $service);
+        $this->assertStringContainsString("'harga_satuan' => 0", $service);
         $this->assertStringContainsString("doesntHave('purchaseLink')", $service);
         $this->assertStringContainsString("'Jumlah harus sama:", $service);
         $this->assertStringContainsString('public function saveSequentialPurchaseItemLabels', $page);
         $this->assertStringContainsString('Label Otomatis Urut', $view);
         $this->assertStringContainsString('saveSequentialLabel()', $script);
+        $this->assertStringContainsString('public ?int $selectedBarangId = null', (string) file_get_contents($root.'/app/Filament/Pages/FotoBarangMaps.php'));
+        $this->assertStringContainsString('Label barang otomatis', (string) file_get_contents($root.'/resources/views/filament/pages/foto-barang-maps.blade.php'));
+        $this->assertStringContainsString("formData.append('barang_id'", (string) file_get_contents($root.'/resources/js/foto-barang-maps.js'));
     }
 
     public function test_transaksi_barang_dapat_membuka_foto_berlabel(): void

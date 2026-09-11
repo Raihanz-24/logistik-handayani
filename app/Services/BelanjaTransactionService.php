@@ -39,7 +39,7 @@ class BelanjaTransactionService
             'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.barang_id' => ['required', 'integer', 'distinct', 'exists:barangs,id'],
             'items.*.jumlah' => ['required', 'numeric', 'gt:0', 'max:999999999.999'],
-            'items.*.harga_satuan' => ['required', 'integer', 'min:1', 'max:999999999999'],
+            'items.*.harga_satuan' => ['nullable', 'integer', 'min:0', 'max:999999999999'],
             'items.*.satuan' => ['nullable', 'string', 'max:50'],
             'items.*.keterangan' => ['nullable', 'string', 'max:500'],
             'nota_paths' => ['nullable', 'array', 'max:20'],
@@ -70,7 +70,7 @@ class BelanjaTransactionService
             }
 
             $quantity = $this->normalizeQuantity($item['jumlah']);
-            $unitPrice = (int) $item['harga_satuan'];
+            $unitPrice = (int) ($item['harga_satuan'] ?? 0);
             $unit = $this->purchaseUnitFor($barang, $item['satuan'] ?? null, $index);
             $subtotal = $this->subtotal($quantity, $unitPrice);
             $total += $subtotal;
@@ -286,16 +286,24 @@ class BelanjaTransactionService
             )
             ->where('pengeluaran_belanjas.supplier_id', $supplierId)
             ->where('pengeluaran_belanja_items.barang_id', $barangId)
+            ->where('pengeluaran_belanja_items.harga_satuan', '>', 0)
             ->orderByDesc('kalkulator_belanjas.tanggal')
             ->orderByDesc('pengeluaran_belanja_items.updated_at')
             ->orderByDesc('pengeluaran_belanja_items.id')
             ->first();
 
         if (! $latest) {
-            HargaBarangSupplier::query()
+            $cached = HargaBarangSupplier::query()
                 ->where('supplier_id', $supplierId)
                 ->where('barang_id', $barangId)
-                ->delete();
+                ->first();
+
+            if ($cached) {
+                return [
+                    'price' => (int) $cached->harga_terakhir,
+                    'date' => $cached->tanggal_harga_terakhir->toDateString(),
+                ];
+            }
 
             return ['price' => null, 'date' => null];
         }
@@ -361,6 +369,7 @@ class BelanjaTransactionService
             )
             ->where('pengeluaran_belanjas.supplier_id', $supplierId)
             ->where('pengeluaran_belanja_items.barang_id', $barangId)
+            ->where('pengeluaran_belanja_items.harga_satuan', '>', 0)
             ->orderByDesc('kalkulator_belanjas.tanggal')
             ->orderByDesc('pengeluaran_belanja_items.updated_at')
             ->orderByDesc('pengeluaran_belanja_items.id')

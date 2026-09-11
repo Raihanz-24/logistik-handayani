@@ -2,6 +2,7 @@
     @php
         $activeSession = $this->activeSession();
         $pendingExpense = $this->pendingExpense();
+        $autoLabelContext = $this->autoLabelContext();
         $sessions = $this->sessions();
         $cameraConfig = [
             'latitude' => $latitude,
@@ -16,6 +17,7 @@
             'sessionIsActive' => (bool) ($activeSession?->isActive() ?? false),
             'uploadUrlTemplate' => route('foto-barang.upload', ['session' => '__SESSION_UUID__'], absolute: false),
             'selectedArchiveUrlTemplate' => route('foto-barang.selected-archive', ['session' => '__SESSION_UUID__'], absolute: false),
+            'selectedBarangId' => $selectedBarangId,
         ];
     @endphp
 
@@ -235,6 +237,24 @@
                             <x-filament::icon icon="heroicon-o-information-circle" />
                             <p>Foto disimpan di penyimpanan aplikasi pada HP ini. Unduh atau bagikan foto penting sebelum membersihkan data browser.</p>
                         </div>
+
+                        @if ($autoLabelContext['enabled'])
+                            <div class="fm-auto-label" x-show="captureMode === 'server'" x-cloak>
+                                <div>
+                                    <span><x-filament::icon icon="heroicon-o-tag" /></span>
+                                    <p>
+                                        <strong>Label barang otomatis <em>opsional</em></strong>
+                                        <small>Pilih sebelum membuka kamera. Foto akan dilabeli dan barang otomatis muncul di transaksi {{ $autoLabelContext['supplier'] }}.</small>
+                                    </p>
+                                </div>
+                                <select wire:model.live="selectedBarangId" x-on:change="selectedBarangId = Number($event.target.value) || null" aria-label="Barang pada foto">
+                                    <option value="">Pilih barang bila diperlukan</option>
+                                    @foreach ($autoLabelContext['options'] as $barangId => $barangLabel)
+                                        <option value="{{ $barangId }}">{{ $barangLabel }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        @endif
 
                         <button
                             type="button"
@@ -707,6 +727,15 @@
         .fm-local-warning svg { flex:0 0 auto; width:1rem; }
         .fm-local-warning p { margin:0; font-size:.62rem; line-height:1.45; }
         .fm-open-camera { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.8rem; align-items:center; width:100%; margin-top:1rem; padding:.9rem; border:0; border-radius:.9rem; color:#fff; background:linear-gradient(135deg,#d97706,#f59e0b); box-shadow:0 12px 24px rgba(217,119,6,.22); text-align:left; cursor:pointer; }
+        .fm-auto-label { display:grid; gap:.6rem; margin-top:1rem; padding:.8rem; border:1px solid color-mix(in srgb,#f59e0b 34%,var(--fm-line)); border-radius:.85rem; background:#fffaf0; }
+        .dark .fm-auto-label { background:#2a241a; }
+        .fm-auto-label>div { display:flex; gap:.65rem; align-items:flex-start; }
+        .fm-auto-label>div>span { display:grid; flex:none; place-items:center; width:2rem; height:2rem; border-radius:.6rem; color:#b45309; background:#fef3c7; }
+        .fm-auto-label p { display:grid; gap:.1rem; margin:0; }
+        .fm-auto-label strong { font-size:.78rem; }
+        .fm-auto-label em { color:#b45309; font-style:normal; font-weight:600; }
+        .fm-auto-label small { color:var(--fm-muted); font-size:.63rem; line-height:1.35; }
+        .fm-auto-label select { width:100%; min-height:2.5rem; padding:.5rem .65rem; border:1px solid var(--fm-line); border-radius:.65rem; color:var(--fm-ink); background:var(--fi-body-bg,#fff); font-size:.76rem; }
         .fm-open-camera:disabled { opacity:.55; cursor:wait; }
         .fm-open-camera>span:first-child { display:grid; place-items:center; width:2.7rem; height:2.7rem; border-radius:.75rem; background:rgba(255,255,255,.18); }
         .fm-open-camera>span:nth-child(2) { display:grid; gap:.1rem; }

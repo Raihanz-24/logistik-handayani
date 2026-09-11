@@ -34,6 +34,11 @@ class FotoBarangEditor extends Page
 
     protected static string $view = 'filament.pages.foto-barang-editor';
 
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public ?int $selectedSessionId = null;
 
     public ?int $selectedPhotoId = null;
@@ -48,8 +53,7 @@ class FotoBarangEditor extends Page
     {
         $user = auth()->user();
 
-        return $user instanceof User
-            && ($user->hasRole('super_admin') || $user->can('access_foto_barang_editor'));
+        return $user instanceof User && $user->hasRole('super_admin');
     }
 
     public function mount(): void

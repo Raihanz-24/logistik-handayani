@@ -30,6 +30,7 @@ const fotoBarangMaps = (config = {}) => ({
             sessionUuid: config.sessionUuid || null,
             sessionIsActive: Boolean(config.sessionIsActive),
             uploadUrlTemplate: config.uploadUrlTemplate || '',
+            selectedBarangId: Number(config.selectedBarangId || 0) || null,
             captureQueue: [],
             localCaptures: [],
             localCapturedCount: 0,
@@ -93,6 +94,7 @@ const fotoBarangMaps = (config = {}) => ({
                 this.sessionUuid = nextConfig.sessionUuid || null;
                 this.sessionIsActive = Boolean(nextConfig.sessionIsActive);
                 this.uploadUrlTemplate = nextConfig.uploadUrlTemplate || '';
+                this.selectedBarangId = Number(nextConfig.selectedBarangId || 0) || null;
                 this.selectedArchiveUrlTemplate = nextConfig.selectedArchiveUrlTemplate || '';
             },
             async initCamera() {
@@ -1059,6 +1061,9 @@ const fotoBarangMaps = (config = {}) => ({
                     }
                     formData.append('captured_at', capture.capturedAt);
                     formData.append('client_capture_id', capture.id);
+                    if (Number(capture.barangId) > 0) {
+                        formData.append('barang_id', String(capture.barangId));
+                    }
 
                     const uploadUrl = this.uploadUrlTemplate.replace(
                         '__SESSION_UUID__',
@@ -1523,6 +1528,7 @@ const fotoBarangMaps = (config = {}) => ({
                         latitude: this.latitude,
                         longitude: this.longitude,
                         accuracy: this.accuracy,
+                        barangId: this.captureMode === 'server' ? this.selectedBarangId : null,
                         fileSize: blob.size,
                         attempts: 0,
                         blob,

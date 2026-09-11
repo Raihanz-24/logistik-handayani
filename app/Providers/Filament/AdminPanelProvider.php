@@ -58,6 +58,10 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::BODY_END,
                 fn (): string => view('filament.mobile-bottom-navigation')->render()
             )
+            ->renderHook(
+                PanelsRenderHook::GLOBAL_SEARCH_AFTER,
+                fn (): string => view('filament.photo-editor-shortcut')->render()
+            )
              // ->renderHook('head.end', fn () => view('filament.ga4'))
             ->sidebarCollapsibleOnDesktop()
             ->default()

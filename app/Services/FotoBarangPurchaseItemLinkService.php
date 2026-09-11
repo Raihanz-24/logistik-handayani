@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\Barang;
+use App\Models\FotoBarangItem;
 use App\Models\FotoBarangItemBelanjaLink;
 use App\Models\FotoBarangSession;
+use App\Models\PengeluaranBelanja;
 use App\Models\PengeluaranBelanjaItem;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -11,6 +14,109 @@ use RuntimeException;
 
 class FotoBarangPurchaseItemLinkService
 {
+    /**
+     * Memberi label sebuah foto yang baru diambil dan, bila perlu, membuat baris
+     * barang berharga Rp0 pada satu transaksi yang terhubung ke folder.
+     *
+     * Tidak pernah mengubah foto atau transaksi apabila folder tidak tepat
+     * terhubung ke satu transaksi yang dapat diakses pengguna.
+     */
+    public function autoAssignCapturedPhoto(
+        FotoBarangSession $session,
+        FotoBarangItem $photo,
+        int $barangId,
+    ): ?PengeluaranBelanjaItem {
+        if ($barangId < 1) {
+            return null;
+        }
+
+        $user = auth()->user();
+
+        if (! $user instanceof User) {
+            throw new RuntimeException('Sesi pengguna tidak valid. Silakan masuk kembali.');
+        }
+
+        $result = DB::transaction(function () use ($session, $photo, $barangId, $user): ?array {
+            $lockedSession = FotoBarangSession::query()
+                ->lockForUpdate()
+                ->findOrFail($session->getKey());
+            $lockedPhoto = $lockedSession->items()
+                ->whereKey($photo->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedPhoto) {
+                throw new RuntimeException('Foto yang baru diambil tidak ditemukan dalam sesi ini.');
+            }
+
+            $expenses = $lockedSession->pengeluaranBelanjas()
+                ->whereHas('kalkulatorBelanja', fn ($query) => $query->visibleTo($user))
+                ->lockForUpdate()
+                ->get();
+
+            // Folder biasa atau folder dengan lebih dari satu transaksi tidak
+            // boleh ditebakkan ke salah satu transaksi.
+            if ($expenses->count() !== 1) {
+                return null;
+            }
+
+            /** @var PengeluaranBelanja $expense */
+            $expense = $expenses->first();
+            $barang = Barang::query()->findOrFail($barangId);
+            $purchaseItem = $expense->items()
+                ->where('barang_id', $barangId)
+                ->lockForUpdate()
+                ->first();
+            $created = false;
+
+            if (! $purchaseItem) {
+                $purchaseItem = $expense->items()->create([
+                    'barang_id' => (int) $barang->getKey(),
+                    'kode_barang_snapshot' => (string) $barang->kode_barang,
+                    'nama_barang_snapshot' => (string) $barang->nama_barang,
+                    'satuan_snapshot' => (string) ($barang->satuan ?: '-'),
+                    'jumlah' => '1.000',
+                    'harga_satuan' => 0,
+                    'subtotal' => 0,
+                    'keterangan' => 'Ditambahkan otomatis dari Foto Maps.',
+                    'urutan' => ((int) $expense->items()->max('urutan')) + 1,
+                ]);
+                $created = true;
+            }
+
+            FotoBarangItemBelanjaLink::query()
+                ->where('foto_barang_item_id', $lockedPhoto->getKey())
+                ->delete();
+            FotoBarangItemBelanjaLink::query()->create([
+                'foto_barang_item_id' => (int) $lockedPhoto->getKey(),
+                'pengeluaran_belanja_item_id' => (int) $purchaseItem->getKey(),
+            ]);
+
+            return ['item' => $purchaseItem, 'created' => $created];
+        });
+
+        if (! $result) {
+            return null;
+        }
+
+        /** @var PengeluaranBelanjaItem $purchaseItem */
+        $purchaseItem = $result['item'];
+        app(AuditLogger::class)->activity(
+            'foto_barang_purchase_item_auto_assign',
+            'Memberi label otomatis '.$purchaseItem->namaBarang()." pada foto sesi: {$session->judul}",
+            $user,
+            [
+                'session_id' => $session->getKey(),
+                'photo_id' => $photo->getKey(),
+                'pengeluaran_belanja_item_id' => $purchaseItem->getKey(),
+                'barang_id' => $purchaseItem->barang_id,
+                'item_created_from_photo' => $result['created'],
+            ],
+        );
+
+        return $purchaseItem;
+    }
+
     /**
      * @param  array<int, int|string>  $photoIds
      * @return array{photo_ids: array<int, int>, purchase_item_id: ?int, label: ?string}

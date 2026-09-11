@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Jobs\ProcessFotoBarangImage;
+use App\Models\Barang;
 use App\Models\FotoBarangItem;
 use App\Models\FotoBarangSession;
 use App\Models\PengeluaranBelanja;
@@ -10,6 +11,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\FotoBarangDeletionService;
 use App\Services\FotoBarangImageService;
+use App\Services\FotoBarangPurchaseItemLinkService;
 use App\Services\ReverseGeocodingService;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
@@ -67,6 +69,9 @@ class FotoBarangMaps extends Page
     public string $historyDate = '';
 
     public ?int $pendingPengeluaranId = null;
+
+    /** Barang opsional untuk setiap foto yang diambil pada mode server. */
+    public ?int $selectedBarangId = null;
 
     public static function canAccess(): bool
     {
@@ -162,6 +167,7 @@ class FotoBarangMaps extends Page
         ]);
 
         $this->activeSessionId = (int) $session->getKey();
+        $this->selectedBarangId = null;
 
         if ($expense = $this->pendingExpense()) {
             $session->pengeluaranBelanjas()->syncWithoutDetaching([$expense->getKey()]);
@@ -264,6 +270,7 @@ class FotoBarangMaps extends Page
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'clientCaptureId' => ['nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9._:-]+$/'],
+            'selectedBarangId' => ['nullable', 'integer', 'exists:barangs,id'],
         ], [
             'latitude.required' => 'Koordinat GPS belum tersedia.',
             'longitude.required' => 'Koordinat GPS belum tersedia.',
@@ -306,6 +313,8 @@ class FotoBarangMaps extends Page
                 );
 
                 $this->dispatchPhotoProcessing($item);
+
+                $this->autoAssignCapturedPhoto($session, $item, $this->selectedBarangId);
             }
 
             $this->reset('photo', 'capturedAt', 'clientCaptureId');
@@ -755,6 +764,49 @@ class FotoBarangMaps extends Page
             ->find($this->activeSessionId);
     }
 
+    /**
+     * @return array{enabled: bool, supplier: string|null, options: array<int, string>}
+     */
+    public function autoLabelContext(): array
+    {
+        $session = $this->activeSession();
+        $user = auth()->user();
+
+        if (! $session?->isActive() || ! $user instanceof User) {
+            return ['enabled' => false, 'supplier' => null, 'options' => []];
+        }
+
+        $expenses = $session->pengeluaranBelanjas()
+            ->with('supplier')
+            ->whereHas('kalkulatorBelanja', fn (Builder $query): Builder => $query->visibleTo($user))
+            ->get();
+
+        if ($expenses->count() !== 1) {
+            return ['enabled' => false, 'supplier' => null, 'options' => []];
+        }
+
+        return [
+            'enabled' => true,
+            'supplier' => $expenses->first()?->namaSupplier(),
+            'options' => Barang::query()
+                ->orderBy('nama_barang')
+                ->get(['id', 'kode_barang', 'nama_barang'])
+                ->mapWithKeys(fn (Barang $barang): array => [
+                    (int) $barang->getKey() => "{$barang->kode_barang} — {$barang->nama_barang}",
+                ])
+                ->all(),
+        ];
+    }
+
+    public function updatedSelectedBarangId(): void
+    {
+        $context = $this->autoLabelContext();
+
+        if (! $context['enabled'] || ! array_key_exists((int) $this->selectedBarangId, $context['options'])) {
+            $this->selectedBarangId = null;
+        }
+    }
+
     /** @return LengthAwarePaginator<FotoBarangSession> */
     public function sessions(): LengthAwarePaginator
     {
@@ -846,6 +898,26 @@ class FotoBarangMaps extends Page
         $this->judul = 'Barang Datang - '.now('Asia/Jakarta')->locale('id')->translatedFormat('d M Y H.i');
         $this->namaLokasi = '';
         $this->alamat = '';
+        $this->selectedBarangId = null;
+    }
+
+    private function autoAssignCapturedPhoto(
+        FotoBarangSession $session,
+        FotoBarangItem $photo,
+        ?int $barangId,
+    ): void {
+        if (! $barangId) {
+            return;
+        }
+
+        try {
+            app(FotoBarangPurchaseItemLinkService::class)
+                ->autoAssignCapturedPhoto($session, $photo, $barangId);
+        } catch (Throwable $exception) {
+            // Foto sudah tersimpan. Label otomatis tidak boleh membuat proses
+            // pengambilan foto terlihat gagal atau menghentikan sesi kamera.
+            report($exception);
+        }
     }
 
     private function captureTime(): CarbonImmutable

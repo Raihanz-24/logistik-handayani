@@ -9,6 +9,7 @@ use App\Models\FotoBarangSession;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\FotoBarangImageService;
+use App\Services\FotoBarangPurchaseItemLinkService;
 use Carbon\CarbonImmutable;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\JsonResponse;
@@ -28,6 +29,7 @@ class FotoBarangMediaController extends Controller
         Request $request,
         FotoBarangSession $session,
         FotoBarangImageService $imageService,
+        FotoBarangPurchaseItemLinkService $purchaseItemLinkService,
         AuditLogger $auditLogger,
     ): JsonResponse {
         $user = $request->user();
@@ -47,6 +49,7 @@ class FotoBarangMediaController extends Controller
             'accuracy' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'captured_at' => ['nullable', 'date'],
             'client_capture_id' => ['required', 'string', 'max:100', 'regex:/^[A-Za-z0-9._:-]+$/'],
+            'barang_id' => ['nullable', 'integer', 'exists:barangs,id'],
         ], [
             'photo.max' => 'Foto asli maksimal 10 MB.',
             'photo.image' => 'File yang dikirim bukan gambar yang valid.',
@@ -79,6 +82,20 @@ class FotoBarangMediaController extends Controller
             );
 
             $this->dispatchPhotoProcessing($item);
+
+            if (filled($validated['barang_id'] ?? null)) {
+                try {
+                    $purchaseItemLinkService->autoAssignCapturedPhoto(
+                        $session,
+                        $item,
+                        (int) $validated['barang_id'],
+                    );
+                } catch (Throwable $exception) {
+                    // Foto telah aman tersimpan; kegagalan label otomatis tidak
+                    // boleh menghentikan antrean kamera atau membuang foto.
+                    report($exception);
+                }
+            }
         }
 
         return response()->json([

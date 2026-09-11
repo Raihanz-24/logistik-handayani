@@ -94,7 +94,10 @@ class PengeluaranRelationManager extends RelationManager
                             'barang_id' => $item->barang_id,
                             'satuan' => $item->satuan_snapshot,
                             'jumlah' => $item->jumlah,
-                            'harga_satuan' => $item->harga_satuan,
+                            // Rp0 adalah penanda internal untuk harga yang belum
+                            // diisi. Di form tetap tampil kosong agar mudah diisi
+                            // setelah daftar barang selesai dibuat.
+                            'harga_satuan' => (int) $item->harga_satuan > 0 ? $item->harga_satuan : null,
                             'keterangan' => $item->keterangan,
                         ])->values()->all(),
                         'nota_paths' => $record->notas->pluck('path')->all(),
@@ -221,7 +224,9 @@ class PengeluaranRelationManager extends RelationManager
                                     (int) $item['barang_id'],
                                     $item['satuan'] ?? null,
                                 );
-                                $item['harga_satuan'] = $latest['price'];
+                                if (blank($item['harga_satuan'] ?? null) && $latest['price'] !== null) {
+                                    $item['harga_satuan'] = $latest['price'];
+                                }
                             }
                             unset($item);
 
@@ -295,7 +300,9 @@ class PengeluaranRelationManager extends RelationManager
                                         (int) $state,
                                         $context['market'] ? null : $context['unit'],
                                     );
-                                    $set('harga_satuan', $latest['price']);
+                                    if (blank($get('harga_satuan'))) {
+                                        $set('harga_satuan', $latest['price']);
+                                    }
                                 })
                                 ->required()
                                 ->columnSpan(['default' => 1, 'lg' => 4]),
@@ -332,7 +339,9 @@ class PengeluaranRelationManager extends RelationManager
                                         (int) $get('barang_id'),
                                         is_string($state) ? $state : null,
                                     );
-                                    $set('harga_satuan', $latest['price']);
+                                    if (blank($get('harga_satuan'))) {
+                                        $set('harga_satuan', $latest['price']);
+                                    }
                                 })
                                 ->helperText('Satuan pasar dapat dipilih sesuai pembelian.')
                                 ->columnSpan(['default' => 1, 'lg' => 1]),
@@ -351,18 +360,21 @@ class PengeluaranRelationManager extends RelationManager
                                 ->numeric()
                                 ->integer()
                                 ->stripCharacters(['.', ',', ' ', 'Rp', 'rp'])
-                                ->minValue(1)
+                                ->minValue(0)
                                 ->maxValue(999_999_999_999)
                                 ->inputMode('numeric')
                                 ->live(onBlur: true)
                                 ->helperText(function (Get $get): string {
-                                    return $this->priceHistoryText(
+                                    $history = $this->priceHistoryText(
                                         (int) $get('../../supplier_id'),
                                         (int) $get('barang_id'),
                                     );
 
+                                    return $history !== ''
+                                        ? $history
+                                        : 'Boleh dikosongkan dahulu. Total akan Rp0 sampai harga diisi.';
+
                                 })
-                                ->required()
                                 ->columnSpan(['default' => 1, 'lg' => 2]),
                             Forms\Components\Placeholder::make('subtotal_preview')
                                 ->label('Subtotal')

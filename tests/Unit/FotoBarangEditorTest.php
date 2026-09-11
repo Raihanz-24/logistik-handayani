@@ -75,6 +75,9 @@ class FotoBarangEditorTest extends TestCase
         $this->assertStringNotContainsString("Schema::table('barang_lokasi'", $migration);
         $this->assertStringNotContainsString("Schema::table('mutasis'", $migration);
         $this->assertStringContainsString("protected static ?string \$navigationLabel = 'Editor Foto Maps'", $page);
+        $this->assertStringContainsString('public static function shouldRegisterNavigation(): bool', $page);
+        $this->assertStringContainsString('return false;', $page);
+        $this->assertStringContainsString("return \$user instanceof User && \$user->hasRole('super_admin');", $page);
         $this->assertStringContainsString('public function createEditedPhoto', $page);
         $this->assertStringContainsString('public function copyEditedPhoto', $page);
         $this->assertStringContainsString('public function copyEditedPhotos', $page);
@@ -108,12 +111,19 @@ class FotoBarangEditorTest extends TestCase
         $this->assertStringContainsString("->whereIn('client_capture_id'", $service);
         $this->assertStringContainsString("'processing_status' => FotoBarangItem::PROCESSING_COMPLETED", $service);
         $this->assertStringContainsString("\$disk->copy(\$photo['source_path'], \$storedPath)", $service);
-        $this->assertStringContainsString("\$disk->delete(\$storedPaths)", $service);
-        $this->assertStringNotContainsString("\$disk->delete(\$edit->path)", $service);
+        $this->assertStringContainsString('$disk->delete($storedPaths)', $service);
+        $this->assertStringNotContainsString('$disk->delete($edit->path)', $service);
         $this->assertStringContainsString('renderTimeRevision', $imageService);
         $this->assertStringNotContainsString("'Diedit'", $imageService);
         $this->assertStringContainsString("->name('foto-barang.edit-preview')", $routes);
         $this->assertStringContainsString("->name('foto-barang.edit-download')", $routes);
+
+        $shortcut = (string) file_get_contents($root.'/resources/views/filament/photo-editor-shortcut.blade.php');
+        $provider = (string) file_get_contents($root.'/app/Providers/Filament/AdminPanelProvider.php');
+        $this->assertStringContainsString("hasRole('super_admin')", $shortcut);
+        $this->assertStringContainsString('heroicon-m-ellipsis-vertical', $shortcut);
+        $this->assertStringContainsString('Editor Foto Maps', $shortcut);
+        $this->assertStringContainsString('PanelsRenderHook::GLOBAL_SEARCH_AFTER', $provider);
 
         preg_match(
             '/class="fme-panel fme-results"\s*x-data="(\{.*?\})"\s*x-on:keydown.left/s',
