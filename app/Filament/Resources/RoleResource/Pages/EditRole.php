@@ -8,13 +8,31 @@ use App\Support\RolePermissionCatalog;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Support\Arr;
+use Illuminate\Validation\ValidationException;
+use TypeError;
 
 class EditRole extends EditRecord
 {
     protected static string $resource = RoleResource::class;
 
-    /** @var array<int, mixed> */
-    private array $selectedPermissions = [];
+    /** See CreateRole: role and permission changes must be one transaction. */
+    protected ?bool $hasDatabaseTransactions = true;
+
+    public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
+    {
+        try {
+            parent::save($shouldRedirect, $shouldSendSavedNotification);
+        } catch (TypeError $exception) {
+            report($exception);
+            logger()->error('Submit perubahan peran gagal karena TypeError.', [
+                'exception' => $exception->getMessage(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'data.name' => 'Perubahan izin belum dapat disimpan. Silakan coba lagi. Data tidak diubah.',
+            ]);
+        }
+    }
 
     protected function mutateFormDataBeforeFill(array $data): array
     {
@@ -27,8 +45,6 @@ class EditRole extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        $this->selectedPermissions = RolePermissionCatalog::flattenGroups($data['permission_groups'] ?? []);
-
         if ($this->getRecord()->name === 'super_admin') {
             unset($data['name']);
         }
@@ -38,7 +54,10 @@ class EditRole extends EditRecord
 
     protected function afterSave(): void
     {
-        RolePermissionCatalog::sync($this->getRecord(), $this->selectedPermissions);
+        RolePermissionCatalog::sync(
+            $this->getRecord(),
+            RolePermissionCatalog::selectedFromFormData($this->data ?? []),
+        );
 
         app(AuditLogger::class)->activity(
             'role_update',

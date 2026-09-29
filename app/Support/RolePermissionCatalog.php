@@ -174,7 +174,9 @@ class RolePermissionCatalog
      */
     public static function groupedValues(array $permissions): array
     {
-        $selected = collect($permissions)->filter('is_string')->all();
+        $selected = collect($permissions)
+            ->filter(fn (mixed $permission): bool => is_string($permission))
+            ->all();
 
         return collect(static::groups())
             ->mapWithKeys(fn (array $group, string $key): array => [
@@ -190,10 +192,27 @@ class RolePermissionCatalog
     {
         return collect($permissionGroups)
             ->flatMap(fn (mixed $permissions): array => is_array($permissions) ? $permissions : [])
-            ->filter('is_string')
+            ->filter(fn (mixed $permission): bool => is_string($permission))
             ->unique()
             ->values()
             ->all();
+    }
+
+    /**
+     * Normalize the value submitted by the role form.
+     *
+     * A Livewire request may contain an empty or partially-hydrated group while
+     * the user is opening and closing permission sections. Treat that state as
+     * an empty group instead of allowing a non-array value into the save flow.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<int, string>
+     */
+    public static function selectedFromFormData(array $data): array
+    {
+        $groups = $data['permission_groups'] ?? [];
+
+        return static::flattenGroups(is_array($groups) ? $groups : []);
     }
 
     /** @param array<int, mixed> $permissionNames */
@@ -205,9 +224,11 @@ class RolePermissionCatalog
             ->unique()
             ->values();
 
-        $permissions = $selected->map(
-            fn (string $name): Permission => Permission::findOrCreate($name, 'web'),
-        );
+        $permissions = $selected
+            ->map(fn (string $name) => Permission::findOrCreate($name, 'web'))
+            ->filter(fn (mixed $permission): bool => $permission instanceof Permission)
+            ->values()
+            ->all();
 
         $role->syncPermissions($permissions);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
