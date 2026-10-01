@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\User;
 use App\Services\DashboardCacheService;
 use App\Services\SawRestockRecommendationService;
 use Carbon\CarbonImmutable;
@@ -37,6 +38,14 @@ class SawRestockReport extends Page implements HasForms
     /** @var array<string, mixed>|null */
     public ?array $filters = [];
 
+    public static function canAccess(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || $user->can('view_analisis_restock'));
+    }
+
     public function mount(): void
     {
         $this->form->fill($this->defaultFilters());
@@ -59,7 +68,7 @@ class SawRestockReport extends Page implements HasForms
         return $form
             ->schema([
                 Section::make('Filter analisis')
-                    ->description('Pemakaian hanya menghitung mutasi keluar yang sudah disetujui.')
+                    ->description('Pemakaian hanya menghitung mutasi keluar yang disetujui menuju lokasi pemakaian. Stok dihitung dari akumulasi seluruh gudang.')
                     ->columns(['default' => 1, 'md' => 3])
                     ->schema([
                         DatePicker::make('start_date')

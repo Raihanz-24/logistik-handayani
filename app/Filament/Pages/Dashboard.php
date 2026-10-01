@@ -6,6 +6,7 @@ use App\Filament\Widgets\BarangAlert;
 use App\Filament\Widgets\DashboardHero;
 use App\Filament\Widgets\RestockRecommendation;
 use App\Filament\Widgets\StatsOverview;
+use App\Models\User;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
@@ -19,6 +20,14 @@ class Dashboard extends BaseDashboard
     protected static string $view = 'filament.pages.dashboard';
 
     protected ?string $maxContentWidth = 'full';
+
+    public static function canAccess(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || $user->can('view_dashboard_monitoring'));
+    }
 
     public function getExtraBodyAttributes(): array
     {

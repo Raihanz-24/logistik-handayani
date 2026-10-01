@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Models\User;
 use App\Services\DashboardCacheService;
 use App\Services\SawRestockRecommendationService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
@@ -21,6 +22,17 @@ class RestockRecommendation extends Widget
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isLazy = false;
+
+    public static function canView(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || (
+                $user->can('view_dashboard_monitoring')
+                && $user->can('view_analisis_restock')
+            ));
+    }
 
     /**
      * @return array<string, mixed>

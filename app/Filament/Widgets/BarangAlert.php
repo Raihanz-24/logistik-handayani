@@ -2,10 +2,12 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\BarangLokasi;
+use App\Models\Lokasi;
+use App\Models\User;
 use App\Services\DashboardCacheService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\Widget;
+use Illuminate\Support\Facades\DB;
 
 class BarangAlert extends Widget
 {
@@ -19,26 +21,42 @@ class BarangAlert extends Widget
 
     protected static bool $isLazy = false;
 
+    public static function canView(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || $user->can('view_dashboard_monitoring'));
+    }
+
     protected function getViewData(): array
     {
         $rows = collect(app(DashboardCacheService::class)->remember(
-            'low-stock:v1',
-            fn (): array => BarangLokasi::query()
-                ->with(['barang:id,nama_barang,kode_barang,satuan', 'lokasi:id,nama_lokasi'])
-                ->whereHas('lokasi', fn ($query) => $query->gudang())
-                ->where('stok', '<', 10)
-                ->orderBy('stok')
+            'low-stock:v2:all-warehouses',
+            fn (): array => DB::table('barang_lokasi')
+                ->join('lokasis', 'lokasis.id', '=', 'barang_lokasi.lokasi_id')
+                ->join('barangs', 'barangs.id', '=', 'barang_lokasi.barang_id')
+                ->where('lokasis.jenis_lokasi', Lokasi::JENIS_GUDANG)
+                ->select([
+                    'barangs.nama_barang as name',
+                    'barangs.kode_barang as code',
+                    'barangs.satuan as unit',
+                ])
+                ->selectRaw('COALESCE(SUM(barang_lokasi.stok), 0) as stock')
+                ->groupBy('barangs.id', 'barangs.nama_barang', 'barangs.kode_barang', 'barangs.satuan')
+                ->havingRaw('COALESCE(SUM(barang_lokasi.stok), 0) < ?', [10])
+                ->orderBy('stock')
                 ->limit(8)
-                ->get(['barang_id', 'lokasi_id', 'stok'])
-                ->map(fn (BarangLokasi $stock): array => [
-                    'name' => $stock->barang?->nama_barang ?? 'Barang',
-                    'code' => $stock->barang?->kode_barang ?? '-',
-                    'location' => $stock->lokasi?->nama_lokasi ?? 'Lokasi',
-                    'stock' => (int) $stock->stok,
-                    'unit' => $stock->barang?->satuan ?? 'unit',
+                ->get()
+                ->map(fn (object $stock): array => [
+                    'name' => $stock->name ?? 'Barang',
+                    'code' => $stock->code ?? '-',
+                    'location' => 'Akumulasi semua gudang',
+                    'stock' => (int) $stock->stock,
+                    'unit' => $stock->unit ?? 'unit',
                     'tone' => match (true) {
-                        $stock->stok <= 0 => 'danger',
-                        $stock->stok <= 3 => 'warning',
+                        $stock->stock <= 0 => 'danger',
+                        $stock->stock <= 3 => 'warning',
                         default => 'amber',
                     },
                 ])

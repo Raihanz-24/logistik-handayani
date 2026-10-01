@@ -48,6 +48,8 @@ class SawRestockRecommendationService
 
         $stockByBarang = DB::table('barang_lokasi')
             ->join('lokasis', 'lokasis.id', '=', 'barang_lokasi.lokasi_id')
+            // Sisa stok untuk kriteria SAW adalah saldo gabungan seluruh gudang,
+            // bukan saldo pada gudang asal atau gudang tujuan mutasi tertentu.
             ->where('lokasis.jenis_lokasi', Lokasi::JENIS_GUDANG)
             ->select('barang_lokasi.barang_id')
             ->selectRaw('COALESCE(SUM(stok), 0) as sisa_stok')

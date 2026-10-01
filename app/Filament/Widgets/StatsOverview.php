@@ -9,6 +9,7 @@ use App\Models\Barang;
 use App\Models\BarangLokasi;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
+use App\Models\User;
 use App\Services\DashboardCacheService;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Carbon\Carbon;
@@ -27,6 +28,14 @@ class StatsOverview extends Widget
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isLazy = false;
+
+    public static function canView(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && ($user->hasRole('super_admin') || $user->can('view_dashboard_monitoring'));
+    }
 
     protected function getViewData(): array
     {

@@ -13,6 +13,8 @@ class RolePermissionCatalog
     public static function options(): array
     {
         $options = [
+            'view_dashboard_monitoring' => 'Dashboard Monitoring — lihat ringkasan dan stok hampir habis',
+            'view_analisis_restock' => 'Analisis Restock SAW — lihat skor dan pola pemakaian',
             'view_any_barang' => 'Master Barang — lihat daftar',
             'view_barang' => 'Master Barang — lihat detail',
             'create_barang' => 'Master Barang — tambah',
@@ -92,6 +94,13 @@ class RolePermissionCatalog
     {
         $options = static::options();
         $definitions = [
+            'dashboard' => [
+                'label' => 'Dashboard & Analisis',
+                'names' => [
+                    'view_dashboard_monitoring',
+                    'view_analisis_restock',
+                ],
+            ],
             'barang' => [
                 'label' => 'Master Barang',
                 'names' => [
