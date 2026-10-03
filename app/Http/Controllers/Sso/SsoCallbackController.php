@@ -37,6 +37,7 @@ class SsoCallbackController
         $expectedState = $request->session()->pull('sso.state');
         $codeVerifier = $request->session()->pull('sso.code_verifier');
         $intended = $request->session()->pull('sso.intended');
+        $startedAt = $request->session()->pull('sso.started_at');
 
         // Portal bisa mengembalikan error (mis. user menolak / tak punya akses).
         if (is_string($error) && $error !== '') {
@@ -49,6 +50,15 @@ class SsoCallbackController
             Log::warning('sso.callback.state_mismatch', ['ip' => $request->ip()]);
 
             return $this->fail('Permintaan SSO tidak valid (state). Silakan coba lagi.');
+        }
+
+        // Kedaluwarsa: state/verifier hanya berlaku `sso.state_ttl` detik sejak
+        // dimulai. Mencegah state lama (mis. tab tertinggal) dipakai ulang.
+        $ttl = (int) config('sso.state_ttl', 300);
+        if ($ttl > 0 && (! is_int($startedAt) && ! is_numeric($startedAt) || (time() - (int) $startedAt) > $ttl)) {
+            Log::warning('sso.callback.state_expired', ['ip' => $request->ip()]);
+
+            return $this->fail('Sesi SSO kedaluwarsa. Silakan coba lagi.');
         }
 
         if (! is_string($code) || $code === '' || ! is_string($codeVerifier) || $codeVerifier === '') {

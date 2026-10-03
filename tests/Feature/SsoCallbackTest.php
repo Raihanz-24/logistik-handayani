@@ -106,6 +106,29 @@ class SsoCallbackTest extends TestCase
             ->assertRedirect(route('filament.admin.auth.login'));
     }
 
+    public function test_callback_rejects_expired_state(): void
+    {
+        $user = User::factory()->create(['portal_uuid' => (string) Str::uuid()]);
+        $user->assignRole('user');
+
+        config()->set('sso.state_ttl', 300);
+
+        $state = $this->startFlow();
+        $this->fakeToken($user->portal_uuid);
+
+        // Simulasikan flow dimulai > TTL detik lalu.
+        session()->put('sso.started_at', time() - 301);
+
+        $this->get('/sso/callback?code=abc123&state='.$state)
+            ->assertRedirect(route('filament.admin.auth.login'));
+
+        $this->assertGuest();
+        Http::assertNothingSent();
+
+        // State sudah dikonsumsi (sekali pakai) walau kedaluwarsa.
+        $this->assertNull(session('sso.state'));
+    }
+
     public function test_callback_rejects_unknown_portal_uuid_without_auto_create(): void
     {
         // Tidak ada user dengan portal_uuid ini.
