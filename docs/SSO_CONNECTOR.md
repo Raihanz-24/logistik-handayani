@@ -27,6 +27,22 @@ ada `user_id` di URL).
 Route didaftarkan di `bootstrap/app.php` via `withRouting(then: ...)` dengan
 middleware `web`. Tidak mengubah route/middleware lain.
 
+## Logout
+
+Setelah user logout dari panel Logistik, tujuannya bergantung pada status SSO
+(diatur oleh `App\Http\Responses\Auth\LogoutResponse`, di-bind di
+`AppServiceProvider`, menggantikan `Filament\...\LogoutResponse` bawaan):
+
+| Kondisi | Tujuan setelah logout |
+|---|---|
+| `SSO_ENABLED=true` | Halaman utama Portal (`SSO_PORTAL_BASE_URL`, mis. `https://portal.handayani.my.id`) |
+| `SSO_ENABLED=false` | Login Logistik (perilaku bawaan) |
+| `SSO_PORTAL_BASE_URL` kosong | Login Logistik (fallback aman) |
+
+> **Prinsip:** bila Portal mati / SSO dimatikan, logout tetap mengarah ke login
+> Logistik → user **tidak terkunci**. Perubahan ini **hanya** mengubah URL tujuan
+> setelah logout; tidak menyentuh autentikasi/audit.
+
 ## Konfigurasi (`config/sso.php`)
 
 Nilai diambil dari `.env` (JANGAN hardcode):
@@ -93,9 +109,10 @@ php artisan sso:link-account --portal=<username-portal> --app=logistik --uuid=<u
 # di CI/staging (punya pdo_sqlite)
 php artisan test --filter Sso
 
-# lokal (PHP CLI tanpa pdo_sqlite) — pakai config MySQL lokal
+# lokal (PHP CLI tanpa pdo_sqlite) - pakai config MySQL lokal
 vendor\bin\phpunit -c phpunit.mysql.xml --filter Sso
+vendor\bin\phpunit -c phpunit.mysql.xml --filter LogoutRedirect
 ```
 
 Cakupan: PKCE S256, state mismatch/replay, UUID tak dikenal (tanpa auto-create),
-status inactive, kegagalan tukar token, resolver, command.
+status inactive, kegagalan tukar token, resolver, command, tujuan logout.

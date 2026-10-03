@@ -230,7 +230,7 @@ cd ~/logistik-handayani
 cp .env ".env.bak-$(date +%Y%m%d-%H%M)"
 
 # Backup database — ganti USER & NAMA_DB sesuai isi .env
-mysqldump -u USER -p NAMA_DB > ~/logistik-backup-$(date +%Y%m%d).sql
+mysqldump -u banksam6_raihan24 -p banksam6_logistikhandayani > ~/logistik-backup-$(date +%Y%m%d).sql
 ```
 
 Cek nama DB & user dari `.env`:
@@ -454,6 +454,8 @@ ke Logistik (tanpa `user_id`/token di URL).
 
 - [ ] `https://handayani.my.id/admin/login` → **login langsung tetap jalan**
 - [ ] `https://handayani.my.id/sso/login` → **SSO jalan**
+- [ ] **Logout** → mengarah ke Portal (`https://portal.handayani.my.id`) saat
+      `SSO_ENABLED=true`; mengarah ke login Logistik saat SSO mati
 - [ ] URL callback **tidak** memuat `user_id`/`token`/`code` di query
 - [ ] `php artisan config:cache route:cache view:cache` sudah dijalankan
 - [ ] Hapus file backup lokal server yang sensitif setelah yakin:

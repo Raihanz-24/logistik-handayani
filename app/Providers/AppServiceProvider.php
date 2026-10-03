@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Responses\Auth\LogoutResponse;
 use App\Models\User;
 use App\Observers\UserObserver;
 use App\Services\AuditLogger;
@@ -22,6 +23,13 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(DashboardCacheService::class);
+
+        // Ganti tujuan setelah logout panel Filament:
+        // SSO aktif → halaman utama Portal; SSO nonaktif → login Logistik.
+        $this->app->bind(
+            \Filament\Http\Responses\Auth\Contracts\LogoutResponse::class,
+            LogoutResponse::class,
+        );
     }
 
     /**
