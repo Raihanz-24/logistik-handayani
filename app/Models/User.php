@@ -28,6 +28,7 @@ class User extends Authenticatable implements FilamentUser
         'username',
         'email',
         'password',
+        'portal_uuid',
     ];
 
     /**
@@ -38,6 +39,8 @@ class User extends Authenticatable implements FilamentUser
     protected $hidden = [
         'password',
         'remember_token',
+        // Opaque SSO identity: tidak perlu (dan sebaiknya tidak) bocor ke API.
+        'portal_uuid',
     ];
 
     /**
