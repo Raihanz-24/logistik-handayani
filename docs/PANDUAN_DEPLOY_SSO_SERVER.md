@@ -1,8 +1,9 @@
 # PANDUAN DEPLOY SSO DI SERVER (Logistik Handayani)
 
 > Panduan langkah-demi-langkah (STOP-GATE) untuk memasang fitur SSO ke server
-> produksi Logistik. Setiap langkah punya **titik henti** — jangan lanjut
-> sebelum langkah sebelumnya berhasil.
+> produksi Logistik. **Ikuti berurutan** dari Langkah 0 → 10. Setiap langkah
+> punya **titik henti (STOP-GATE)** — jangan lanjut sebelum langkah sebelumnya
+> berhasil.
 >
 > **Prinsip:** kode SSO bersifat **aditif**. Login langsung Logistik HARUS
 > tetap jalan kapan pun, walau Portal mati.
@@ -12,54 +13,133 @@
 > - Remote: `git@github.com:Raihanz-24/logistik-handayani.git` (SSH) ✅
 > - PHP: **8.2.34** ✅ (butuh 8.1+, aman)
 > - Branch server saat ini: `main`
-> - **Ada perubahan lokal** yang harus dibereskan dulu (lihat Langkah 1).
+> - ❗ **`feature/sso-connector` BELUM di-merge ke `main`** → kerjakan Langkah 0.
+> - ❗ Server punya **perubahan lokal** (`.htaccess` dsb) → kerjakan Langkah 1.
+>
+> **Kondisi lokal Anda (terverifikasi):**
+> - Branch: `feature/sso-connector` @ `3740d4e` (sudah ter-push).
+> - `main` lokal = `461dfcc`; **merge akan FAST-FORWARD** (6 commit SSO, 0
+>   commit baru di `main`) → aman, tanpa konflik.
 
 ---
 
-## Ringkasan Alur
+## Peta Alur Lengkap
 
 ```
-[LOKAL]   push branch  →  merge ke main  →  push main
-[SERVER]  backup  →  pull main  →  pop stash (.htaccess)  →  .env (SSO OFF)
-          →  migrate  →  UJI login langsung  →  assign UUID  →  tautkan akun
-          →  SSO ON  →  UJI SSO
+╔══════════════════════════════════════════════════════════════════════╗
+║  DI KOMPUTER LOKAL (Windows)                                         ║
+║                                                                      ║
+║  Langkah 0A  push branch feature/sso-connector                       ║
+║  Langkah 0B  merge feature/sso-connector → main  (fast-forward)      ║
+║  Langkah 0C  push main ke GitHub                                     ║
+╚══════════════════════════════════════════════════════════════════════╝
+                                │
+                                ▼  (kode SSO sekarang ada di main)
+╔══════════════════════════════════════════════════════════════════════╗
+║  DI SERVER (shared hosting, SSH)                                     ║
+║                                                                      ║
+║  Langkah 1   bersihkan perubahan lokal (backup + stash .htaccess)    ║
+║  Langkah 2   backup .env + database                                  ║
+║  Langkah 3   git pull origin main                                    ║
+║  Langkah 3b  git stash pop  (kembalikan fix .htaccess)               ║
+║  Langkah 4   tambah blok SSO_* ke .env   (SSO_ENABLED=false)         ║
+║  Langkah 5   composer + migrate + cache                              ║
+║  Langkah 6   UJI: login langsung Logistik HARUS tetap jalan          ║
+║  Langkah 7   sso:assign-uuid + sso:show-uuid                         ║
+║  Langkah 8   (Portal) daftarkan app + Hak Akses + Tautan Akun        ║
+║  Langkah 9   set SSO_ENABLED=true -> uji /sso/login                  ║
+║  Langkah 10  verifikasi akhir                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
 ```
 
 > **Catatan:** panduan ini memakai alur **merge ke `main`** (paling rapi untuk
-> server yang sudah clone). Bila Anda ingin **uji branch dulu** tanpa merge,
-> lihat bagian **Lampiran A** di akhir dokumen.
+> server yang sudah clone). Bila ingin **uji branch dulu** tanpa merge, lihat
+> **Lampiran A**.
 
 ---
 
-## LANGKAH 0 — Di komputer LOKAL: Merge branch ke `main`
+# BAGIAN 1 — DI KOMPUTER LOKAL (Windows)
 
-> Dilewati bila Anda sudah merge. Cek cepat:
-> `git log --oneline origin/main -3` — bila belum ada commit SSO, jalankan ini.
+## LANGKAH 0A — Pastikan branch SSO sudah ter-push
 
 ```bash
 cd "D:\laragon\www\logistik handayani"
 
-# Pastikan branch SSO sudah ter-push
+# Branch kerja saat ini & statusnya
+git rev-parse --abbrev-ref HEAD     # harus: feature/sso-connector
+git status --short                  # harus BERSIH (kosong)
+
+# Push branch (bila belum; aman diulang)
 git push -u origin feature/sso-connector
-
-# Merge ke main
-git checkout main
-git pull origin main
-git merge feature/sso-connector      # harus fast-forward / bersih
-git push origin main
-
-# Balik ke branch kerja (opsional)
-git checkout feature/sso-connector
 ```
 
-✅ **Berhasil bila:** `git push origin main` sukses tanpa konflik.
+✅ **Berhasil bila:** output menampilkan `branch 'feature/sso-connector'` sudah
+up-to-date / ter-push (atau `Everything up-to-date`).
 
-> Alternatif: merge lewat Pull Request di web GitHub
-> (`https://github.com/Raihanz-24/logistik-handayani`).
+> ⚠️ Bila `git status --short` **tidak kosong**, commit dulu:
+> ```bash
+> git add <file-file-yang-muncul>
+> git commit -m "chore: siapkan merge SSO"
+> ```
 
 ---
 
-## LANGKAH 1 — Di SERVER: Bereskan perubahan lokal
+## LANGKAH 0B — Merge `feature/sso-connector` → `main` (fast-forward)
+
+> Dipastikan **fast-forward** (tanpa konflik): `main` tidak punya commit yang
+> belum ada di `feature`.
+
+```bash
+cd "D:\laragon\www\logistik handayani"
+
+# 1. Pindah ke main & pastikan terbaru
+git checkout main
+git pull origin main
+
+# 2. Merge branch SSO (harus fast-forward)
+git merge feature/sso-connector
+
+# 3. Lihat hasilnya — 6 commit SSO harus muncul di atas
+git log --oneline -8
+```
+
+✅ **Berhasil bila:** output `git merge` menyebut **`Fast-forward`** (bukan
+merge commit / konflik), dan `git log` menampilkan commit SSO (`62c6ace`,
+`3461b0a`, dst.) di atas `461dfcc`.
+
+> ❗ Bila muncul `CONFLICT` (tidak diharapkan), **berhenti** dan laporkan —
+> jangan lanjut ke push.
+
+---
+
+## LANGKAH 0C — Push `main` ke GitHub
+
+```bash
+# Masih di branch main
+git push origin main
+
+# Verifikasi remote sudah berisi SSO
+git log --oneline -3 origin/main
+
+# Balik ke branch kerja (opsional; agar tidak bingung)
+git checkout feature/sso-connector
+```
+
+✅ **Berhasil bila:** `git push origin main` sukses, dan `origin/main` kini
+menunjuk ke commit SSO (mis. `62c6ace` / `3740d4e`), **bukan** `461dfcc`.
+
+> 🚦 **STOP-GATE 0** — Jangan lanjut ke server bila `origin/main` belum berisi
+> commit SSO.
+
+**Alternatif:** alih-alih 0B–0C di terminal, Anda bisa merge via **Pull Request
+di web GitHub** (`https://github.com/Raihanz-24/logistik-handayani`) →
+`feature/sso-connector` → `main` → **Merge pull request**.
+
+---
+
+# BAGIAN 2 — DI SERVER (shared hosting)
+
+## LANGKAH 1 — Bereskan perubahan lokal
 
 Saat ini server `main` punya perubahan lokal yang **menghalangi** `git pull`:
 
@@ -74,10 +154,12 @@ Untracked:                 public/error_log
 ```bash
 cd ~/logistik-handayani
 
+git status
 git diff --cached storage/app/.gitignore
 git diff public/.htaccess
 git diff --stat
 ```
+
 
 **Hasil yang SUDAH terverifikasi di server Anda:**
 
@@ -139,7 +221,7 @@ git status
 
 ---
 
-## LANGKAH 2 — Di SERVER: Backup (WAJIB)
+## LANGKAH 2 — Backup (WAJIB)
 
 ```bash
 cd ~/logistik-handayani
@@ -162,7 +244,7 @@ grep -E "^DB_(DATABASE|USERNAME)=" .env
 
 ---
 
-## LANGKAH 3 — Di SERVER: Pull kode terbaru
+## LANGKAH 3 — Pull kode terbaru
 
 ```bash
 cd ~/logistik-handayani
@@ -184,7 +266,7 @@ git log --oneline -6
 
 ---
 
-## LANGKAH 3b — Di SERVER: Kembalikan fix `.htaccess` (pop stash)
+## LANGKAH 3b — Kembalikan fix `.htaccess` (pop stash)
 
 Setelah pull sukses, kembalikan penyesuaian `.htaccess` yang tadi di-stash:
 
@@ -239,7 +321,7 @@ git push origin main
 
 ---
 
-## LANGKAH 4 — Di SERVER: Tambah blok SSO ke `.env`
+## LANGKAH 4 — Tambah blok SSO ke `.env`
 
 > **PENTING:** **TAMBAHKAN** saja. **JANGAN** menimpa `APP_*`, `DB_*`,
 > `MAIL_*`, `SESSION_*`, atau `APP_KEY` yang sudah ada.
@@ -264,7 +346,7 @@ SSO_HTTP_TIMEOUT=10
 
 ---
 
-## LANGKAH 5 — Di SERVER: Dependency, migrasi, cache
+## LANGKAH 5 — Dependency, migrasi, cache
 
 ```bash
 cd ~/logistik-handayani
@@ -298,7 +380,7 @@ php artisan view:cache
 
 ---
 
-## LANGKAH 6 — Di SERVER: UJI TAHAP 1 (SSO masih OFF)
+## LANGKAH 6 — UJI TAHAP 1 (SSO masih OFF)
 
 Buka di browser:
 
@@ -312,7 +394,7 @@ Ini membuktikan kode SSO **tidak merusak** apa pun.
 
 ---
 
-## LANGKAH 7 — Di SERVER: Beri UUID ke user yang akan memakai SSO
+## LANGKAH 7 — Beri UUID ke user yang akan memakai SSO
 
 ```bash
 cd ~/logistik-handayani
@@ -330,7 +412,9 @@ php artisan sso:show-uuid nama@example.com
 
 ---
 
-## LANGKAH 8 — Di PORTAL: Daftarkan app & tautkan akun
+# BAGIAN 3 — DI PORTAL (portal.handayani.my.id)
+
+## LANGKAH 8 — Daftarkan app & tautkan akun
 
 Login Portal admin:
 `https://portal.handayani.my.id/hndy-control-7f3a9c2e`
@@ -346,7 +430,9 @@ Login Portal admin:
 
 ---
 
-## LANGKAH 9 — Di SERVER: Nyalakan SSO
+# BAGIAN 4 — KEMBALI KE SERVER
+
+## LANGKAH 9 — Nyalakan SSO
 
 ```bash
 cd ~/logistik-handayani
