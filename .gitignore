@@ -3,6 +3,12 @@
 .env
 .env.backup
 .env.production
+# Jangan pernah commit backup .env (berisi APP_KEY/DB_PASSWORD/SSO secret).
+.env.bak*
+.env.save*
+.phpunit.mysql.cache
+# Override test lokal (root/klik DB lokal) — lihat catatan di file.
+phpunit.mysql.xml
 .phpactor.json
 .phpunit.result.cache
 /.fleet
