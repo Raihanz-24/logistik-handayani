@@ -70,6 +70,19 @@ class Login extends BaseLogin
         $this->resetErrorBag();
         $this->loginErrorMessage = null;
 
+        // SSO aktif → login langsung DIBLOKIR di sisi server.
+        // (Overlay pop-up hanya lapisan UI; ini penjagaan sebenarnya agar
+        //  tetap tak bisa ditembus walau CSS/UI dilewati.)
+        // Bila SSO nonaktif (SSO_ENABLED=false), blok ini dilewati → login
+        // langsung kembali normal (termasuk saat Portal bermasalah).
+        if (config('sso.enabled')) {
+            $this->showLoginFailure('Login langsung dinonaktifkan. Silakan masuk melalui Portal Handayani.');
+
+            $this->data['password'] = '';
+
+            return null;
+        }
+
         try {
             $this->rateLimit(5);
         } catch (TooManyRequestsException $exception) {

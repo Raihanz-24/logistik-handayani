@@ -223,14 +223,26 @@ class SsoSecurityTest extends TestCase
         $this->assertStringNotContainsString('user_id', $loginUrl);
         $this->assertStringNotContainsString('token', $loginUrl);
 
-        // URL setelah callback sukses
+        // URL setelah callback sukses.
+        //
+        // Catatan: bandingkan PATH + QUERY saja (bukan URL absolut). Host lokal
+        // (mis. 127.0.0.1) mengandung digit yang bisa keliru cocok dengan id user.
         $state = (string) session('sso.state');
         $this->fakeToken($user->portal_uuid);
         $after = (string) $this->get('/sso/callback?code=abc123&state='.$state)->headers->get('Location');
 
-        $this->assertStringNotContainsString('token', $after);
-        $this->assertStringNotContainsString((string) $user->id, $after);
-        $this->assertStringNotContainsString((string) $user->portal_uuid, $after);
+        $afterPath = (string) (parse_url($after, PHP_URL_PATH) ?? '');
+        $afterQuery = (string) (parse_url($after, PHP_URL_QUERY) ?? '');
+        $afterPathQuery = $afterPath.($afterQuery !== '' ? '?'.$afterQuery : '');
+
+        $this->assertStringNotContainsString('token', $afterPathQuery);
+        $this->assertStringNotContainsString('user_id', $afterPathQuery);
+        $this->assertStringNotContainsString((string) $user->portal_uuid, $afterPathQuery);
+        // id user TIDAK muncul sebagai segmen path / nilai query (mis. ?user=12).
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?:^|[\/=?&])'.preg_quote((string) $user->id, '/').'(?:$|[\/=&])/',
+            $afterPathQuery,
+        );
     }
 
     // ---------------------------------------------------------------------

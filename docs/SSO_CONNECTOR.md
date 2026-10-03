@@ -43,6 +43,30 @@ Setelah user logout dari panel Logistik, tujuannya bergantung pada status SSO
 > Logistik → user **tidak terkunci**. Perubahan ini **hanya** mengubah URL tujuan
 > setelah logout; tidak menyentuh autentikasi/audit.
 
+## SSO Gate — menutup login langsung saat SSO aktif
+
+Saat `SSO_ENABLED=true`, halaman login Logistik (`/admin/login`) **ditutup**
+oleh overlay pop-up (dikunci, tidak bisa ditutup) yang mengarahkan user ke
+Portal. Penjagaan berlapis:
+
+1. **UI** — `resources/views/filament/pages/auth/login.blade.php` merender
+   overlay `.wm-sso-gate` (gaya di `public/css/filament/admin/login.css`) hanya
+   bila `config('sso.enabled')` true.
+2. **Server-side** — `App\Filament\Pages\Auth\Login::authenticate()` menolak
+   login langsung bila SSO aktif, sehingga tidak bisa ditembus walau UI/CSS
+   dilewati (mis. via `curl`).
+
+| Kondisi | Perilaku halaman login Logistik |
+|---|---|
+| `SSO_ENABLED=true` | Ditutup overlay + tombol "Login dengan Portal Handayani" (`/sso/login`); login langsung **ditolak** di server |
+| `SSO_ENABLED=false` | Login langsung **terbuka normal** (tanpa overlay) |
+
+> **Prinsip:** konsisten dengan logout. Bila Portal bermasalah / SSO dimatikan,
+> cukup set `SSO_ENABLED=false` → login langsung pulih seketika. Tidak ada
+> bypass UI tambahan.
+>
+> **Darurat:** matikan `SSO_ENABLED` di `.env` lalu `php artisan config:cache`.
+
 ## Konfigurasi (`config/sso.php`)
 
 Nilai diambil dari `.env` (JANGAN hardcode):

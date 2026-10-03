@@ -198,5 +198,56 @@
         </main>
     </div>
 
+    @if (config('sso.enabled'))
+        {{-- SSO aktif: login langsung DITUTUP. Arahkan user ke Portal. --}}
+        {{-- Overlay dikunci (tidak bisa ditutup) & memblok semua interaksi  --}}
+        {{-- dengan form di belakangnya. Bila SSO_ENABLED=false, blok ini    --}}
+        {{-- tidak dirender → login langsung kembali normal.                 --}}
+        <div
+            class="wm-sso-gate"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wm-sso-gate-title"
+            aria-describedby="wm-sso-gate-desc"
+        >
+            <div class="wm-sso-gate__card">
+                <span class="wm-sso-gate__brand" aria-hidden="true">
+                    <picture>
+                        <source srcset="{{ asset('images/logo-handayani.webp') }}" type="image/webp">
+                        <img src="{{ asset('images/logo-handayani.png') }}" alt="" width="768" height="768">
+                    </picture>
+                </span>
+
+                <span class="wm-sso-gate__eyebrow">
+                    <x-filament::icon icon="heroicon-m-shield-check" />
+                    Login terpusat
+                </span>
+
+                <h2 id="wm-sso-gate-title" class="wm-sso-gate__title">
+                    Masuk melalui Portal Handayani
+                </h2>
+
+                <p id="wm-sso-gate-desc" class="wm-sso-gate__desc">
+                    Demi keamanan, login langsung di halaman ini dinonaktifkan.
+                    Silakan masuk menggunakan akun Portal Handayani Anda.
+                </p>
+
+                <a
+                    class="wm-sso-gate__button"
+                    href="{{ route('sso.login') }}"
+                    rel="noopener"
+                >
+                    <x-filament::icon class="wm-sso-gate__button-icon" icon="heroicon-m-arrow-right-end-on-rectangle" />
+                    <span>Login dengan Portal Handayani</span>
+                </a>
+
+                <span class="wm-sso-gate__note">
+                    <x-filament::icon icon="heroicon-m-lock-closed" />
+                    Koneksi aman &middot; Anda akan diarahkan ke portal.handayani.my.id
+                </span>
+            </div>
+        </div>
+    @endif
+
     <x-filament-actions::modals />
 </div>

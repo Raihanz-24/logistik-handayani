@@ -454,6 +454,8 @@ ke Logistik (tanpa `user_id`/token di URL).
 
 - [ ] `https://handayani.my.id/admin/login` → **login langsung tetap jalan**
 - [ ] `https://handayani.my.id/sso/login` → **SSO jalan**
+- [ ] **Login langsung ditutup** saat `SSO_ENABLED=true` (pop-up → Portal);
+      terbuka normal saat `SSO_ENABLED=false`
 - [ ] **Logout** → mengarah ke Portal (`https://portal.handayani.my.id`) saat
       `SSO_ENABLED=true`; mengarah ke login Logistik saat SSO mati
 - [ ] URL callback **tidak** memuat `user_id`/`token`/`code` di query
