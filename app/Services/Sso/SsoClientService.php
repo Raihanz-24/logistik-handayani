@@ -19,6 +19,8 @@ class SsoClientService
      */
     public function buildAuthorizeUrl(string $state, string $codeChallenge): string
     {
+        $this->assertSecureTransport();
+
         $query = http_build_query([
             'client_id' => (string) config('sso.client_id'),
             'redirect_uri' => (string) config('sso.redirect_uri'),
@@ -42,6 +44,8 @@ class SsoClientService
      */
     public function exchangeCode(string $code, string $codeVerifier): array
     {
+        $this->assertSecureTransport();
+
         $response = Http::asForm()
             ->timeout((int) config('sso.timeout', 10))
             ->acceptJson()
@@ -91,5 +95,29 @@ class SsoClientService
     public function makeState(): string
     {
         return rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+    }
+
+    /**
+     * Pastikan transport ke Portal memakai HTTPS (kecuali lingkungan lokal/
+     * testing). Mencegah client_secret + code + verifier terkirim via cleartext.
+     *
+     * @throws RuntimeException
+     */
+    private function assertSecureTransport(): void
+    {
+        $baseUrl = (string) config('sso.portal_base_url');
+
+        if (str_starts_with($baseUrl, 'https://')) {
+            return;
+        }
+
+        // Boleh http:// HANYA di lokal/testing (mis. 127.0.0.1 untuk E2E).
+        if (app()->environment('local', 'testing')) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'SSO memerlukan HTTPS pada SSO_PORTAL_BASE_URL di lingkungan non-lokal.'
+        );
     }
 }

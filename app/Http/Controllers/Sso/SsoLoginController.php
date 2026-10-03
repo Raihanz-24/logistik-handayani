@@ -33,8 +33,15 @@ class SsoLoginController
         $request->session()->put('sso.started_at', now()->timestamp);
 
         // Tujuan setelah sukses (opsional, divalidasi lokal).
+        // HANYA path internal absolut ("/..."): tolak protocol-relative
+        // ("//evil.com") & backslash ("/\evil.com") yang bisa jadi open redirect.
         $redirect = $request->query('redirect');
-        if (is_string($redirect) && $redirect !== '' && str_starts_with($redirect, '/')) {
+        if (
+            is_string($redirect)
+            && str_starts_with($redirect, '/')
+            && ! str_starts_with($redirect, '//')
+            && ! str_starts_with($redirect, '/\\')
+        ) {
             $request->session()->put('sso.intended', $redirect);
         }
 

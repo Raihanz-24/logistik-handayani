@@ -295,4 +295,56 @@ class SsoSecurityTest extends TestCase
         $this->get('/admin/login')->assertOk();
         Http::assertNothingSent();
     }
+
+    // ---------------------------------------------------------------------
+    // 15. Anti open-redirect: `redirect` protocol-relative DITOLAK.
+    // ---------------------------------------------------------------------
+
+    public function test_login_rejects_protocol_relative_redirect(): void
+    {
+        $this->get('/sso/login?redirect=//evil.example.com')->assertRedirect();
+
+        // Nilai berbahaya TIDAK disimpan sebagai intended.
+        $this->assertNull(session('sso.intended'));
+    }
+
+    public function test_login_rejects_backslash_redirect(): void
+    {
+        $this->get('/sso/login?redirect=/\\evil.example.com')->assertRedirect();
+
+        $this->assertNull(session('sso.intended'));
+    }
+
+    public function test_login_accepts_internal_path_redirect(): void
+    {
+        $this->get('/sso/login?redirect=/admin/orders')->assertRedirect();
+
+        $this->assertSame('/admin/orders', session('sso.intended'));
+    }
+
+    // ---------------------------------------------------------------------
+    // 16. Guard transport: SSO_PORTAL_BASE_URL WAJIB HTTPS di non-lokal.
+    // ---------------------------------------------------------------------
+
+    public function test_authorize_url_requires_https_outside_local(): void
+    {
+        $this->app['env'] = 'production';
+        config()->set('sso.portal_base_url', 'http://portal.handayani.my.id');
+
+        // Di non-lokal, HTTP ditolak → RuntimeException → respons 500
+        // (handler Laravel), TIDAK redirect ke Portal memakai HTTP.
+        $this->withoutExceptionHandling();
+
+        $this->expectException(\RuntimeException::class);
+
+        $this->get('/sso/login');
+    }
+
+    public function test_authorize_url_allows_https_in_production(): void
+    {
+        $this->app['env'] = 'production';
+        config()->set('sso.portal_base_url', 'https://portal.handayani.my.id');
+
+        $this->get('/sso/login')->assertRedirect();
+    }
 }
