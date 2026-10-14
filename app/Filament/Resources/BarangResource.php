@@ -93,6 +93,11 @@ class BarangResource extends Resource
                         Forms\Components\TextInput::make('satuan')
                             ->required()
                             ->maxLength(255),
+                        Forms\Components\Toggle::make('is_barang_pasar')
+                            ->label('Barang Pasar')
+                            ->helperText('Aktifkan bila barang ini hanya dicatat pada transaksi belanja: tidak masuk stok gudang, tidak dihitung prioritas restock (SAW), dan tidak muncul sebagai stok hampir habis di dashboard.')
+                            ->inline(false)
+                            ->default(false),
                         Forms\Components\Textarea::make('deskripsi')
                             ->columnSpanFull(),
                         FileUpload::make('gambar')
@@ -194,6 +199,9 @@ class BarangResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('satuan')
                     ->searchable(),
+                Tables\Columns\ToggleColumn::make('is_barang_pasar')
+                    ->label('Barang Pasar')
+                    ->tooltip('On = hanya untuk transaksi belanja (tidak masuk stok/SAW/dashboard).'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -204,7 +212,11 @@ class BarangResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\TernaryFilter::make('is_barang_pasar')
+                    ->label('Barang Pasar')
+                    ->placeholder('Semua barang')
+                    ->trueLabel('Hanya barang pasar')
+                    ->falseLabel('Bukan barang pasar'),
             ])
 
             ->actions([

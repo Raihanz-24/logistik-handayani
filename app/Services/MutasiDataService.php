@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Barang;
 use App\Models\BarangLokasi;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
@@ -32,6 +33,15 @@ class MutasiDataService
         $quantity = (int) ($data['jumlah'] ?? 0);
         if (! $barangId || $quantity <= 0) {
             throw new RuntimeException('Barang dan jumlah mutasi wajib diisi dengan benar.');
+        }
+
+        // Barang pasar hanya dicatat di transaksi belanja, tidak boleh masuk gudang.
+        $barang = Barang::query()->find($barangId);
+        if (! $barang) {
+            throw new RuntimeException('Barang tidak ditemukan.');
+        }
+        if ($barang->isBarangPasar()) {
+            throw new RuntimeException('Barang pasar tidak dapat dimutasi ke gudang. Catat barang ini pada transaksi belanja.');
         }
 
         $supplierId = (int) ($data['supplier_id'] ?? 0);

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\InvalidatesDashboardCache;
 use App\Services\BarangCodeGenerator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -15,13 +16,67 @@ class Barang extends Model
     use HasFactory;
     use InvalidatesDashboardCache;
 
+    /** Slug kategori master data yang menandai barang pasar (kompatibilitas data lama). */
+    public const PASAR_CATEGORY_SLUG = 'pasar';
+
     protected $fillable = [
         'nama_barang',
         'kode_barang',
         'satuan',
         'deskripsi',
         'gambar',
+        'is_barang_pasar',
     ];
+
+    protected $casts = [
+        'is_barang_pasar' => 'boolean',
+    ];
+
+    /**
+     * Barang "pasar": hanya dicatat pada transaksi belanja, tidak masuk stok gudang,
+     * tidak dihitung SAW, dan tidak muncul sebagai stok hampir habis.
+     *
+     * Toggle `is_barang_pasar` adalah penanda utama; kategori "pasar" lama tetap
+     * dihormati agar data sebelumnya tidak berubah perilaku.
+     */
+    public function isBarangPasar(): bool
+    {
+        if ((bool) $this->is_barang_pasar) {
+            return true;
+        }
+
+        $categories = $this->relationLoaded('kategoriBarangs')
+            ? $this->kategoriBarangs
+            : $this->kategoriBarangs()->get(['kategori_barangs.id', 'nama', 'slug']);
+
+        return $categories->contains(fn ($category): bool => mb_strtolower((string) $category->slug) === self::PASAR_CATEGORY_SLUG
+            || mb_strtolower(trim((string) $category->nama)) === 'pasar');
+    }
+
+    public function scopeBarangPasar(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query): void {
+            $query->where('is_barang_pasar', true)
+                ->orWhereHas('kategoriBarangs', function (Builder $query): void {
+                    $query->where(function (Builder $query): void {
+                        $query->where('slug', self::PASAR_CATEGORY_SLUG)
+                            ->orWhereRaw('LOWER(TRIM(kategori_barangs.nama)) = ?', ['pasar']);
+                    });
+                });
+        });
+    }
+
+    public function scopeBukanBarangPasar(Builder $query): Builder
+    {
+        // Bukan barang pasar = toggle OFF dan tidak punya kategori "pasar" (kompatibel data lama).
+        return $query->where('is_barang_pasar', false)
+            ->whereDoesntHave('kategoriBarangs', function (Builder $query): void {
+                $query->where(function (Builder $query): void {
+                    $query->where('slug', self::PASAR_CATEGORY_SLUG)
+                        ->orWhereRaw('LOWER(TRIM(kategori_barangs.nama)) = ?', ['pasar']);
+                });
+            });
+    }
 
     protected static function booted(): void
     {

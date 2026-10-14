@@ -74,6 +74,8 @@ class StockPdfExportService
         $sequence = 1;
 
         $barangs = Barang::query()
+            // Barang pasar hanya untuk transaksi belanja, tidak masuk rekap stok.
+            ->bukanBarangPasar()
             ->select(['id', 'kode_barang', 'nama_barang', 'satuan'])
             ->orderBy('nama_barang')
             ->orderBy('kode_barang')
@@ -164,6 +166,8 @@ class StockPdfExportService
                     });
                 }
             })
+            // Barang pasar tidak dihitung sebagai stok gudang.
+            ->whereHas('barang', fn (Builder $query): Builder => $query->bukanBarangPasar())
             ->orderBy('lokasi_id')
             ->get()
             ->groupBy(fn (BarangLokasi $stock): int => (int) $stock->barang_id);

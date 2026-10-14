@@ -58,6 +58,8 @@ class MutasiRakResource extends Resource
             ->where('barang_lokasi.lokasi_id', $warehouseId)
             ->where('barang_lokasi.stok', '>', 0)
             ->where('posisi_raks.aktif', true)
+            // Barang pasar bukan stok gudang, tidak boleh dipindah rak.
+            ->where('barangs.is_barang_pasar', false)
             ->orderBy('barangs.nama_barang')
             ->get([
                 'barangs.id', 'barangs.kode_barang', 'barangs.nama_barang',

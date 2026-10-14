@@ -399,6 +399,8 @@ class HistoricalStockService
         $rows = [];
 
         $barangs = Barang::query()
+            // Barang pasar hanya untuk transaksi belanja, tidak masuk rekap stok.
+            ->bukanBarangPasar()
             ->select(['id', 'kode_barang', 'nama_barang', 'satuan'])
             ->orderBy('nama_barang')
             ->orderBy('kode_barang')

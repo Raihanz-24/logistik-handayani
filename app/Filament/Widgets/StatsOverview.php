@@ -15,6 +15,7 @@ use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Carbon\Carbon;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Filament\Widgets\Widget;
+use Illuminate\Database\Eloquent\Builder;
 
 class StatsOverview extends Widget
 {
@@ -47,6 +48,8 @@ class StatsOverview extends Widget
                 'barang' => Barang::query()->count(),
                 'stok' => (int) BarangLokasi::query()
                     ->whereHas('lokasi', fn ($query) => $query->gudang())
+                    // Barang pasar tidak dihitung sebagai stok gudang.
+                    ->whereHas('barang', fn (Builder $query): Builder => $query->bukanBarangPasar())
                     ->sum('stok'),
                 'mutasi' => Mutasi::query()
                     ->where('status', 'approved')

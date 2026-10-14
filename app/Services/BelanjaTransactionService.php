@@ -451,6 +451,11 @@ class BelanjaTransactionService
 
     private function isMarketItem(Barang $barang): bool
     {
+        // Toggle "Barang Pasar" di master data adalah sumber utama.
+        if ($barang->isBarangPasar()) {
+            return true;
+        }
+
         $categories = $barang->relationLoaded('kategoriBarangs')
             ? $barang->kategoriBarangs
             : $barang->kategoriBarangs()->get(['kategori_barangs.id', 'nama', 'slug']);

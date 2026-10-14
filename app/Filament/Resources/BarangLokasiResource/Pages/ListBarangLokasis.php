@@ -173,6 +173,8 @@ class ListBarangLokasis extends ListRecords
                     $ringkasan = BarangLokasi::query()
                         ->whereHas('lokasi', fn (Builder $query): Builder => $query
                             ->where('nama_lokasi', 'like', "%{$gudang['keyword']}%"))
+                        // Barang pasar tidak dihitung sebagai stok gudang.
+                        ->whereHas('barang', fn (Builder $query): Builder => $query->bukanBarangPasar())
                         ->selectRaw('COUNT(DISTINCT barang_id) as jumlah_barang')
                         ->selectRaw('COALESCE(SUM(stok), 0) as stok')
                         ->selectRaw('COALESCE(SUM(stok_baik), 0) as baik')

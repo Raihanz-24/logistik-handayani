@@ -57,6 +57,7 @@ class SawRestockRecommendationService
             ->pluck('sisa_stok', 'barang_lokasi.barang_id');
 
         $alternatives = Barang::query()
+            ->bukanBarangPasar()
             ->orderBy('nama_barang')
             ->get(['id', 'kode_barang', 'nama_barang', 'satuan'])
             ->map(function (Barang $barang) use ($usageByBarang, $stockByBarang): array {

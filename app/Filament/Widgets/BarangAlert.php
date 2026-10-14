@@ -37,6 +37,16 @@ class BarangAlert extends Widget
                 ->join('lokasis', 'lokasis.id', '=', 'barang_lokasi.lokasi_id')
                 ->join('barangs', 'barangs.id', '=', 'barang_lokasi.barang_id')
                 ->where('lokasis.jenis_lokasi', Lokasi::JENIS_GUDANG)
+                // Barang pasar hanya untuk transaksi belanja, bukan stok hampir habis.
+                ->where('barangs.is_barang_pasar', false)
+                ->whereNotExists(fn ($sub) => $sub
+                    ->select(DB::raw(1))
+                    ->from('barang_kategori_barang as bkb')
+                    ->join('kategori_barangs as kb', 'kb.id', '=', 'bkb.kategori_barang_id')
+                    ->whereColumn('bkb.barang_id', 'barangs.id')
+                    ->where(fn ($cat) => $cat
+                        ->where('kb.slug', 'pasar')
+                        ->orWhereRaw("LOWER(TRIM(kb.nama)) = 'pasar'")))
                 ->select([
                     'barangs.nama_barang as name',
                     'barangs.kode_barang as code',

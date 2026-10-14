@@ -92,7 +92,8 @@ class MutasiResource extends Resource
     public static function availableBarangOptions(?int $lokasiId, ?string $jenis): array
     {
         if ($jenis === 'masuk') {
-            return Barang::query()->orderBy('nama_barang')
+            // Barang pasar hanya dicatat pada transaksi belanja, tidak masuk gudang.
+            return Barang::query()->bukanBarangPasar()->orderBy('nama_barang')
                 ->get()->mapWithKeys(fn ($item): array => [$item->id => "{$item->kode_barang} - {$item->nama_barang}"])->all();
         }
         if (! $lokasiId) {
@@ -103,6 +104,7 @@ class MutasiResource extends Resource
             ->join('barangs', 'barangs.id', '=', 'barang_lokasi.barang_id')
             ->leftJoin('posisi_raks', 'posisi_raks.id', '=', 'barang_lokasi.posisi_rak_id')
             ->where('barang_lokasi.lokasi_id', $lokasiId)->where('barang_lokasi.stok', '>', 0)
+            ->where('barangs.is_barang_pasar', false)
             ->orderBy('barangs.nama_barang')
             ->get([
                 'barangs.id', 'barangs.kode_barang', 'barangs.nama_barang', 'barang_lokasi.stok',

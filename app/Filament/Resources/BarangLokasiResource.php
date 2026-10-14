@@ -33,7 +33,8 @@ class BarangLokasiResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->whereHas('lokasi', fn (Builder $query): Builder => $query->gudang());
+            ->whereHas('lokasi', fn (Builder $query): Builder => $query->gudang())
+            ->whereHas('barang', fn (Builder $query): Builder => $query->bukanBarangPasar());
     }
 
     public static function form(Form $form): Form
