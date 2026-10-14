@@ -427,7 +427,6 @@ const cancelVoiceSession = () => {
     }
 
     endVoiceSession(document.getElementById('ai-mic-button'));
-    notifyVoice('Rekaman dibatalkan.');
 };
 
 const isOpera = () => {
@@ -1136,11 +1135,6 @@ const bindDelegatedEvents = () => {
             voicePrefs.append = ! voicePrefs.append;
             saveVoicePrefs();
             applyVoiceToggleState();
-            notifyVoice(
-                voicePrefs.append
-                    ? 'Mode "Tambah": hasil suara disisipkan ke teks yang sudah ada.'
-                    : 'Mode "Ganti": hasil suara akan mengganti teks sebelumnya.',
-            );
 
             return;
         }
@@ -1150,11 +1144,6 @@ const bindDelegatedEvents = () => {
             voicePrefs.autoSend = ! voicePrefs.autoSend;
             saveVoicePrefs();
             applyVoiceToggleState();
-            notifyVoice(
-                voicePrefs.autoSend
-                    ? 'Auto kirim AKTIF: pesan langsung terkirim setelah Anda selesai bicara.'
-                    : 'Auto kirim nonaktif: pesan tidak terkirim otomatis.',
-            );
         }
     });
 

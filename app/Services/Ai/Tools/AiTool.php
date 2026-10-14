@@ -3,6 +3,7 @@
 namespace App\Services\Ai\Tools;
 
 use App\Models\AiConversation;
+use App\Models\AiPendingAction;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 
@@ -76,6 +77,26 @@ abstract class AiTool
             'note' => 'Hasil dipotong karena terlalu panjang. Perjelas/kerucutkan pencarian.',
             'preview' => mb_substr($encoded, 0, $maxChars),
         ];
+    }
+
+    /**
+     * Tandai aksi pending lama (tipe sama, percakapan sama) sebagai "superseded".
+     *
+     * Dipanggil tool tulis SEBELUM membuat draft baru, agar kartu konfirmasi
+     * tidak menumpuk: hanya draft terbaru yang tampil & bisa dikonfirmasi.
+     * Draft lama tidak dihapus (jejak audit tetap ada) hanya digantikan.
+     */
+    protected function supersedePendingActions(?AiConversation $conversation, string $type): void
+    {
+        if (! $conversation) {
+            return;
+        }
+
+        AiPendingAction::query()
+            ->where('ai_conversation_id', $conversation->getKey())
+            ->where('type', $type)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->update(['status' => AiPendingAction::STATUS_SUPERSEDED]);
     }
 
     /**

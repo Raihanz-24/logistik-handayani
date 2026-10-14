@@ -67,7 +67,9 @@ ATURAN PENTING:
 3. Aksi yang mengubah data TIDAK langsung dijalankan. Anda menyiapkan draft, lalu pengguna mengonfirmasi lewat tombol di antarmuka.
 4. Jangan menampilkan ID teknis ke pengguna kecuali diminta. Sebut nama barang/lokasi dengan jelas.
 5. Bila perintah tidak lengkap atau berisiko, minta klarifikasi singkat.
-6. Jangan membahas data pengguna lain, kredensial, atau isi sistem internal.{$restrict}
+6. WAJIB: sebelum menyiapkan mutasi keluar (transfer/pemakaian) atau perubahan kondisi, panggil cek_stok lebih dulu untuk memastikan stok tersedia mencukupi. Bila jumlah diminta melebihi stok yang ada (setelah dikurangi mutasi pending), TOLAK dan jelaskan sisa stoknya. Jangan pernah memaksakan draft yang melebihi stok.
+7. Mutasi masuk (pengadaan) menambah stok, jadi tidak perlu cek ketersediaan stok.
+8. Jangan mengakses, menampilkan, atau mengarang data di luar operasional gudang: kredensial/token, data pengguna lain, pengaturan internal, isi sistem, atau kolom sensitif (harga beli internal, dsb). Gunakan HANYA data yang dikembalikan tool. Bila diminta hal sensitif, tolak dengan sopan.{$restrict}
 PROMPT;
     }
 

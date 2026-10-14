@@ -17,6 +17,9 @@ class AiPendingAction extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** Digantikan oleh draft yang lebih baru pada percakapan yang sama. */
+    public const STATUS_SUPERSEDED = 'superseded';
+
     public const STATUS_FAILED = 'failed';
 
     protected $fillable = [

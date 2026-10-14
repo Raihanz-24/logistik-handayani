@@ -5,6 +5,7 @@ namespace Tests\Feature\Ai;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Barang;
+use App\Models\BarangLokasi;
 use App\Models\KalkulatorBelanja;
 use App\Models\Lokasi;
 use App\Models\Mutasi;
@@ -197,5 +198,174 @@ class AiWriteFlowTest extends TestCase
 
         $this->expectExceptionMessage('Aksi ini bukan milik Anda.');
         app(AiActionService::class)->confirm($action, $other);
+    }
+
+    public function test_draft_belanja_baru_menggantikan_pending_lama_pada_percakapan_sama(): void
+    {
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Toko Berkah', 'aktif' => true]);
+        $beras = Barang::query()->create(['nama_barang' => 'Beras', 'satuan' => 'karung']);
+        $minyak = Barang::query()->create(['nama_barang' => 'Minyak', 'satuan' => 'liter']);
+
+        $user = $this->userWithPermissions(['create_kalkulator_belanja', 'update_kalkulator_belanja']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        $tool = app(CatatTransaksiBelanjaTool::class);
+
+        // Draft pertama: hanya beras.
+        $tool->execute([
+            'supplier_id' => $supplier->getKey(),
+            'items' => [['barang_id' => $beras->getKey(), 'jumlah' => 1, 'harga_satuan' => 1000]],
+        ], $user, $conversation);
+
+        // Draft kedua (user "menambah item"): beras + minyak.
+        $tool->execute([
+            'supplier_id' => $supplier->getKey(),
+            'items' => [
+                ['barang_id' => $beras->getKey(), 'jumlah' => 1, 'harga_satuan' => 1000],
+                ['barang_id' => $minyak->getKey(), 'jumlah' => 2, 'harga_satuan' => 2000],
+            ],
+        ], $user, $conversation);
+
+        // Hanya satu pending yang tersisa (draft terbaru); draft lama superseded.
+        $this->assertSame(1, AiPendingAction::query()
+            ->where('type', AiPendingAction::TYPE_PENGELUARAN_BELANJA)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->count());
+        $this->assertSame(1, AiPendingAction::query()
+            ->where('status', AiPendingAction::STATUS_SUPERSEDED)
+            ->count());
+
+        // Draft lama tidak lagi bisa dikonfirmasi.
+        $superseded = AiPendingAction::query()->where('status', AiPendingAction::STATUS_SUPERSEDED)->firstOrFail();
+        $this->expectExceptionMessage('Aksi ini sudah diproses sebelumnya.');
+        app(AiActionService::class)->confirm($superseded, $user);
+    }
+
+    public function test_draft_mutasi_baru_menggantikan_pending_lama(): void
+    {
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $supplier = Supplier::query()->create(['nama_supplier' => 'PT Sumber', 'aktif' => true]);
+        $barang = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+
+        $user = $this->userWithPermissions(['create_mutasi']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        $tool = app(BuatDraftMutasiTool::class);
+
+        $tool->execute([
+            'jenis_mutasi' => 'masuk',
+            'barang_id' => $barang->getKey(),
+            'jumlah' => 5,
+            'lokasi_id' => $gudang->getKey(),
+            'supplier_id' => $supplier->getKey(),
+        ], $user, $conversation);
+
+        $tool->execute([
+            'jenis_mutasi' => 'masuk',
+            'barang_id' => $barang->getKey(),
+            'jumlah' => 8,
+            'lokasi_id' => $gudang->getKey(),
+            'supplier_id' => $supplier->getKey(),
+        ], $user, $conversation);
+
+        $this->assertSame(1, AiPendingAction::query()
+            ->where('type', AiPendingAction::TYPE_MUTASI_DRAFT)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->count());
+        $this->assertSame(1, AiPendingAction::query()
+            ->where('status', AiPendingAction::STATUS_SUPERSEDED)
+            ->count());
+    }
+
+    public function test_mutasi_keluar_melebihi_stok_ditolak_sebelum_pending_dibuat(): void
+    {
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $tujuan = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Cabang',
+            'kode_lokasi' => 'GC01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $barang = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+
+        BarangLokasi::query()->create([
+            'barang_id' => $barang->getKey(),
+            'lokasi_id' => $gudang->getKey(),
+            'stok' => 3,
+            'stok_baik' => 3,
+            'stok_rusak' => 0,
+            'stok_hilang' => 0,
+        ]);
+
+        $user = $this->userWithPermissions(['create_mutasi']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        try {
+            app(BuatDraftMutasiTool::class)->execute([
+                'jenis_mutasi' => 'keluar',
+                'barang_id' => $barang->getKey(),
+                'jumlah' => 10, // melebihi stok 3
+                'lokasi_id' => $gudang->getKey(),
+                'lokasi_tujuan_id' => $tujuan->getKey(),
+                'kondisi_asal' => 'baik',
+            ], $user, $conversation);
+
+            $this->fail('Draft mutasi melebihi stok seharusnya ditolak.');
+        } catch (\App\Services\Ai\Tools\ToolException $exception) {
+            $this->assertStringContainsString('tidak mencukupi', $exception->getMessage());
+        }
+
+        // Tidak ada pending dibuat & tidak ada mutasi.
+        $this->assertSame(0, AiPendingAction::query()->count());
+        $this->assertSame(0, Mutasi::query()->count());
+    }
+
+    public function test_mutasi_keluar_dalam_batas_stok_dibuat_pending(): void
+    {
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $tujuan = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Cabang',
+            'kode_lokasi' => 'GC01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $barang = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+
+        BarangLokasi::query()->create([
+            'barang_id' => $barang->getKey(),
+            'lokasi_id' => $gudang->getKey(),
+            'stok' => 10,
+            'stok_baik' => 10,
+            'stok_rusak' => 0,
+            'stok_hilang' => 0,
+        ]);
+
+        $user = $this->userWithPermissions(['create_mutasi']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        $result = app(BuatDraftMutasiTool::class)->execute([
+            'jenis_mutasi' => 'keluar',
+            'barang_id' => $barang->getKey(),
+            'jumlah' => 4,
+            'lokasi_id' => $gudang->getKey(),
+            'lokasi_tujuan_id' => $tujuan->getKey(),
+            'kondisi_asal' => 'baik',
+        ], $user, $conversation);
+
+        $this->assertArrayHasKey('pending_action_id', $result);
+        $this->assertSame(1, AiPendingAction::query()
+            ->where('type', AiPendingAction::TYPE_MUTASI_DRAFT)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->count());
     }
 }

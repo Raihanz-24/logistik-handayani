@@ -118,6 +118,10 @@ class CatatTransaksiBelanjaTool extends AiTool
 
         $summary = $this->summary($payload);
 
+        // Draft belanja lama pada percakapan ini digantikan draft terbaru agar
+        // tidak muncul dua kartu konfirmasi (mis. saat user menambah item).
+        $this->supersedePendingActions($conversation, AiPendingAction::TYPE_PENGELUARAN_BELANJA);
+
         $action = AiPendingAction::query()->create([
             'ai_conversation_id' => $conversation?->getKey(),
             'user_id' => $user->getKey(),

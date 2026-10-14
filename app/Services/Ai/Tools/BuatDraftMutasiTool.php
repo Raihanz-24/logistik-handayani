@@ -127,6 +127,9 @@ class BuatDraftMutasiTool extends AiTool
     /** @param array<string, mixed> $payload */
     private function createPendingAction(?AiConversation $conversation, User $user, array $payload, string $summary): AiPendingAction
     {
+        // Draft mutasi lama pada percakapan ini digantikan draft terbaru.
+        $this->supersedePendingActions($conversation, AiPendingAction::TYPE_MUTASI_DRAFT);
+
         return AiPendingAction::query()->create([
             'ai_conversation_id' => $conversation?->getKey(),
             'user_id' => $user->getKey(),
