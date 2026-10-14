@@ -343,6 +343,34 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('ai-voice-bar', $html);
     }
 
+    /**
+     * Mic harus bisa DITAHAN (push-to-talk): tekan-tahan → bicara → lepas.
+     * Kedua, ada mode KUNCI: saat menahan lalu geser ke atas (ikon gembok),
+     * mikrofon tetap hidup sampai tombol Stop ditekan.
+     */
+    public function test_mic_dapat_ditahan_dan_dikunci(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+
+        // Gestur pointer (bukan hanya click) untuk tahan & geser.
+        $this->assertStringContainsString("addEventListener('pointerdown'", $script);
+        $this->assertStringContainsString("addEventListener('pointermove'", $script);
+        $this->assertStringContainsString("addEventListener('pointerup'", $script);
+        $this->assertStringContainsString("addEventListener('pointercancel'", $script);
+
+        // Mode kunci + auto-restart mic antar frasa.
+        $this->assertStringContainsString('voiceSession', $script);
+        $this->assertStringContainsString('toggleVoiceLock', $script);
+        $this->assertStringContainsString('armRecognition', $script);
+        $this->assertStringContainsString('rearmTimer', $script);
+
+        // Petunjuk gembok di UI + area sentuh yang tidak ikut ter-scroll.
+        $this->assertStringContainsString('id="ai-lock-hint"', $html);
+        $this->assertStringContainsString('Geser ke atas untuk mengunci', $html);
+        $this->assertStringContainsString('touch-action: none', $html);
+    }
+
     public function test_saran_cepat_mengisi_kotak_pesan(): void
     {
         $this->enableAi();

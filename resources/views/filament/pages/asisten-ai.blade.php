@@ -127,12 +127,20 @@
             </div>
 
             <form class="ai-composer" wire:submit="sendMessage">
+                <div class="ai-lock-hint" id="ai-lock-hint" hidden aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+                        <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+                    </svg>
+                    <span class="ai-lock-hint__text">Geser ke atas untuk mengunci</span>
+                </div>
+
                 <button
                     type="button"
                     id="ai-mic-button"
                     class="ai-mic"
-                    title="Bicara (input suara)"
-                    aria-label="Bicara (input suara)"
+                    title="Tahan untuk bicara (geser ke atas untuk mengunci)"
+                    aria-label="Tahan untuk bicara"
                     data-lang="{{ $voiceLang }}"
                     @disabled(! $configured)
                 >
@@ -329,7 +337,7 @@
         .ai-confirm__spinner { width: .9rem; height: .9rem; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; animation: ai-spin .7s linear infinite; }
 
         /* Composer: mic di KIRI, input tengah, tombol kirim di KANAN. */
-        .ai-composer { display: flex; align-items: flex-end; gap: .5rem; padding: .7rem .75rem; border-top: 1px solid rgba(148,163,184,.2); background: rgba(255,255,255,.45); }
+        .ai-composer { position: relative; display: flex; align-items: flex-end; gap: .5rem; padding: .7rem .75rem; border-top: 1px solid rgba(148,163,184,.2); background: rgba(255,255,255,.45); }
         .dark .ai-composer { background: rgba(255,255,255,.02); }
         .ai-voice-hint { margin: 0 .75rem .6rem; padding: .5rem .7rem; border-radius: .6rem; font-size: .78rem; color: rgb(180 83 9); background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.4); }
         .dark .ai-voice-hint { color: rgb(252 211 77); }
@@ -369,6 +377,15 @@
         .ai-mic:hover { background: rgba(148,163,184,.16); }
         .ai-mic svg { width: 1.3rem; height: 1.3rem; }
         .ai-mic.is-listening { color: #fff; border-color: transparent; background: linear-gradient(145deg, #f87171, #dc2626); box-shadow: 0 0 0 6px rgba(239,68,68,.18); animation: ai-pulse 1.2s infinite; }
+        .ai-mic.is-locked { animation: none; box-shadow: 0 0 0 6px rgba(217,119,6,.22), 0 0 0 2px rgba(217,119,6,.55); background: linear-gradient(145deg, #fbbf24, #d97706); }
+        .ai-mic.is-arming { transform: translateY(-.35rem) scale(1.05); }
+        /* Penting untuk gestur tahan + geser: jangan sampai halaman ikut ter-scroll. */
+        .ai-mic { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        .ai-lock-hint { position: absolute; left: 0; bottom: calc(100% + .5rem); display: inline-flex; align-items: center; gap: .35rem; padding: .35rem .6rem; border-radius: 999px; font-size: .74rem; font-weight: 600; color: rgb(220 38 38); background: rgba(255,255,255,.96); border: 1px solid rgba(220,38,38,.35); box-shadow: 0 8px 20px rgba(15,23,42,.12); pointer-events: none; z-index: 5; animation: ai-voice-in .18s ease; }
+        .dark .ai-lock-hint { background: rgba(16,26,38,.96); color: rgb(252 165 165); border-color: rgba(252,165,165,.3); }
+        .ai-lock-hint[hidden] { display: none; }
+        .ai-lock-hint.is-armed { color: #fff; background: linear-gradient(145deg, #fbbf24, #d97706); border-color: transparent; }
+        .ai-lock-hint svg { width: .95rem; height: .95rem; }
         .ai-send { border: 0; color: #fff; background: linear-gradient(145deg, #fbbf24, #d97706); box-shadow: 0 8px 18px rgba(217,119,6,.32); }
         .ai-send:hover { box-shadow: 0 10px 22px rgba(217,119,6,.42); transform: translateY(-1px); }
         .ai-send:active { transform: scale(.94); }

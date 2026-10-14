@@ -101,20 +101,20 @@ const showVoicePanel = (state, mic) => {
         panel.hidden = !state;
     }
 
-    if (mic) {
-        mic.classList.toggle('is-listening', state);
-        mic.setAttribute('aria-pressed', state ? 'true' : 'false');
-        mic.setAttribute(
-            'title',
-            state ? 'Sedang merekam — klik untuk berhenti' : 'Bicara (input suara)',
-        );
-    }
-
     if (state && preview) {
-        preview.textContent = 'Mulai bicara sekarang';
+        // Jangan reset teks saat mode KUNCI (mikrofon menyala ulang tiap frasa),
+        // supaya hasil transkrip sebelumnya tidak hilang dari panel.
+        if (! voiceSession.locked) {
+            preview.textContent = 'Mulai bicara sekarang';
+        }
 
         // Reset penanda "sudah menangkap suara" setiap sesi baru.
         delete preview.dataset.heard;
+    }
+
+    // Status tombol mic dikelola terpusat oleh applyMicState().
+    if (mic) {
+        applyMicState(mic);
     }
 };
 
@@ -165,6 +165,131 @@ const syncTranscriptToField = (text) => {
 
 let recognition = null;
 let finalTranscript = '';
+
+/**
+ * Status sesi suara. Mendukung dua mode:
+ * - TAHAN (push-to-talk): tahan tombol mic -> bicara -> lepas untuk berhenti.
+ * - KUNCI: geser tombol mic ke atas saat menahan (atau tap singkat) -> mikrofon
+ *   tetap hidup sampai tombol Stop ditekan.
+ */
+const voiceSession = {
+    intent: false,
+    locked: false,
+    gotResult: false,
+    error: '',
+};
+
+const isVoiceActive = () => voiceSession.intent === true;
+
+/** Samakan tampilan tombol mic dengan status sesi (aktif/terkunci). */
+const applyMicState = (micButton) => {
+    const mic = micButton || document.getElementById('ai-mic-button');
+
+    if (! mic) {
+        return;
+    }
+
+    const on = isVoiceActive();
+
+    mic.classList.toggle('is-listening', on);
+    mic.classList.toggle('is-locked', on && voiceSession.locked);
+    mic.setAttribute('aria-pressed', on ? 'true' : 'false');
+    mic.setAttribute(
+        'title',
+        on
+            ? (voiceSession.locked
+                ? 'Mikrofon terkunci — tekan Stop untuk berhenti'
+                : 'Lepas untuk kirim, geser ke atas untuk mengunci')
+            : 'Tahan untuk bicara (geser ke atas untuk mengunci)',
+    );
+};
+
+/** Tampilkan/sembunyikan petunjuk "geser untuk mengunci" di atas tombol mic. */
+const showLockHint = (state) => {
+    const hint = document.getElementById('ai-lock-hint');
+
+    if (hint) {
+        hint.hidden = ! state;
+    }
+};
+
+const toggleVoiceLock = (locked) => {
+    voiceSession.locked = locked === true;
+
+    const hint = document.getElementById('ai-lock-hint');
+    const title = document.querySelector('#ai-voice-panel .ai-voice__title');
+    const text = hint?.querySelector('.ai-lock-hint__text');
+
+    if (title) {
+        title.textContent = voiceSession.locked ? 'Terkunci — tekan Stop' : 'Mendengarkan…';
+    }
+
+    if (hint) {
+        hint.classList.toggle('is-armed', voiceSession.locked);
+    }
+
+    if (text) {
+        text.textContent = voiceSession.locked ? 'Mikrofon terkunci' : 'Geser ke atas untuk mengunci';
+    }
+
+    applyMicState();
+};
+
+/** Mulai sesi suara baru (intent=true). Pemanggil sudah memvalidasi dukungan browser. */
+const beginVoiceSession = (micButton) => {
+    if (isVoiceActive()) {
+        return;
+    }
+
+    voiceSession.intent = true;
+    voiceSession.locked = false;
+    voiceSession.gotResult = false;
+    voiceSession.error = '';
+    voiceSession.attempts = 0;
+    voiceSession.startedAt = Date.now();
+
+    finalTranscript = '';
+
+    applyMicState(micButton);
+};
+
+/** Akhiri sesi suara total: bersihkan timer, meter, dan UI. */
+const endVoiceSession = (micButton) => {
+    clearTimeout(window.__aiChat?.voiceWatchdog);
+    clearTimeout(window.__aiChat?.resultWatchdog);
+    clearTimeout(window.__aiChat?.rearmTimer);
+    window.__aiChat.starting = false;
+
+    const wasActive = isVoiceActive();
+    const hadResult = voiceSession.gotResult === true;
+    const hadError = !! voiceSession.error;
+
+    voiceSession.intent = false;
+    voiceSession.locked = false;
+    voiceSession.active = false;
+
+    showLockHint(false);
+
+    const hint = document.getElementById('ai-lock-hint');
+    if (hint) {
+        hint.classList.remove('is-armed');
+    }
+
+    // Diagnosa SEBELUM meter dihentikan (butuh data peak/analyser). Lewati bila
+    // sesi terlalu singkat (tap tak sengaja) agar tidak memunculkan peringatan.
+    const tooShort = (Date.now() - (voiceSession.startedAt || 0)) < 600;
+
+    if (wasActive && ! hadResult && ! hadError && ! tooShort) {
+        diagnoseEmptyResult();
+    }
+
+    stopLevelMeter();
+    showVoicePanel(false, micButton);
+    applyMicState(micButton);
+
+    voiceSession.gotResult = false;
+    voiceSession.error = '';
+};
 
 const isOpera = () => {
     const ua = navigator.userAgent || '';
@@ -376,6 +501,12 @@ const stopLevelMeter = () => {
 
 /** Mulai mengukur level SETELAH recognition memulai, agar tidak berebut perangkat. */
 const beginMetering = async () => {
+    // Mode KUNCI menyalakan ulang recognition tiap frasa; jangan membuat stream
+    // getUserMedia baru bila meter sudah berjalan (menghindari kebocoran perangkat).
+    if (micCapture.stream && micCapture.analyser) {
+        return;
+    }
+
     micCapture.peak = 0;
     micCapture.level = 0;
     micCapture.deviceError = '';
@@ -475,7 +606,7 @@ const diagnoseEmptyResult = () => {
 const startRecognition = (config) => {
     const micButton = document.getElementById('ai-mic-button');
 
-    if (window.__aiChat.starting) {
+    if (isVoiceActive()) {
         return;
     }
 
@@ -494,6 +625,19 @@ const startRecognition = (config) => {
         return;
     }
 
+    beginVoiceSession(micButton);
+    armRecognition(micButton, config);
+};
+
+/**
+ * Menyiapkan & memulai satu objek SpeechRecognition. Dipanggil ulang otomatis
+ * pada mode KUNCI setiap kali mesin berhenti karena jeda bicara (continuous=false).
+ */
+const armRecognition = (micButton, config) => {
+    if (window.__aiChat.starting) {
+        return;
+    }
+
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     // PENTING: start() dipanggil sinkron di dalam gesture klik (tanpa await
@@ -509,12 +653,9 @@ const startRecognition = (config) => {
     recognition.continuous = false;
     recognition.maxAlternatives = 3;
 
-    finalTranscript = '';
     window.__aiChat.starting = true;
 
     let started = false;
-    let gotResult = false;
-    let hadError = false;
 
     const clearWatchdog = () => {
         clearTimeout(window.__aiChat.voiceWatchdog);
@@ -525,6 +666,7 @@ const startRecognition = (config) => {
         started = true;
         clearWatchdog();
         showVoicePanel(true, micButton);
+        showLockHint(! voiceSession.locked);
         noteVoiceDiagnostic('start', { lang: recognition.lang });
 
         // Ukur level mikrofon secara paralel (opsional & non-blocking) untuk
@@ -534,7 +676,7 @@ const startRecognition = (config) => {
         // Watchdog "ada audio tapi tak ada teks": umum terjadi bila layanan
         // pengenalan Chrome tidak mengembalikan hasil (mis. jaringan terblokir).
         window.__aiChat.resultWatchdog = setTimeout(() => {
-            if (! gotResult) {
+            if (! voiceSession.gotResult) {
                 notifyVoice(
                     'Belum ada teks yang dikenali. Bicara setelah indikator aktif, periksa koneksi internet, atau ganti mikrofon default di pengaturan Chrome.',
                     { sticky: true },
@@ -564,28 +706,54 @@ const startRecognition = (config) => {
 
     recognition.onend = () => {
         clearWatchdog();
-        showVoicePanel(false, micButton);
 
-        if (! gotResult && ! hadError) {
-            diagnoseEmptyResult();
+        // Selama sesi masih diinginkan (masih ditahan atau sedang terkunci),
+        // nyalakan lagi otomatis. Ini penting karena `continuous` sering
+        // diabaikan Chrome — terutama di Android — sehingga mesin berhenti
+        // sendiri saat pengguna berjeda di tengah kalimat.
+        if (voiceSession.intent) {
+            voiceSession.attempts = (voiceSession.attempts || 0) + 1;
+
+            if (voiceSession.attempts > 240) {
+                endVoiceSession(micButton);
+
+                return;
+            }
+
+            window.__aiChat.starting = false;
+
+            // Beri jeda kecil agar tidak membebani CPU & mic tidak "berebut".
+            clearTimeout(window.__aiChat.rearmTimer);
+            window.__aiChat.rearmTimer = setTimeout(() => {
+                if (voiceSession.intent) {
+                    armRecognition(micButton, config);
+                }
+            }, 180);
+
+            return;
         }
 
-        stopLevelMeter();
-        window.__aiChat.starting = false;
+        endVoiceSession(micButton);
     };
 
     recognition.onerror = (event) => {
-        hadError = true;
-        clearWatchdog();
-        showVoicePanel(false, micButton);
-        stopLevelMeter();
-        window.__aiChat.starting = false;
-
         const code = event?.error || '';
 
         if (code !== 'aborted') {
             noteVoiceDiagnostic('error', { codes: code });
         }
+
+        // Selama sesi masih diinginkan, jeda bicara memicu 'no-speech'/'aborted'
+        // — bukan kegagalan. Abaikan; onend akan menyalakan ulang mesin.
+        if (voiceSession.intent && (code === 'no-speech' || code === 'aborted')) {
+            return;
+        }
+
+        voiceSession.error = code || 'error';
+        window.__aiChat.starting = false;
+        showVoicePanel(false, micButton);
+        stopLevelMeter();
+        endVoiceSession(micButton);
 
         if (code === 'not-allowed' || code === 'service-not-allowed') {
             notifyVoice('Akses mikrofon ditolak. Izinkan mikrofon untuk situs ini di pengaturan browser.');
@@ -622,7 +790,7 @@ const startRecognition = (config) => {
         const combined = (finalTranscript || interim).trim();
 
         if (combined) {
-            gotResult = true;
+            voiceSession.gotResult = true;
         }
 
         const preview = document.getElementById('ai-voice-preview');
@@ -651,27 +819,33 @@ const startRecognition = (config) => {
         // pernah memulai. Jika tak ada sinyal apa pun, beri tahu pengguna.
         window.__aiChat.voiceWatchdog = setTimeout(() => {
             if (! started) {
-                showVoicePanel(false, micButton);
+                endVoiceSession(micButton);
                 notifyVoice(
                     'Mikrofon tidak merespons. Pastikan Anda mengizinkan akses mikrofon, lalu coba lagi dengan Chrome atau Edge terbaru.',
                     { sticky: true },
                 );
-                stopRecognition();
-                window.__aiChat.starting = false;
             }
         }, 3000);
     } catch (e) {
         clearWatchdog();
-        window.__aiChat.starting = false;
-        try { recognition.stop(); } catch (_) { /* diabaikan */ }
-        stopLevelMeter();
+        endVoiceSession(micButton);
         notifyVoice('Tidak dapat memulai perekaman suara. Coba muat ulang halaman.');
     }
 };
 
+/**
+ * Akhiri sesi suara. Bila sesi BELUM terkunci, teks hasil tetap berada di kotak
+ * pesan dan TIDAK dikirim otomatis (pengguna bisa menyunting dulu).
+ */
 const stopRecognition = () => {
+    const micButton = document.getElementById('ai-mic-button');
+
     clearTimeout(window.__aiChat?.voiceWatchdog);
     clearTimeout(window.__aiChat?.resultWatchdog);
+
+    // Matikan intent lebih dulu agar onend tidak menyalakan ulang (mode kunci).
+    voiceSession.intent = false;
+    voiceSession.locked = false;
 
     try {
         recognition?.stop();
@@ -679,7 +853,7 @@ const stopRecognition = () => {
         /* diabaikan */
     }
 
-    stopLevelMeter();
+    endVoiceSession(micButton);
 };
 
 const bindDelegatedEvents = () => {
@@ -689,18 +863,122 @@ const bindDelegatedEvents = () => {
     window.__aiChat.delegated = true;
 
     // Mic: satu listener delegasi untuk seluruh dokumen.
+    // - Pointer (mobile & desktop): TAHAN untuk bicara, LEPAS untuk berhenti;
+    //   geser ke atas saat menahan untuk MENGUNCI (mic tetap hidup sampai Stop).
+    // - Klik keyboard (event.detail === 0): toggle biasa untuk aksesibilitas.
+    document.addEventListener('pointerdown', (event) => {
+        const mic = event.target.closest('#ai-mic-button');
+
+        if (! mic || mic.disabled) {
+            return;
+        }
+
+        // Sudah terkunci: klik lagi = berhenti (ditangani di pointerup).
+        if (isVoiceActive() && voiceSession.locked) {
+            voiceSession.pointerActive = true;
+            voiceSession.pointerId = event.pointerId;
+            voiceSession.wasLocked = true;
+
+            return;
+        }
+
+        voiceSession.pointerActive = true;
+        voiceSession.wasLocked = false;
+        voiceSession.pointerId = event.pointerId;
+        voiceSession.downY = event.clientY;
+        voiceSession.downAt = Date.now();
+        voiceSession.dragLock = false;
+
+        startRecognition(readConfig(document.querySelector(AI_ROOT)));
+    });
+
+    document.addEventListener('pointermove', (event) => {
+        if (! voiceSession.pointerActive || event.pointerId !== voiceSession.pointerId || voiceSession.wasLocked) {
+            return;
+        }
+
+        if (! isVoiceActive() || voiceSession.locked) {
+            return;
+        }
+
+        const micButton = document.getElementById('ai-mic-button');
+
+        // Geser ke atas minimal 60px = indikasi mau mengunci; tampilkan petunjuk.
+        voiceSession.dragLock = event.clientY < (voiceSession.downY ?? event.clientY) - 60;
+
+        if (micButton) {
+            micButton.classList.toggle('is-arming', voiceSession.dragLock);
+        }
+    });
+
+    const finishPointer = (event) => {
+        if (! voiceSession.pointerActive || (event && event.pointerId !== voiceSession.pointerId)) {
+            return;
+        }
+
+        voiceSession.pointerActive = false;
+
+        const micButton = document.getElementById('ai-mic-button');
+
+        if (micButton) {
+            micButton.classList.remove('is-arming');
+        }
+
+        // Sudah terkunci, dan tadi tombol ditekan -> berhenti.
+        if (voiceSession.wasLocked) {
+            voiceSession.wasLocked = false;
+            stopRecognition();
+
+            return;
+        }
+
+        if (voiceSession.dragLock) {
+            // Geser ke atas -> KUNCI: mikrofon tetap hidup sampai tombol Stop.
+            voiceSession.dragLock = false;
+            toggleVoiceLock(true);
+
+            return;
+        }
+
+        // Tap singkat (klik desktop / ketuk cepat) -> anggap sebagai "nyalakan &
+        // kunci", supaya perilaku klik-lama (mulai/berhenti) tetap terasa.
+        // Tahan lebih lama lalu lepas -> berhenti (push-to-talk).
+        const quickTap = (Date.now() - (voiceSession.downAt || 0)) < 250;
+
+        if (quickTap && isVoiceActive() && ! voiceSession.gotResult) {
+            toggleVoiceLock(true);
+
+            return;
+        }
+
+        // Lepas tanpa geser -> berhenti.
+        stopRecognition();
+    };
+
+    document.addEventListener('pointerup', finishPointer);
+    document.addEventListener('pointercancel', finishPointer);
+
+    // Aksesibilitas: aktifkan via keyboard (Enter/Space pada tombol saat fokus).
     document.addEventListener('click', (event) => {
         const mic = event.target.closest('#ai-mic-button');
+
         if (mic) {
             if (mic.disabled) {
                 return;
             }
 
-            if (mic.classList.contains('is-listening')) {
+            // Hanya untuk "click" dari keyboard (detail === 0); klik mouse/tap
+            // sudah ditangani pointerdown/up, jadi jangan dobel.
+            if (event.detail !== 0) {
+                return;
+            }
+
+            if (isVoiceActive()) {
                 stopRecognition();
             } else {
                 startRecognition(readConfig(document.querySelector(AI_ROOT)));
             }
+
             return;
         }
 
@@ -828,7 +1106,22 @@ const setup = () => {
     }
 
     fitHeight();
-    showVoicePanel(false, document.getElementById('ai-mic-button'));
+
+    // Reset state sesi suara saat (re)masuk halaman (mis. lewat SPA navigation).
+    voiceSession.intent = false;
+    voiceSession.locked = false;
+    voiceSession.active = false;
+    voiceSession.pointerActive = false;
+    voiceSession.wasLocked = false;
+
+    const micButton = document.getElementById('ai-mic-button');
+
+    voiceSession.downY = null;
+    voiceSession.dragLock = false;
+
+    showLockHint(false);
+    applyMicState(micButton);
+    showVoicePanel(false, micButton);
     setTimeout(scrollToEnd, 50);
 };
 
