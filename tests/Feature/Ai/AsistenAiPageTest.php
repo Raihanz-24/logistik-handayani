@@ -476,6 +476,24 @@ class AsistenAiPageTest extends TestCase
     }
 
     /**
+     * Guard scroll tidak boleh memblokir tap pada kontrol interaktif di mobile
+     * (kalau tidak, tombol toggle header terasa tidak bisa ditekan di HP).
+     */
+    public function test_guard_scroll_tidak_memblokir_tombol_di_mobile(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // Guard touchmove harus mengecualikan elemen interaktif & bar header.
+        $this->assertStringContainsString('touchmove', $script);
+        $this->assertStringContainsString(
+            "closest('button, a, input, textarea, select, label, summary, [role=\"button\"]",
+            $script,
+        );
+        $this->assertStringContainsString('.ai-chat__bar', $script);
+        $this->assertStringContainsString('.ai-composer', $script);
+    }
+
+    /**
      * Kemampuan hands-free: toggle bacakan (TTS), perintah suara konfirmasi/batal,
      * dan ringkasan draft dibacakan.
      */

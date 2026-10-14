@@ -1584,11 +1584,22 @@ const bindDelegatedEvents = () => {
             return;
         }
 
-        const scrollable = event.target.closest('#ai-chat-scroll, .ai-history__panel');
-
-        if (! scrollable) {
-            event.preventDefault();
+        // Area yang memang boleh bergulir sendiri.
+        if (event.target.closest('#ai-chat-scroll, .ai-history__panel')) {
+            return;
         }
+
+        // JANGAN blokir gerakan jari di atas kontrol interaktif (tombol toggle
+        // header, tombol mic, kolom tulis, dll). Tap di layar sentuh hampir selalu
+        // disertai gerakan jari kecil; bila touchmove di-preventDefault, event
+        // `click` ikut batal sehingga tombol terasa "tidak bisa ditekan" di HP.
+        if (event.target.closest('button, a, input, textarea, select, label, summary, [role="button"], [contenteditable="true"], .ai-chat__bar, .ai-composer, .ai-voice, .ai-confirm, .ai-toggle')) {
+            return;
+        }
+
+        // Sisa halaman (area non-interaktif): kunci gulir agar composer tetap
+        // menempel di atas bottom navbar.
+        event.preventDefault();
     }, { passive: false });
 
     // Lepas penanda padding saat meninggalkan halaman (mode SPA).

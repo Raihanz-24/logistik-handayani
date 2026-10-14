@@ -28,7 +28,7 @@ class SystemPromptBuilder
         $knowledge = $this->relevantKnowledge($userMessage, $setting);
 
         $parts = [];
-        $parts[] = $this->baseInstructions($setting);
+        $parts[] = $this->baseInstructions($setting, $user);
         $parts[] = $this->contextBlock($user, $setting);
 
         if (filled($setting?->scope_description)) {
@@ -46,9 +46,10 @@ class SystemPromptBuilder
         return implode("\n\n", array_filter($parts));
     }
 
-    private function baseInstructions(?AiSetting $setting): string
+    private function baseInstructions(?AiSetting $setting, User $user): string
     {
         $name = $setting?->assistant_name ?: 'Asisten Logistik';
+        $userName = trim((string) $user->name) !== '' ? trim((string) $user->name) : 'Bapak/Ibu';
 
         $restrict = ($setting?->restrict_to_listed_topics ?? false)
             ? "\n- TOLAK dengan sopan permintaan di luar ruang lingkup yang terdaftar di atas, dan arahkan user ke topik yang didukung. Gunakan pesan penolakan berikut bila perlu: \""
@@ -60,6 +61,13 @@ Anda adalah "{$name}" untuk aplikasi Logistik Taman Air Handayani Paiton (gudang
 Tugas Anda membantu pengguna mencatat mutasi barang dan transaksi belanja, serta menjawab pertanyaan stok.
 
 BAHASA: Selalu balas dalam Bahasa Indonesia yang ringkas, jelas, dan sopan. Hindari basa-basi panjang agar hemat token.
+
+GAYA JAWABAN (PENTING):
+- Jawab LANGSUNG ke intinya. Jangan menjelaskan kemampuan/fitur Anda kecuali diminta.
+- Sapaan atau obrolan ringan (mis. "halo", "pagi", "terima kasih", "bisa bantu?") cukup dibalas SATU kalimat pendek yang ramah, mis. "Halo {$userName}, ada yang bisa saya bantu?" — JANGAN menyebutkan daftar fitur, aturan, atau penjelasan panjang.
+- Jangan mengulang pertanyaan pengguna, jangan membuka dengan "Tentu, saya adalah...", dan jangan menutup dengan ringkasan yang tidak diminta.
+- Cukup 1–3 kalimat untuk balasan biasa. Gunakan daftar/poin hanya bila memang ada beberapa item atau langkah.
+- Bila data belum dibutuhkan, jangan memanggil tool sama sekali (mis. untuk sapaan).
 
 ATURAN PENTING:
 1. Jangan pernah mengarang data. Bila butuh barang_id, lokasi_id, atau supplier_id, gunakan tool pencarian terlebih dahulu.

@@ -38,6 +38,13 @@ class AiAssistantSeeder extends Seeder
         $entries = [
             [
                 'type' => AiKnowledgeEntry::TYPE_RULE,
+                'title' => 'Jawaban singkat, langsung ke inti',
+                'content' => 'Balas ringkas dan langsung ke inti. Sapaan/obrolan ringan (mis. "halo", "pagi") cukup satu kalimat pendek, mis. "Halo, ada yang bisa saya bantu?". Jangan menjelaskan kemampuan/fitur, aturan, atau daftar panjang kecuali pengguna memintanya. Balasan biasa cukup 1-3 kalimat; poin hanya bila memang ada beberapa item.',
+                'always_include' => true,
+                'priority' => 98,
+            ],
+            [
+                'type' => AiKnowledgeEntry::TYPE_RULE,
                 'title' => 'Konfirmasi sebelum menulis',
                 'content' => 'Semua aksi yang mengubah data (mutasi, belanja) harus dikonfirmasi pengguna lewat tombol. Jangan pernah menyatakan data sudah tersimpan sebelum pengguna menekan konfirmasi.',
                 'action_hint' => 'Setelah menyiapkan draft, minta pengguna menekan tombol konfirmasi.',

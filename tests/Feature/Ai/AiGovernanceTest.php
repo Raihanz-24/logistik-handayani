@@ -171,6 +171,19 @@ class AiGovernanceTest extends TestCase
         $this->assertStringContainsString('Hanya menjawab seputar stok dan mutasi.', $prompt);
     }
 
+    public function test_prompt_mendorong_jawaban_singkat_untuk_sapaan(): void
+    {
+        $user = $this->userWithPermissions(['view_any_barang']);
+        $user->update(['name' => 'Reyhan']);
+
+        $prompt = app(SystemPromptBuilder::class)->build($user->fresh(), 'halo');
+
+        // Ada panduan gaya jawaban singkat + contoh sapaan memakai nama pengguna.
+        $this->assertStringContainsString('GAYA JAWABAN', $prompt);
+        $this->assertStringContainsString('kalimat pendek', $prompt);
+        $this->assertStringContainsString('Halo Reyhan', $prompt);
+    }
+
     public function test_migrasi_governance_hanya_membuat_tabel_baru(): void
     {
         $migration = (string) file_get_contents(
