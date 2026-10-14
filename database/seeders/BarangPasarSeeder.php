@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Barang;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Seeder daftar Barang Pasar.
@@ -54,6 +55,10 @@ class BarangPasarSeeder extends Seeder
         $updated = 0;
         $skipped = 0;
 
+        // Kolom ai_alias baru ada setelah migrasi 2026_10_13. Seeder tetap aman
+        // dijalankan di server yang belum melakukan migrasi tersebut.
+        $hasAiAlias = Schema::hasColumn('barangs', 'ai_alias');
+
         foreach ($items as $item) {
             $attributes = $this->normalize($item);
 
@@ -66,12 +71,17 @@ class BarangPasarSeeder extends Seeder
             $barang = Barang::query()->where('nama_barang', $attributes['nama_barang'])->first();
 
             if (! $barang) {
-                Barang::query()->create([
+                $payload = [
                     'nama_barang' => $attributes['nama_barang'],
                     'satuan' => $attributes['satuan'],
-                    'ai_alias' => $attributes['ai_alias'],
                     'is_barang_pasar' => true,
-                ]);
+                ];
+
+                if ($hasAiAlias && filled($attributes['ai_alias'])) {
+                    $payload['ai_alias'] = $attributes['ai_alias'];
+                }
+
+                Barang::query()->create($payload);
 
                 $created++;
 
@@ -90,8 +100,8 @@ class BarangPasarSeeder extends Seeder
                 $changes['satuan'] = $attributes['satuan'];
             }
 
-            // Isi alias AI hanya bila saat ini kosong.
-            if (blank($barang->ai_alias) && filled($attributes['ai_alias'])) {
+            // Isi alias AI hanya bila kolomnya ada dan saat ini kosong.
+            if ($hasAiAlias && blank($barang->ai_alias) && filled($attributes['ai_alias'])) {
                 $changes['ai_alias'] = $attributes['ai_alias'];
             }
 
@@ -114,7 +124,8 @@ class BarangPasarSeeder extends Seeder
      * @param  string|array<string, mixed>  $item
      * @return array{nama_barang: string, satuan: string, ai_alias: ?string}|null
      */
-    private function normalize(string|array $item): ?array    {
+    private function normalize(string|array $item): ?array
+    {
         if (is_string($item)) {
             $name = trim($item);
 

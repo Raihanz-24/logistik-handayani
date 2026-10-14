@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\Barang;
 use Database\Seeders\BarangPasarSeeder;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -84,5 +86,22 @@ class BarangPasarSeederTest extends TestCase
         $this->seederWith(['', '   ', ['nama_barang' => '']])->run();
 
         $this->assertSame(0, Barang::query()->count());
+    }
+
+    public function test_tetap_jalan_bila_kolom_ai_alias_belum_ada(): void
+    {
+        Schema::table('barangs', function (Blueprint $table): void {
+            $table->dropColumn('ai_alias');
+        });
+
+        $this->seederWith([
+            ['nama_barang' => 'Ayam Potong', 'satuan' => 'ekor', 'ai_alias' => 'ayam'],
+        ])->run();
+
+        $ayam = Barang::query()->where('nama_barang', 'Ayam Potong')->first();
+
+        $this->assertNotNull($ayam);
+        $this->assertTrue((bool) $ayam->is_barang_pasar);
+        $this->assertSame('ekor', $ayam->satuan);
     }
 }
