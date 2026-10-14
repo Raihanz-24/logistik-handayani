@@ -113,8 +113,8 @@
             </div>
 
             <div class="ai-voice" id="ai-voice-panel" hidden>
-                <div class="ai-voice__wave" aria-hidden="true">
-                    <span></span><span></span><span></span><span></span><span></span>
+                <div class="ai-voice__wave" id="ai-voice-wave" aria-hidden="true">
+                    <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
                 </div>
                 <div class="ai-voice__body">
                     <strong class="ai-voice__title">Mendengarkan…</strong>
@@ -335,14 +335,19 @@
         .dark .ai-voice-hint { color: rgb(252 211 77); }
 
         /* Indikator sedang merekam: tampil tepat di atas composer. */
-        .ai-voice { display: flex; align-items: center; gap: .8rem; margin: .55rem .75rem 0; padding: .6rem .8rem; border-radius: .9rem; border: 1px solid rgba(239,68,68,.4); background: linear-gradient(135deg, rgba(239,68,68,.12), rgba(220,38,38,.06)); box-shadow: 0 10px 26px rgba(220,38,38,.18); animation: ai-voice-in .2s ease; }
+        .ai-voice { --ai-mic-gain: .7; display: flex; align-items: center; gap: .8rem; margin: .55rem .75rem 0; padding: .6rem .8rem; border-radius: .9rem; border: 1px solid rgba(239,68,68,.4); background: linear-gradient(135deg, rgba(239,68,68,.12), rgba(220,38,38,.06)); box-shadow: 0 10px 26px rgba(220,38,38,.18); animation: ai-voice-in .2s ease; }
         .ai-voice[hidden] { display: none; }
-        .ai-voice__wave { display: flex; align-items: center; gap: 3px; height: 1.6rem; }
-        .ai-voice__wave span { width: 3px; height: .5rem; border-radius: 999px; background: rgb(239 68 68); animation: ai-voice-wave 1s ease-in-out infinite; transform-origin: center; transform: scaleY(calc(.5 + var(--ai-mic-level, 0) * 2.2)); }
-        .ai-voice__wave span:nth-child(2) { animation-delay: .12s; }
-        .ai-voice__wave span:nth-child(3) { animation-delay: .24s; }
-        .ai-voice__wave span:nth-child(4) { animation-delay: .36s; }
-        .ai-voice__wave span:nth-child(5) { animation-delay: .48s; }
+        .ai-voice__wave { display: flex; align-items: center; justify-content: center; gap: 3px; height: 3.4rem; width: 5.5rem; flex: 0 0 auto; }
+        /* Batang lebih tinggi & selalu beranimasi (idle). Amplitudo membesar saat
+           ada suara via --ai-mic-gain, jadi jelas terlihat ketika mic merekam. */
+        .ai-voice__wave span { width: 4px; height: 3rem; border-radius: 999px; background: rgb(239 68 68); transform-origin: center; animation: ai-voice-bar 1.05s ease-in-out infinite; }
+        .ai-voice__wave span:nth-child(1) { animation-delay: -.42s; }
+        .ai-voice__wave span:nth-child(2) { animation-delay: -.14s; }
+        .ai-voice__wave span:nth-child(3) { animation-delay: -.28s; }
+        .ai-voice__wave span:nth-child(4) { animation-delay: 0s; }
+        .ai-voice__wave span:nth-child(5) { animation-delay: -.35s; }
+        .ai-voice__wave span:nth-child(6) { animation-delay: -.07s; }
+        .ai-voice__wave span:nth-child(7) { animation-delay: -.21s; }
         .ai-voice__body { display: flex; flex-direction: column; gap: .1rem; min-width: 0; flex: 1; }
         .ai-voice__title { font-size: .82rem; font-weight: 700; color: rgb(220 38 38); }
         .dark .ai-voice__title { color: rgb(252 165 165); }
@@ -351,9 +356,12 @@
         .ai-voice__stop { display: inline-flex; align-items: center; gap: .3rem; flex: 0 0 auto; padding: .4rem .7rem; border-radius: 999px; border: 0; cursor: pointer; font-size: .78rem; font-weight: 700; color: #fff; background: linear-gradient(145deg, #f87171, #dc2626); box-shadow: 0 6px 16px rgba(220,38,38,.3); }
         .ai-voice__stop:hover { transform: translateY(-1px); }
         .ai-voice__stop svg { width: 1rem; height: 1rem; }
-        @keyframes ai-voice-wave { 0%, 100% { height: .4rem; } 50% { height: 1.4rem; } }
+        @keyframes ai-voice-bar {
+            0%, 100% { transform: scaleY(calc(var(--ai-mic-gain) * .28)); }
+            50% { transform: scaleY(calc(var(--ai-mic-gain) * .80)); }
+        }
         @keyframes ai-voice-in { from { opacity: 0; transform: translateY(.4rem); } to { opacity: 1; transform: translateY(0); } }
-        @media (prefers-reduced-motion: reduce) { .ai-voice__wave span { animation: none; height: 1rem; } }
+        @media (prefers-reduced-motion: reduce) { .ai-voice__wave span { animation-duration: 2.4s; } }
         .ai-composer__input { flex: 1; resize: none; max-height: 8rem; min-height: 2.75rem; padding: .7rem .85rem; border-radius: 1.2rem; border: 1px solid rgba(148,163,184,.35); background: transparent; font-size: .9rem; line-height: 1.4; outline: none; color: inherit; }
         .ai-composer__input:focus { border-color: rgba(245,158,11,.6); }
         .ai-mic, .ai-send { display: inline-grid; place-items: center; flex: 0 0 auto; width: 2.75rem; height: 2.75rem; border-radius: 50%; cursor: pointer; transition: background-color .15s ease, transform .15s ease, box-shadow .15s ease; }

@@ -324,8 +324,9 @@ class AsistenAiPageTest extends TestCase
     {
         $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
 
-        // CSS memakai variabel level mikrofon yang di-set dari JS.
-        $this->assertStringContainsString('--ai-mic-level', $html);
+        // CSS memakai variabel gain mikrofon yang di-set dari JS untuk amplitudo.
+        $this->assertStringContainsString('--ai-mic-gain', $html);
+        $this->assertStringContainsString('ai-voice-bar', $html);
     }
 
     public function test_saran_cepat_mengisi_kotak_pesan(): void

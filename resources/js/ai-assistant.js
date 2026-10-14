@@ -204,12 +204,49 @@ const releaseStream = (stream) => {
     });
 };
 
-const updateVoiceLevel = (level) => {
+/**
+ * Satu AudioContext global yang dibuat & di-resume DI DALAM gesture klik.
+ * Ini penting: AudioContext yang dibuat di luar gesture (mis. di dalam onstart)
+ * sering berstatus "suspended", sehingga analyser selalu membaca nol dan
+ * gelombang tampak diam walau mikrofon bekerja.
+ */
+let voiceAudioContext = null;
+
+const primeVoiceAudio = () => {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+
+    if (! AudioCtx) {
+        return;
+    }
+
+    try {
+        if (! voiceAudioContext) {
+            voiceAudioContext = new AudioCtx();
+        }
+
+        if (voiceAudioContext.state === 'suspended') {
+            voiceAudioContext.resume().catch(() => {});
+        }
+    } catch (e) {
+        /* diabaikan */
+    }
+};
+
+const setVoiceBars = (level) => {
     const panel = document.getElementById('ai-voice-panel');
 
-    if (panel) {
-        panel.style.setProperty('--ai-mic-level', Math.min(1, level * 6).toFixed(3));
+    if (! panel) {
+        return;
     }
+
+    // Amplitudo animasi membesar mengikuti level suara nyata. Idle tetap
+    // bergerak (gain dasar), sehingga terlihat jelas saat mikrofon merekam.
+    const gain = Math.min(1.3, 0.7 + level * 9);
+    panel.style.setProperty('--ai-mic-gain', gain.toFixed(3));
+};
+
+const updateVoiceLevel = (level) => {
+    setVoiceBars(level);
 };
 
 const startLevelMeter = (stream) => {
@@ -220,10 +257,17 @@ const startLevelMeter = (stream) => {
     }
 
     try {
-        const ctx = new AudioCtx();
+        // Pakai context yang sudah di-prime dalam gesture klik bila ada.
+        const ctx = voiceAudioContext || (voiceAudioContext = new AudioCtx());
+
+        if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
+        }
+
         const source = ctx.createMediaStreamSource(stream);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
         source.connect(analyser);
 
         micCapture.ctx = ctx;
@@ -260,9 +304,7 @@ const stopLevelMeter = () => {
         micCapture.raf = null;
     }
 
-    try { micCapture.ctx?.close(); } catch (e) { /* diabaikan */ }
-
-    micCapture.ctx = null;
+    // Jangan tutup voiceAudioContext (global, dipakai ulang); cukup lepas sumber.
     micCapture.analyser = null;
     micCapture.level = 0;
 
@@ -381,6 +423,9 @@ const startRecognition = (config) => {
 
     // PENTING: start() dipanggil sinkron di dalam gesture klik (tanpa await
     // sebelumnya) supaya Chrome tidak menolak karena kehilangan user activation.
+    // Sekaligus siapkan AudioContext di dalam gesture agar tidak "suspended".
+    primeVoiceAudio();
+
     recognition = new SR();
     recognition.lang = micButton?.dataset.lang || config.lang;
     recognition.interimResults = true;
