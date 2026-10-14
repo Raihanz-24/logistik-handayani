@@ -22,6 +22,7 @@ use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -57,9 +58,14 @@ class PengeluaranRelationManager extends RelationManager
             ->defaultSort('urutan')
             ->contentGrid(['md' => 2, 'xl' => 3])
             ->columns([
-                Tables\Columns\ViewColumn::make('transaction_card')
-                    ->label('Transaksi')
-                    ->view('filament.tables.columns.pengeluaran-belanja-card'),
+                // Dibungkus Stack agar Filament memakai mode content-grid penuh,
+                // sehingga aksi baris (Ubah/Hapus) ikut dirender di bawah kartu.
+                // Tanpa wrapper layout, actions jadi ActionsPosition::AfterContent
+                // tapi tidak pernah di-render oleh blade tabel biasa.
+                Stack::make([
+                    Tables\Columns\ViewColumn::make('transaction_card')
+                        ->view('filament.tables.columns.pengeluaran-belanja-card'),
+                ])->space(0),
             ])
             ->headerActions([
                 Tables\Actions\CreateAction::make('tambah-transaksi')
@@ -112,6 +118,11 @@ class PengeluaranRelationManager extends RelationManager
                     ->label('Folder Foto Maps')
                     ->icon('heroicon-m-camera')
                     ->color('info')
+                    // Tombolnya sudah disediakan di footer kartu toko. Jangan
+                    // pakai ->hidden() karena itu menonaktifkan aksi sehingga
+                    // mountTableAction dari kartu ikut gagal. Cukup sembunyikan
+                    // tombolnya secara visual; aksi tetap aktif.
+                    ->extraAttributes(['style' => 'display:none'])
                     ->modalHeading('Hubungkan folder Foto Maps')
                     ->modalDescription('Opsional. Melepas hubungan tidak menghapus folder maupun fotonya.')
                     ->fillForm(fn (PengeluaranBelanja $record): array => [
@@ -171,6 +182,8 @@ class PengeluaranRelationManager extends RelationManager
                 Tables\Actions\Action::make('buka-foto-maps')
                     ->label('Buat Folder Foto Maps')
                     ->icon('heroicon-m-arrow-top-right-on-square')
+                    // Duplikat dari tombol "Buat Sesi Foto Baru" di footer kartu.
+                    ->extraAttributes(['style' => 'display:none'])
                     ->url(fn (PengeluaranBelanja $record): string => FotoBarangMaps::getUrl([
                         'pengeluaran' => $record->getKey(),
                     ])),

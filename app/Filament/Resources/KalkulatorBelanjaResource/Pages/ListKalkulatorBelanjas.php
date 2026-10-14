@@ -21,6 +21,10 @@ class ListKalkulatorBelanjas extends Page
 
     protected static string $resource = KalkulatorBelanjaResource::class;
 
+    protected static ?string $title = 'Transaksi Belanja';
+
+    protected static ?string $breadcrumb = 'Transaksi Belanja';
+
     protected static string $view = 'filament.resources.kalkulator-belanja-resource.pages.list-kalkulator-belanjas';
 
     #[Url(as: 'cari')]
