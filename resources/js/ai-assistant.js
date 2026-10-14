@@ -174,6 +174,35 @@ const isOpera = () => {
 };
 
 /**
+ * Beberapa browser mobile (terutama Chrome Android) hanya mengizinkan mikrofon
+ * diakses OLEH SATU API pada satu waktu. Bila getUserMedia (pengukur level) dan
+ * SpeechRecognition berjalan bersamaan, mikrofon bisa "direbut" sehingga mesin
+ * pengenalan hanya menerima audio terputus → gejalanya "suara Anda kurang jelas"
+ * atau tidak ada hasil teks sama sekali.
+ *
+ * Karena itu, pengukur level visual DILEWATI di perangkat sentuh/mobile. Gelombang
+ * tetap berjalan (animasi idle) dan tetap memberi respons saat ada suara lewat
+ * event speechstart/onsoundstart.
+ */
+const shouldMeterVoice = () => {
+    const ua = navigator.userAgent || '';
+
+    if (/\b(Android|iPhone|iPad|iPod|Mobile)\b/i.test(ua)) {
+        return false;
+    }
+
+    try {
+        if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+            return false;
+        }
+    } catch (e) {
+        /* diabaikan */
+    }
+
+    return true;
+};
+
+/**
  * Status mikrofon & pengukur level. Dipakai untuk memberi umpan balik nyata:
  * bila panel "Mendengarkan" muncul tetapi tidak ada teks, kita bisa membedakan
  * "tidak ada suara yang masuk" vs "suara masuk tetapi layanan pengenalan diam".
@@ -245,6 +274,30 @@ const setVoiceBars = (level) => {
     panel.style.setProperty('--ai-mic-gain', gain.toFixed(3));
 };
 
+/**
+ * Dorongan singkat gelombang sebagai tanda "ada suara" — dipakai di perangkat
+ * mobile yang tidak memakai pengukur level (lihat shouldMeterVoice).
+ */
+let voiceBumpTimer = null;
+
+const bumpVoiceGain = (value = 1.15) => {
+    const panel = document.getElementById('ai-voice-panel');
+
+    if (! panel) {
+        return;
+    }
+
+    panel.style.setProperty('--ai-mic-gain', String(value));
+    clearTimeout(voiceBumpTimer);
+
+    voiceBumpTimer = setTimeout(() => {
+        // Bila meter asli tidak aktif, balik ke gain default CSS (.7).
+        if (! micCapture.analyser) {
+            panel.style.removeProperty('--ai-mic-gain');
+        }
+    }, 700);
+};
+
 const updateVoiceLevel = (level) => {
     setVoiceBars(level);
 };
@@ -311,7 +364,14 @@ const stopLevelMeter = () => {
     releaseStream(micCapture.stream);
     micCapture.stream = null;
 
-    updateVoiceLevel(0);
+    clearTimeout(voiceBumpTimer);
+
+    const panel = document.getElementById('ai-voice-panel');
+
+    if (panel) {
+        // Kembali ke gain default CSS (idle) — tanpa sisa dorongan suara terakhir.
+        panel.style.removeProperty('--ai-mic-gain');
+    }
 };
 
 /** Mulai mengukur level SETELAH recognition memulai, agar tidak berebut perangkat. */
@@ -319,6 +379,13 @@ const beginMetering = async () => {
     micCapture.peak = 0;
     micCapture.level = 0;
     micCapture.deviceError = '';
+
+    // Di perangkat mobile: JANGAN pakai getUserMedia (akan merebut mic dari
+    // SpeechRecognition). Cukup andalkan event suara recognition.
+    if (! shouldMeterVoice()) {
+        micCapture.deviceError = '';
+        return;
+    }
 
     if (! navigator.mediaDevices?.getUserMedia) {
         micCapture.deviceError = 'no-mediadevices';
@@ -370,12 +437,20 @@ const diagnoseEmptyResult = () => {
     }
 
     if (! micCapture.analyser) {
-        // Pengukur level tidak tersedia; jangan menyalahkan mikrofon.
+        // Pengukur level tidak tersedia / sengaja dilewati (mobile).
         noteVoiceDiagnostic('empty:no-meter');
-        notifyVoice(
-            'Belum ada teks yang dikenali. Bicara setelah indikator aktif, periksa mikrofon default di Chrome, dan pastikan koneksi internet stabil.',
-            { sticky: true },
-        );
+
+        if (! shouldMeterVoice()) {
+            notifyVoice(
+                'Belum ada teks yang dikenali. Pastikan bicara setelah gelombang aktif, pakai Chrome, dan koneksi internet stabil.',
+                { sticky: true },
+            );
+        } else {
+            notifyVoice(
+                'Belum ada teks yang dikenali. Bicara setelah indikator aktif, periksa mikrofon default di Chrome, dan pastikan koneksi internet stabil.',
+                { sticky: true },
+            );
+        }
 
         return;
     }
@@ -423,8 +498,10 @@ const startRecognition = (config) => {
 
     // PENTING: start() dipanggil sinkron di dalam gesture klik (tanpa await
     // sebelumnya) supaya Chrome tidak menolak karena kehilangan user activation.
-    // Sekaligus siapkan AudioContext di dalam gesture agar tidak "suspended".
-    primeVoiceAudio();
+    // AudioContext (untuk meter) hanya disiapkan bila memang dipakai.
+    if (shouldMeterVoice()) {
+        primeVoiceAudio();
+    }
 
     recognition = new SR();
     recognition.lang = micButton?.dataset.lang || config.lang;
@@ -473,6 +550,17 @@ const startRecognition = (config) => {
             preview.textContent = 'Mendengarkan suara…';
         }
     };
+
+    // Respons visual saat ada suara. Juga berlaku di mobile (tanpa meter) dan
+    // membantu memastikan audio benar-benar diterima mesin pengenalan.
+    const onHeardSound = () => {
+        if (! micCapture.analyser) {
+            bumpVoiceGain();
+        }
+    };
+
+    recognition.onsoundstart = onHeardSound;
+    recognition.onspeechstart = onHeardSound;
 
     recognition.onend = () => {
         clearWatchdog();

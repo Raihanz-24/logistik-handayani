@@ -320,6 +320,20 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('Akses mikrofon ditolak', $script);
     }
 
+    public function test_pengukur_level_dilewati_di_perangkat_mobile(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // Di Chrome Android, getUserMedia bersamaan SpeechRecognition merebut mic
+        // → hasilnya "suara kurang jelas". Harus ada gerbang perangkat.
+        $this->assertStringContainsString('shouldMeterVoice', $script);
+        $this->assertStringContainsString('pointer: coarse', $script);
+
+        // Gelombang tetap merespons suara lewat event recognition saat meter dilewati.
+        $this->assertStringContainsString('onspeechstart', $script);
+        $this->assertStringContainsString('bumpVoiceGain', $script);
+    }
+
     public function test_warna_level_suara_terpasang_di_panel_voice(): void
     {
         $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
