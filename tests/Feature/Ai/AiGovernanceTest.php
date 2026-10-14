@@ -195,4 +195,21 @@ class AiGovernanceTest extends TestCase
         $this->assertStringContainsString("Schema::create('ai_knowledge_entries'", $migration);
         $this->assertStringNotContainsString('Schema::table(', $migration);
     }
+
+    public function test_perintah_ai_seed_menjalankan_seeder_tanpa_namespace_manual(): void
+    {
+        $this->artisan('ai:seed')->assertSuccessful();
+
+        // Seeder bersifat idempotent: jalan dua kali tetap aman.
+        $this->artisan('ai:seed')->assertSuccessful();
+
+        $this->assertDatabaseHas('ai_settings', [
+            'assistant_name' => 'Asisten Logistik',
+        ]);
+
+        // Aturan gaya jawaban singkat ikut tersemai.
+        $this->assertDatabaseHas('ai_knowledge_entries', [
+            'title' => 'Jawaban singkat, langsung ke inti',
+        ]);
+    }
 }

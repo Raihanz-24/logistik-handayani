@@ -359,6 +359,7 @@ const speak = (text, config, forcedVoice = null) => {
         return false;
     }
 
+    const synth = window.speechSynthesis;
     const lang = config.lang || 'id-ID';
     const voice = forcedVoice || pickVoice(lang, config.voiceNames || []);
 
@@ -373,13 +374,58 @@ const speak = (text, config, forcedVoice = null) => {
         // Sedikit lebih lambat + pitch natural agar tidak terdengar kaku.
         utter.rate = Math.min(1.2, Math.max(0.7, (config.rate || 1) * 0.95));
         utter.pitch = 1;
+        utter.volume = 1;
 
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utter);
+        // Hanya batalkan bila memang ada antrean. cancel() tepat sebelum speak()
+        // bisa ikut membatalkan ucapan baru di sebagian browser (Android).
+        if (synth.speaking || synth.pending) {
+            synth.cancel();
+        }
+
+        // Chromium di Android kadang butuh resume() agar tidak diam.
+        try {
+            synth.resume();
+        } catch (e) {
+            /* diabaikan */
+        }
+
+        synth.speak(utter);
 
         return true;
     } catch (e) {
         return false;
+    }
+};
+
+/** Perangkat sentuh/mobile: kebijakan TTS lebih ketat (wajib dari gesture). */
+const isMobileSpeech = () => {
+    const ua = navigator.userAgent || '';
+
+    return /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(ua);
+};
+
+/**
+ * "Bangunkan" mesin TTS pada interaksi pertama. Di Android, speechSynthesis
+ * baru diizinkan berbunyi setelah ada gesture pengguna; tanpa ini, pembacaan
+ * yang dipicu event lain (mis. balasan AI) akan senyap.
+ */
+let speechPrimed = false;
+
+const primeSpeech = () => {
+    if (speechPrimed || ! ('speechSynthesis' in window)) {
+        return;
+    }
+
+    speechPrimed = true;
+
+    try {
+        // Utterance kosong (nyaris tak terdengar) sekadar membuka izin audio.
+        const warmup = new SpeechSynthesisUtterance(' ');
+        warmup.volume = 0;
+        warmup.rate = 1;
+        window.speechSynthesis.speak(warmup);
+    } catch (e) {
+        /* diabaikan */
     }
 };
 
@@ -389,12 +435,14 @@ const describeVoices = () => ttsVoices
     .join(' | ');
 
 /**
- * Bacakan HANYA bila ada voice Bahasa Indonesia. Voice di Chrome dimuat
- * asinkron, jadi bila daftar belum siap kita menunggu & mencoba ulang dulu —
- * jangan langsung menyimpulkan "tidak tersedia". Bila setelah menunggu tetap
- * tidak ada, beri tahu pengguna sekali (bukan dibacakan dengan logat Inggris).
+ * Bacakan teks dengan voice Bahasa Indonesia.
  *
- * Mengembalikan true bila pembacaan dijalankan.
+ * - Bila ada voice id eksplisit -> pakai itu.
+ * - Di MOBILE: ucapkan langsung memakai `lang` (engine TTS Android/Google
+ *   mengikuti lang) — jangan ditunda, karena TTS di HP wajib dipicu dari gesture.
+ * - Di DESKTOP: bila voice belum termuat, tunggu sebentar lalu coba lagi; bila
+ *   sudah termuat tapi tak ada voice id, beri tahu pengguna sekali (agar tidak
+ *   dibacakan dengan logat asing).
  */
 let lastVoiceWarned = false;
 
@@ -403,8 +451,24 @@ const speakIndonesian = (text, config) => {
         return false;
     }
 
+    refreshTtsVoices();
+
+    const lang = config.lang || 'id-ID';
+    const voice = pickVoice(lang, config.voiceNames || []);
+
+    if (voice) {
+        lastVoiceWarned = false;
+
+        return speak(text, config, voice);
+    }
+
+    // Mobile: andalkan engine TTS sistem yang mengikuti `lang`.
+    if (isMobileSpeech()) {
+        return speak(text, config, null);
+    }
+
     if (! ttsReady()) {
-        // Tunggu sampai voice selesai dimuat (maks. ~3 detik), lalu coba lagi.
+        // Desktop: voice dimuat asinkron; tunggu & coba ulang (maks. ~3 detik).
         speakIndonesian.pending = (speakIndonesian.pending || 0) + 1;
 
         if (speakIndonesian.pending <= 12) {
@@ -416,24 +480,16 @@ const speakIndonesian = (text, config) => {
 
     speakIndonesian.pending = 0;
 
-    const voice = pickVoice(config.lang || 'id-ID', config.voiceNames || []);
-
-    if (! voice) {
-        if (! lastVoiceWarned) {
-            lastVoiceWarned = true;
-            console.warn('[Asisten AI] Voice TTS tersedia: ' + (describeVoices() || '(belum ada)'));
-            notifyVoice(
-                'Suara Bahasa Indonesia belum tersedia di perangkat ini. Pasang paket suara Indonesia (Android: Pengaturan > Sistem > Bahasa & input > Text-to-speech > instal data bahasa Indonesia; Windows: Pengaturan > Waktu & bahasa > Ucapan). Alternatif paling natural & gratis: buka lewat Microsoft Edge yang punya voice "Natural".',
-                { sticky: true },
-            );
-        }
-
-        return false;
+    if (! lastVoiceWarned) {
+        lastVoiceWarned = true;
+        console.warn('[Asisten AI] Voice TTS tersedia: ' + (describeVoices() || '(belum ada)'));
+        notifyVoice(
+            'Suara Bahasa Indonesia belum tersedia di perangkat ini. Pasang paket suara Indonesia (Windows: Pengaturan > Waktu & bahasa > Ucapan; atau buka lewat Microsoft Edge yang punya voice "Natural").',
+            { sticky: true },
+        );
     }
 
-    lastVoiceWarned = false;
-
-    return speak(text, config, voice);
+    return false;
 };
 
 const fitHeight = () => {
@@ -1340,6 +1396,9 @@ const bindDelegatedEvents = () => {
     //   geser ke atas saat menahan untuk MENGUNCI (mic tetap hidup sampai Stop).
     // - Klik keyboard (event.detail === 0): toggle biasa untuk aksesibilitas.
     document.addEventListener('pointerdown', (event) => {
+        // Buka izin audio TTS pada interaksi pertama (wajib di Android).
+        primeSpeech();
+
         const mic = event.target.closest('#ai-mic-button');
 
         if (! mic || mic.disabled) {
@@ -1433,6 +1492,9 @@ const bindDelegatedEvents = () => {
 
     // Aksesibilitas: aktifkan via keyboard (Enter/Space pada tombol saat fokus).
     document.addEventListener('click', (event) => {
+        // Buka izin audio TTS (mobile) pada interaksi pertama via klik keyboard.
+        primeSpeech();
+
         const mic = event.target.closest('#ai-mic-button');
 
         if (mic) {

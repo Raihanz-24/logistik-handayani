@@ -527,6 +527,21 @@ class AsistenAiPageTest extends TestCase
     }
 
     /**
+     * TTS di mobile: buka izin audio (prime) + ucapkan langsung dari gesture,
+     * karena TTS Android akan senyap bila dipicu dari setTimeout.
+     */
+    public function test_tts_mobile_membuka_izin_audio_dan_ucap_langsung(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        $this->assertStringContainsString('primeSpeech', $script);
+        $this->assertStringContainsString('isMobileSpeech', $script);
+        $this->assertStringContainsString('speechPrimed', $script);
+        // Ucapkan langsung dengan `lang` di mobile (jangan tunggu asinkron).
+        $this->assertStringContainsString('isMobileSpeech()', $script);
+    }
+
+    /**
      * Tombol merah di panel voice = GAGALKAN rekaman: hentikan mic, hapus hasil
      * suara, dan jangan kirim (bahkan saat auto-kirim menyala).
      */

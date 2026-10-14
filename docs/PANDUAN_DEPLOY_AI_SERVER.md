@@ -365,8 +365,14 @@ diulang).
 
 ```bash
 cd ~/logistik-handayani
-php artisan db:seed --class="Database\Seeders\AiAssistantSeeder" --force
+php artisan ai:seed
 ```
+
+> Catatan: `php artisan ai:seed` adalah pintasan aman (tidak perlu mengetik
+> namespace). Bila memakai perintah bawaan, kutip dengan benar agar backslash
+> tidak hilang:
+> `php artisan db:seed --class="Database\Seeders\AiAssistantSeeder" --force`
+> (kesalahan umum `DatabaseSeeder\AiAssistantSeeder` akan gagal).
 
 > ⚠️ Seeder ini **TIDAK** dipanggil oleh `DatabaseSeeder`, jadi seeding existing
 > tidak berubah. Bila ingin menulis aturan sendiri, lewati langkah ini dan isi
