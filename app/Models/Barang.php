@@ -23,6 +23,7 @@ class Barang extends Model
         'nama_barang',
         'kode_barang',
         'satuan',
+        'ai_alias',
         'deskripsi',
         'gambar',
         'is_barang_pasar',
@@ -76,6 +77,40 @@ class Barang extends Model
                         ->orWhereRaw('LOWER(TRIM(kategori_barangs.nama)) = ?', ['pasar']);
                 });
             });
+    }
+
+    /**
+     * Daftar alias (nama panggilan untuk Asisten AI), sudah dirapikan.
+     *
+     * @return array<int, string>
+     */
+    public function aiAliases(): array
+    {
+        if (blank($this->ai_alias)) {
+            return [];
+        }
+
+        $aliases = preg_split('/[,;\n]+/u', (string) $this->ai_alias) ?: [];
+
+        return array_values(array_filter(array_map(
+            fn (string $alias): string => trim($alias),
+            $aliases,
+        ), fn (string $alias): bool => $alias !== ''));
+    }
+
+    /**
+     * Pencarian master barang yang juga mencakup alias AI.
+     * Dipakai tool pencarian AI agar ucapan seperti "aqua" menemukan "Galon Aqua".
+     */
+    public function scopeCariUntukAi(Builder $query, string $keyword): Builder
+    {
+        $like = '%'.$keyword.'%';
+
+        return $query->where(function (Builder $query) use ($like): void {
+            $query->where('nama_barang', 'like', $like)
+                ->orWhere('kode_barang', 'like', $like)
+                ->orWhere('ai_alias', 'like', $like);
+        });
     }
 
     protected static function booted(): void

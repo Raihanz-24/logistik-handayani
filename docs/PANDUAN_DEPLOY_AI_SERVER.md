@@ -292,6 +292,7 @@ AI_HISTORY_LIMIT=20
 AI_VOICE_LANG=id-ID
 AI_VOICE_RATE=1.0
 AI_VOICE_AUTO_SPEAK=false
+AI_VOICE_READ_SUMMARY=true
 ```
 
 - **`AI_ENABLED=false`** dulu — wajib. Dinyalakan di Langkah 8.
@@ -326,12 +327,13 @@ php artisan view:cache
 | `2026_10_11_000000_create_ai_assistant_tables` | Membuat tabel `ai_conversations`, `ai_messages`, `ai_pending_actions` |
 | `2026_10_11_010000_create_ai_governance_tables` | Membuat tabel `ai_usages`, `ai_settings`, `ai_knowledge_entries` |
 | `2026_10_12_000000_add_is_barang_pasar_to_barangs_table` | Menambah kolom `barangs.is_barang_pasar` (boolean, default `false`) |
+| `2026_10_13_000000_add_ai_alias_to_barangs_table` | Menambah kolom `barangs.ai_alias` (string, nullable) untuk nama panggilan barang oleh Asisten AI |
 
 Cek status:
 ```bash
-php artisan migrate:status | grep -E "ai_|is_barang_pasar"
+php artisan migrate:status | grep -E "ai_|is_barang_pasar|ai_alias"
 ```
-✅ **Berhasil bila:** ketiganya **`Ran`**.
+✅ **Berhasil bila:** keempatnya **`Ran`**.
 
 > 🚦 **STOP-GATE 3** — Bila migrasi gagal, JANGAN lanjut. Kembalikan backup bila
 > perlu (lihat bagian Rollback).

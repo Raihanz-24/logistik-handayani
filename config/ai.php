@@ -106,7 +106,19 @@ return [
     'voice' => [
         'lang' => env('AI_VOICE_LANG', 'id-ID'),
         'speech_rate' => (float) env('AI_VOICE_RATE', 1.0),
+
+        // Baca ulang balasan/ringkasan lewat Text-to-Speech (hands-free).
+        // Default OFF agar tidak mengganggu; bisa diaktifkan user lewat toggle.
         'auto_speak' => (bool) env('AI_VOICE_AUTO_SPEAK', false),
+
+        // Baca ulang otomatis ringkasan draft yang menunggu konfirmasi.
+        'read_summary' => (bool) env('AI_VOICE_READ_SUMMARY', true),
+
+        // Kata perintah suara (dinormalkan ke huruf kecil, tanpa tanda baca).
+        'commands' => [
+            'confirm' => ['ya', 'iya', 'betul', 'benar', 'simpan', 'konfirmasi', 'lanjut', 'ok', 'oke', 'setuju'],
+            'cancel' => ['batal', 'batalkan', 'salah', 'gagal', 'urungkan', 'jangan simpan'],
+        ],
     ],
 
 ];

@@ -51,15 +51,13 @@ class CariBarangTool extends AiTool
         $limit = max(1, min($limit, 25));
 
         $query = Barang::query()
-            ->select(['id', 'nama_barang', 'kode_barang', 'satuan', 'is_barang_pasar'])
+            ->select(['id', 'nama_barang', 'kode_barang', 'satuan', 'ai_alias', 'is_barang_pasar'])
             ->with('kategoriBarangs:id,nama');
 
         if ($keyword !== '') {
-            $query->where(function ($q) use ($keyword): void {
-                $like = '%'.$keyword.'%';
-                $q->where('nama_barang', 'like', $like)
-                    ->orWhere('kode_barang', 'like', $like);
-            });
+            // Cari lewat nama, kode, DAN alias AI (nama panggilan) supaya
+            // ucapan seperti "aqua" tetap menemukan "Galon Aqua".
+            $query->cariUntukAi($keyword);
         }
 
         $items = $query->orderBy('nama_barang')->limit($limit)->get()
@@ -68,6 +66,7 @@ class CariBarangTool extends AiTool
                 'nama_barang' => (string) $barang->nama_barang,
                 'kode_barang' => (string) $barang->kode_barang,
                 'satuan' => (string) $barang->satuan,
+                'alias' => $barang->aiAliases(),
                 'kategori' => $barang->kategoriBarangs->pluck('nama')->implode(', '),
                 'barang_pasar' => $barang->isBarangPasar(),
                 'catatan' => $barang->isBarangPasar()

@@ -85,6 +85,19 @@ class AiAssistantTest extends TestCase
         $this->assertSame('Galon Aqua', $result['barang'][0]['nama_barang']);
     }
 
+    public function test_cari_barang_menemukan_lewat_alias(): void
+    {
+        Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah', 'ai_alias' => 'aqua, air galon']);
+        Barang::query()->create(['nama_barang' => 'Air Mineral', 'satuan' => 'dus']);
+
+        $user = $this->userWithPermissions(['view_any_barang']);
+        $result = app(CariBarangTool::class)->execute(['kata_kunci' => 'aqua'], $user);
+
+        $this->assertSame(1, $result['jumlah']);
+        $this->assertSame('Galon Aqua', $result['barang'][0]['nama_barang']);
+        $this->assertContains('aqua', $result['barang'][0]['alias']);
+    }
+
     public function test_cek_stok_membaca_pivot_barang_lokasi(): void
     {
         $barang = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);

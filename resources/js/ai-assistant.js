@@ -12,9 +12,10 @@ const AI_ROOT = '.ai-page';
  * Preferensi suara (disimpan di localStorage):
  * - append  : hasil mic DITAMBAHKAN ke teks yang sudah ada (tidak menghapus).
  * - autoSend: begitu selesai bicara, pesan langsung dikirim otomatis.
+ * - speak   : baca ulang balasan/ringkasan lewat Text-to-Speech (suara).
  */
 const VOICE_PREFS_KEY = 'ai_voice_prefs';
-const voicePrefs = { append: true, autoSend: false };
+const voicePrefs = { append: true, autoSend: false, speak: false };
 
 const loadVoicePrefs = () => {
     try {
@@ -30,9 +31,22 @@ const loadVoicePrefs = () => {
             if (typeof parsed.autoSend === 'boolean') {
                 voicePrefs.autoSend = parsed.autoSend;
             }
+
+            if (typeof parsed.speak === 'boolean') {
+                voicePrefs.speak = parsed.speak;
+            }
+
+            return;
         }
     } catch (e) {
         /* localStorage bisa diblokir; abaikan dan pakai default. */
+    }
+
+    // Belum ada preferensi tersimpan: pakai default dari konfigurasi server.
+    const root = document.querySelector(AI_ROOT);
+
+    if (root && (root.dataset.aiSpeak || '0') === '1') {
+        voicePrefs.speak = true;
     }
 };
 
@@ -48,6 +62,7 @@ const saveVoicePrefs = () => {
 const applyVoiceToggleState = () => {
     const append = document.getElementById('ai-toggle-append');
     const autoSend = document.getElementById('ai-toggle-autosend');
+    const speakToggle = document.getElementById('ai-toggle-speak');
 
     if (append) {
         append.classList.toggle('is-on', voicePrefs.append);
@@ -57,6 +72,11 @@ const applyVoiceToggleState = () => {
     if (autoSend) {
         autoSend.classList.toggle('is-on', voicePrefs.autoSend);
         autoSend.setAttribute('aria-pressed', voicePrefs.autoSend ? 'true' : 'false');
+    }
+
+    if (speakToggle) {
+        speakToggle.classList.toggle('is-on', voicePrefs.speak);
+        speakToggle.setAttribute('aria-pressed', voicePrefs.speak ? 'true' : 'false');
     }
 };
 
@@ -108,7 +128,71 @@ const readConfig = (root) => ({
     lang: root?.dataset.aiLang || 'id-ID',
     rate: parseFloat(root?.dataset.aiRate || '1') || 1,
     autoSpeak: (root?.dataset.aiSpeak || '0') === '1',
+    readSummary: (root?.dataset.aiReadSummary || '1') === '1',
+    confirmWords: splitWords(root?.dataset.aiConfirm),
+    cancelWords: splitWords(root?.dataset.aiCancel),
 });
+
+/** Pisahkan daftar kata perintah (dipisah koma) menjadi array huruf kecil. */
+const splitWords = (raw) =>
+    (raw || '')
+        .split(',')
+        .map((word) => word.trim().toLowerCase())
+        .filter((word) => word !== '');
+
+/** Bersihkan teks ucapan untuk pencocokan perintah (huruf kecil, tanpa tanda baca). */
+const normalizeCommandText = (text) =>
+    (text || '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+/**
+ * Cocokkan teks ucapan dengan perintah yang dikonfigurasi.
+ * Hanya cocok bila teks PERSIS sebuah perintah (mis. "ya", "simpan", "batal")
+ * supaya kalimat biasa tidak salah dianggap perintah.
+ *
+ * @returns {'confirm'|'cancel'|null}
+ */
+const matchVoiceCommand = (text, config) => {
+    const clean = normalizeCommandText(text);
+
+    if (clean === '') {
+        return null;
+    }
+
+    if ((config.confirmWords || []).includes(clean)) {
+        return 'confirm';
+    }
+
+    if ((config.cancelWords || []).includes(clean)) {
+        return 'cancel';
+    }
+
+    return null;
+};
+
+/** Klik tombol konfirmasi/batal pada SATU kartu aksi pending (bila ada & tunggal). */
+const triggerPendingAction = (kind) => {
+    const cards = document.querySelectorAll('.ai-confirm');
+
+    if (cards.length !== 1) {
+        return false;
+    }
+
+    const card = cards[0];
+    const selector = kind === 'confirm' ? '.ai-confirm__btn--primary' : '.ai-confirm__btn:not(.ai-confirm__btn--primary)';
+    const button = card.querySelector(selector);
+
+    if (! button) {
+        return false;
+    }
+
+    button.click();
+
+    return true;
+};
 
 const voiceSupport = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -332,6 +416,7 @@ const beginVoiceSession = (micButton) => {
     voiceSession.attempts = 0;
     voiceSession.startedAt = Date.now();
     voiceSession.finalized = false;
+    voiceSession.commandMatched = false;
 
     // "Tambahkan" = pertahankan teks lama lalu sambung hasil mic.
     // "Ganti" = mulai dari kosong (hapus teks sebelumnya).
@@ -361,6 +446,7 @@ const endVoiceSession = (micButton) => {
     const hadResult = voiceSession.gotResult === true;
     const hadError = !! voiceSession.error;
     const cancelled = voiceSession.cancelled === true;
+    const commandMatched = voiceSession.commandMatched === true;
 
     voiceSession.intent = false;
     voiceSession.locked = false;
@@ -374,10 +460,10 @@ const endVoiceSession = (micButton) => {
     }
 
     // Diagnosa SEBELUM meter dihentikan (butuh data peak/analyser). Lewati bila
-    // sesi terlalu singkat (tap tak sengaja) atau dibatalkan.
+    // sesi terlalu singkat (tap tak sengaja), dibatalkan, atau perintah suara.
     const tooShort = (Date.now() - (voiceSession.startedAt || 0)) < 600;
 
-    if (wasActive && ! hadResult && ! hadError && ! tooShort && ! cancelled) {
+    if (wasActive && ! hadResult && ! hadError && ! tooShort && ! cancelled && ! commandMatched) {
         diagnoseEmptyResult();
     }
 
@@ -389,6 +475,9 @@ const endVoiceSession = (micButton) => {
         // BATALKAN: buang hasil suara (kembalikan ke teks sebelum merekam),
         // dan JANGAN kirim meski auto-kirim menyala. Bila mode "Tambah" aktif,
         // teks yang sudah ada sebelum merekam tetap dipertahankan.
+        syncTranscriptToField(voiceSession.baseText || '');
+    } else if (commandMatched) {
+        // Perintah suara sudah dijalankan (konfirmasi/batal); jangan kirim teks.
         syncTranscriptToField(voiceSession.baseText || '');
     } else if (hadResult && ! hadError && voicePrefs.autoSend) {
         // Auto-kirim: bila aktif dan ada hasil suara (tanpa error), langsung kirim.
@@ -405,6 +494,7 @@ const endVoiceSession = (micButton) => {
     voiceSession.lastCombined = '';
     voiceSession.baseText = '';
     voiceSession.cancelled = false;
+    voiceSession.commandMatched = false;
 };
 
 /**
@@ -925,6 +1015,19 @@ const armRecognition = (micButton, config) => {
             finalTranscript += final;
         }
 
+        // Perintah suara cepat: bila ucapan PERSIS "ya/simpan/batal" dan ada
+        // tepat satu kartu konfirmasi, jalankan tanpa menyentuh kotak pesan.
+        if (final) {
+            const command = matchVoiceCommand(finalTranscript, config);
+
+            if (command && triggerPendingAction(command === 'confirm' ? 'confirm' : 'cancel')) {
+                voiceSession.commandMatched = true;
+                stopRecognition();
+
+                return;
+            }
+        }
+
         // Hasil suara digabung dengan teks lama bila toggle "tambahkan" aktif.
         const spoken = (finalTranscript || interim).trim();
         const combined = joinVoiceText(voiceSession.baseText, spoken);
@@ -995,6 +1098,30 @@ const stopRecognition = () => {
     }
 
     endVoiceSession(micButton);
+};
+
+/**
+ * Bacakan ringkasan kartu konfirmasi yang baru muncul (bila toggle "Suara" aktif
+ * dan konfigurasi read_summary mengizinkan). Ini membuat alur belanja hands-free:
+ * pengguna cukup mendengar ringkasan lalu ucapkan "ya" / "batal".
+ */
+const speakPendingSummary = () => {
+    const config = readConfig(document.querySelector(AI_ROOT));
+
+    if (! voicePrefs.speak || ! config.readSummary) {
+        return;
+    }
+
+    const cards = document.querySelectorAll('.ai-confirm');
+    const summary = cards.length === 1
+        ? (cards[0].querySelector('.ai-confirm__summary')?.textContent || '').trim()
+        : '';
+
+    if (summary === '') {
+        return;
+    }
+
+    speak('Konfirmasi: ' + summary + '. Ucapkan ya untuk menyimpan, atau batal.', config);
 };
 
 const bindDelegatedEvents = () => {
@@ -1144,6 +1271,24 @@ const bindDelegatedEvents = () => {
             voicePrefs.autoSend = ! voicePrefs.autoSend;
             saveVoicePrefs();
             applyVoiceToggleState();
+
+            return;
+        }
+
+        // Toggle: baca ulang balasan AI lewat suara (Text-to-Speech).
+        if (event.target.closest('#ai-toggle-speak')) {
+            voicePrefs.speak = ! voicePrefs.speak;
+            saveVoicePrefs();
+            applyVoiceToggleState();
+
+            const config = readConfig(document.querySelector(AI_ROOT));
+
+            if (voicePrefs.speak) {
+                // Umpan balik singkat bahwa suara aktif.
+                speak('Suara aktif.', config);
+            } else if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
         }
     });
 
@@ -1250,9 +1395,17 @@ const bindDelegatedEvents = () => {
     document.addEventListener('livewire:init', () => {
         window.Livewire?.on?.('ai-reply', (payload) => {
             const config = readConfig(document.querySelector(AI_ROOT));
-            if (config.autoSpeak) {
-                speak(payload?.text ?? '', config);
+            const text = payload?.text ?? '';
+
+            // Bila ada kartu konfirmasi, biarkan speakPendingSummary() yang membacakan
+            // ringkasan (agar tidak dobel suara).
+            const hasPendingCard = document.querySelectorAll('.ai-confirm').length > 0;
+
+            // Baca ulang balasan bila toggle "Suara" aktif.
+            if (voicePrefs.speak && text && ! hasPendingCard) {
+                speak(text, config);
             }
+
             setTimeout(scrollToEnd, 50);
         });
     });
@@ -1299,6 +1452,7 @@ const setup = () => {
     applyVoiceToggleState();
     showVoicePanel(false, micButton);
     setTimeout(scrollToEnd, 50);
+    setTimeout(speakPendingSummary, 400);
 };
 
 const boot = () => {
@@ -1318,6 +1472,7 @@ const boot = () => {
             }
             autoGrow(document.getElementById('ai-message-input'));
             setTimeout(scrollToEnd, 50);
+            speakPendingSummary();
         });
     }
 

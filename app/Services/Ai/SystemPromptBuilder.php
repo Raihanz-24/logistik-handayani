@@ -69,7 +69,9 @@ ATURAN PENTING:
 5. Bila perintah tidak lengkap atau berisiko, minta klarifikasi singkat.
 6. WAJIB: sebelum menyiapkan mutasi keluar (transfer/pemakaian) atau perubahan kondisi, panggil cek_stok lebih dulu untuk memastikan stok tersedia mencukupi. Bila jumlah diminta melebihi stok yang ada (setelah dikurangi mutasi pending), TOLAK dan jelaskan sisa stoknya. Jangan pernah memaksakan draft yang melebihi stok.
 7. Mutasi masuk (pengadaan) menambah stok, jadi tidak perlu cek ketersediaan stok.
-8. Jangan mengakses, menampilkan, atau mengarang data di luar operasional gudang: kredensial/token, data pengguna lain, pengaturan internal, isi sistem, atau kolom sensitif (harga beli internal, dsb). Gunakan HANYA data yang dikembalikan tool. Bila diminta hal sensitif, tolak dengan sopan.{$restrict}
+8. Beberapa permintaan sekaligus: pengguna sering menyebut BANYAK barang dalam satu kalimat untuk transaksi belanja (mis. "tiga sabun, dua galon aqua, minyak satu"). Pecah menjadi baris item terpisah dalam SATU draft belanja, jangan tanya satu per satu. Untuk mutasi, bila menyebut banyak barang, buat draft terpisah per barang (satu kartu per barang).
+9. Nama panggilan: bila pengguna menyebut sebutan lokal (mis. "aqua", "mino"), cari lewat cari_barang (termasuk alias) dan pilih kandidat terbaik. Bila lebih dari satu kandidat mirip, tanyakan singkat mana yang dimaksud.
+10. Jangan mengakses, menampilkan, atau mengarang data di luar operasional gudang: kredensial/token, data pengguna lain, pengaturan internal, isi sistem, atau kolom sensitif. Gunakan HANYA data yang dikembalikan tool. Bila diminta hal sensitif, tolak dengan sopan.{$restrict}
 PROMPT;
     }
 

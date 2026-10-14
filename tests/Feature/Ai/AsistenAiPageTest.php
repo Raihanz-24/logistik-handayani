@@ -118,6 +118,33 @@ class AsistenAiPageTest extends TestCase
         ]);
     }
 
+    public function test_kata_angka_dinormalkan_sebelum_dikirim_ke_model(): void
+    {
+        $this->enableAi();
+
+        Http::fake([
+            '*/chat/completions' => Http::response([
+                'choices' => [[
+                    'message' => ['role' => 'assistant', 'content' => 'Baik.'],
+                ]],
+            ]),
+        ]);
+
+        $user = $this->userWithPermissions(['view_any_barang']);
+        $this->actingAs($user);
+
+        Livewire::test(AsistenAi::class)
+            ->set('message', 'catat belanja tiga sabun dan seribu lima ratus minyak')
+            ->call('sendMessage')
+            ->assertHasNoErrors();
+
+        // Pesan tersimpan sudah dalam bentuk digit.
+        $this->assertDatabaseHas('ai_messages', [
+            'role' => AiMessage::ROLE_USER,
+            'content' => 'catat belanja 3 sabun dan 1500 minyak',
+        ]);
+    }
+
     public function test_balasan_ai_dibersihkan_dari_simbol_markdown(): void
     {
         $this->enableAi();
@@ -446,6 +473,32 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('submitComposer', $script);
         $this->assertStringContainsString('voicePrefs.autoSend', $script);
         $this->assertStringContainsString('voicePrefs.append', $script);
+    }
+
+    /**
+     * Kemampuan hands-free: toggle bacakan (TTS), perintah suara konfirmasi/batal,
+     * dan ringkasan draft dibacakan.
+     */
+    public function test_fitur_hands_free_suara_tersedia(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+        $config = (string) file_get_contents(base_path('config/ai.php'));
+
+        // Toggle bacakan di header + preferensi tersimpan.
+        $this->assertStringContainsString('id="ai-toggle-speak"', $html);
+        $this->assertStringContainsString('voicePrefs.speak', $script);
+
+        // Perintah suara konfirmasi/batal & pembacaan ringkasan.
+        $this->assertStringContainsString('matchVoiceCommand', $script);
+        $this->assertStringContainsString('triggerPendingAction', $script);
+        $this->assertStringContainsString('speakPendingSummary', $script);
+
+        // Kata perintah dikonfigurasi server + dikirim ke halaman.
+        $this->assertStringContainsString('data-ai-confirm=', $html);
+        $this->assertStringContainsString('data-ai-cancel=', $html);
+        $this->assertStringContainsString("'commands'", $config);
+        $this->assertStringContainsString('read_summary', $config);
     }
 
     /**

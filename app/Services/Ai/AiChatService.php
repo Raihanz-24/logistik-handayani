@@ -56,6 +56,10 @@ class AiChatService
         $this->assertEnabled();
         $this->assertOwnership($user, $conversation);
 
+        // Normalkan kata-angka ("seribu lima ratus" → 1500, "dua puluh lima" → 25)
+        // SEBELUM dikirim ke model, supaya jumlah dari input suara tidak salah tafsir.
+        $userMessage = AiTextNormalizer::normalize($userMessage);
+
         $setting = AiSetting::current();
         $registry = new ToolRegistry($user);
         $startedAt = microtime(true);

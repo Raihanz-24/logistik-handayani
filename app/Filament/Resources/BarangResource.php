@@ -93,6 +93,11 @@ class BarangResource extends Resource
                         Forms\Components\TextInput::make('satuan')
                             ->required()
                             ->maxLength(255),
+                        Forms\Components\TextInput::make('ai_alias')
+                            ->label('Alias (untuk Asisten AI)')
+                            ->helperText('Opsional. Nama panggilan/sinonim agar Asisten AI mengenali barang ini dari ucapan, mis. "aqua, air galon". Pisahkan dengan koma.')
+                            ->maxLength(255)
+                            ->columnSpanFull(),
                         Forms\Components\Toggle::make('is_barang_pasar')
                             ->label('Barang Pasar')
                             ->helperText('Aktifkan bila barang ini hanya dicatat pada transaksi belanja: tidak masuk stok gudang, tidak dihitung prioritas restock (SAW), dan tidak muncul sebagai stok hampir habis di dashboard.')

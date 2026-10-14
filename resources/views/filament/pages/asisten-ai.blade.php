@@ -6,12 +6,18 @@
     @php($voiceLang = config('ai.voice.lang', 'id-ID'))
     @php($voiceRate = (float) config('ai.voice.speech_rate', 1.0))
     @php($autoSpeak = (bool) config('ai.voice.auto_speak', false))
+    @php($readSummary = (bool) config('ai.voice.read_summary', true))
+    @php($confirmWords = implode(',', (array) config('ai.voice.commands.confirm', [])))
+    @php($cancelWords = implode(',', (array) config('ai.voice.commands.cancel', [])))
 
     <div
         class="ai-page"
         data-ai-lang="{{ $voiceLang }}"
         data-ai-rate="{{ $voiceRate }}"
         data-ai-speak="{{ $autoSpeak ? '1' : '0' }}"
+        data-ai-read-summary="{{ $readSummary ? '1' : '0' }}"
+        data-ai-confirm="{{ $confirmWords }}"
+        data-ai-cancel="{{ $cancelWords }}"
     >
         @unless ($configured)
             <div class="ai-alert">
@@ -50,6 +56,16 @@
                     >
                         <x-filament::icon icon="heroicon-m-paper-airplane" />
                         <span class="ai-toggle__label">Auto</span>
+                    </button>
+                    <button
+                        type="button"
+                        id="ai-toggle-speak"
+                        class="ai-toggle"
+                        aria-pressed="false"
+                        title="Bacakan balasan dan ringkasan lewat suara"
+                    >
+                        <x-filament::icon icon="heroicon-m-speaker-wave" />
+                        <span class="ai-toggle__label">Suara</span>
                     </button>
                     <button type="button" class="ai-iconbtn" wire:click="startNewChat" title="Mulai percakapan baru" aria-label="Mulai percakapan baru">
                         <x-filament::icon icon="heroicon-m-plus" />

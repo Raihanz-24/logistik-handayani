@@ -181,7 +181,7 @@ class AsistenAi extends Page
     public const SUGGESTIONS = [
         'Berapa stok air galon di gudang utama?',
         'Buatkan draft mutasi masuk 20 air galon ke gudang utama',
-        'Catat belanja 3 sabun cuci piring dari toko bu ciko',
+        'Catat belanja 3 sabun cuci piring, 2 galon aqua, dan 1 minyak goreng dari toko bu ciko',
     ];
 
     public function confirmAction(int $actionId): void
