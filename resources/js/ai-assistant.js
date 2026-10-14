@@ -131,6 +131,7 @@ const readConfig = (root) => ({
     readSummary: (root?.dataset.aiReadSummary || '1') === '1',
     confirmWords: splitWords(root?.dataset.aiConfirm),
     cancelWords: splitWords(root?.dataset.aiCancel),
+    voiceNames: splitWords(root?.dataset.aiVoiceNames),
 });
 
 /** Pisahkan daftar kata perintah (dipisah koma) menjadi array huruf kecil. */
@@ -215,20 +216,155 @@ const VOICE_MESSAGES = {
         'Input suara butuh koneksi aman (HTTPS) atau localhost. Jika diakses lewat alamat IP LAN, buka lewat http://localhost atau aktifkan HTTPS.',
 };
 
-const speak = (text, config) => {
-    if (!text || !('speechSynthesis' in window)) {
+/**
+ * Daftar voice TTS dengan cache. Chrome memuat voice secara ASINKRON, jadi kita
+ * dengar event `voiceschanged` dan ambil ulang daftar saat tersedia.
+ */
+let ttsVoices = [];
+let ttsVoicesReady = false;
+
+const refreshTtsVoices = () => {
+    if (! ('speechSynthesis' in window)) {
         return;
     }
 
     try {
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.lang = config.lang;
-        utter.rate = config.rate;
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utter);
+        const voices = window.speechSynthesis.getVoices();
+
+        if (Array.isArray(voices) && voices.length > 0) {
+            ttsVoices = voices;
+            ttsVoicesReady = true;
+        }
     } catch (e) {
         /* diabaikan */
     }
+};
+
+if ('speechSynthesis' in window) {
+    refreshTtsVoices();
+    // Voice dimuat asinkron di Chrome/Edge; muat ulang saat siap.
+    window.speechSynthesis.onvoiceschanged = refreshTtsVoices;
+}
+
+/** Normalisasi kode bahasa: "id-ID" -> "id". */
+const langBase = (lang) => (lang || '').toLowerCase().split(/[-_]/)[0];
+
+/**
+ * Pilih voice TTS terbaik untuk bahasa yang diminta.
+ *
+ * Urutan prioritas:
+ * 1. Voice yang namanya diinginkan (config.voiceNames), cocok sebagian.
+ * 2. Voice dengan kode bahasa persis (mis. "id-ID").
+ * 3. Voice dengan bahasa dasar sama (mis. "id").
+ * 4. Voice bawaan berkualitas (Google/Microsoft) untuk bahasa itu.
+ *
+ * Bila tidak ada voice bahasa Indonesia sama sekali, kembalikan null supaya
+ * pemanggil bisa memberi tahu pengguna (agar tidak dibacakan logat Inggris).
+ */
+const pickVoice = (lang, preferred = []) => {
+    const pool = ttsVoicesReady ? ttsVoices : (window.speechSynthesis?.getVoices?.() || []);
+    const target = langBase(lang);
+
+    if (! Array.isArray(pool) || pool.length === 0) {
+        return null;
+    }
+
+    const lower = (value) => (value || '').toLowerCase();
+
+    // 1. Voice pilihan eksplisit (nama mengandung salah satu kata di config).
+    for (const want of preferred) {
+        const needle = lower(want).trim();
+
+        if (needle === '') {
+            continue;
+        }
+
+        const found = pool.find((voice) => lower(voice.name).includes(needle));
+
+        if (found) {
+            return found;
+        }
+    }
+
+    // 2. Bahasa persis (mis. "id-ID").
+    const exact = pool.find((voice) => lower(voice.lang).replace('_', '-') === lower(lang));
+
+    if (exact) {
+        return exact;
+    }
+
+    // 3. Bahasa dasar sama (perhatikan: "id" tidak boleh cocok dengan "id" di
+    //    kata lain, jadi bandingkan bagian sebelum tanda hubung).
+    const sameLang = pool.filter((voice) => langBase(voice.lang) === target);
+
+    if (sameLang.length > 0) {
+        // 4. Di antara yang sebahasa, prioritaskan voice "natural"/Google/Microsoft.
+        const preferredEngine = sameLang.find((voice) => /google|natural|neural|online|microsoft/i.test(voice.name))
+            || sameLang.find((voice) => voice.localService === false)
+            || sameLang[0];
+
+        return preferredEngine;
+    }
+
+    return null;
+};
+
+/**
+ * Bacakan teks dengan voice Bahasa Indonesia yang paling natural.
+ * Mengembalikan true bila benar-benar diucapkan.
+ */
+const speak = (text, config) => {
+    if (!text || ! ('speechSynthesis' in window)) {
+        return false;
+    }
+
+    const lang = config.lang || 'id-ID';
+    const voice = pickVoice(lang, config.voiceNames || []);
+
+    try {
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = voice?.lang || lang;
+
+        if (voice) {
+            utter.voice = voice;
+        }
+
+        // Sedikit lebih lambat + pitch natural agar tidak terdengar kaku.
+        utter.rate = Math.min(1.2, Math.max(0.7, (config.rate || 1) * 0.95));
+        utter.pitch = 1;
+
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utter);
+
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
+
+/**
+ * Bacakan HANYA bila ada voice Bahasa Indonesia. Bila tidak ada, beri tahu
+ * pengguna sekali (bukan membacakan dengan logat Inggris). Mengembalikan
+ * true bila pembacaan dijalankan atau peringatan sudah cukup.
+ */
+let lastVoiceWarned = false;
+
+const speakIndonesian = (text, config) => {
+    const voice = pickVoice(config.lang || 'id-ID', config.voiceNames || []);
+
+    if (! voice) {
+        if (! lastVoiceWarned) {
+            lastVoiceWarned = true;
+            notifyVoice(
+                'Suara Bahasa Indonesia belum tersedia di perangkat ini. Pasang paket suara Indonesia di pengaturan sistem (mis. "Text-to-speech > Bahasa Indonesia" di Android/Windows), lalu muat ulang halaman.',
+                { sticky: true },
+            );
+        }
+
+        return false;
+    }
+
+    return speak(text, config);
 };
 
 const fitHeight = () => {
@@ -1121,7 +1257,7 @@ const speakPendingSummary = () => {
         return;
     }
 
-    speak('Konfirmasi: ' + summary + '. Ucapkan ya untuk menyimpan, atau batal.', config);
+    speakIndonesian('Konfirmasi: ' + summary + '. Ucapkan ya untuk menyimpan, atau batal.', config);
 };
 
 const bindDelegatedEvents = () => {
@@ -1284,8 +1420,8 @@ const bindDelegatedEvents = () => {
             const config = readConfig(document.querySelector(AI_ROOT));
 
             if (voicePrefs.speak) {
-                // Umpan balik singkat bahwa suara aktif.
-                speak('Suara aktif.', config);
+                // Umpan balik singkat bahwa suara aktif (voice Indonesia).
+                speakIndonesian('Suara aktif.', config);
             } else if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
             }
@@ -1403,7 +1539,7 @@ const bindDelegatedEvents = () => {
 
             // Baca ulang balasan bila toggle "Suara" aktif.
             if (voicePrefs.speak && text && ! hasPendingCard) {
-                speak(text, config);
+                speakIndonesian(text, config);
             }
 
             setTimeout(scrollToEnd, 50);

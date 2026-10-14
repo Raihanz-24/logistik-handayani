@@ -499,6 +499,13 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('data-ai-cancel=', $html);
         $this->assertStringContainsString("'commands'", $config);
         $this->assertStringContainsString('read_summary', $config);
+
+        // Pemilihan voice TTS Bahasa Indonesia (bukan logat Inggris).
+        $this->assertStringContainsString('pickVoice', $script);
+        $this->assertStringContainsString('speakIndonesian', $script);
+        $this->assertStringContainsString('onvoiceschanged', $script);
+        $this->assertStringContainsString('data-ai-voice-names=', $html);
+        $this->assertStringContainsString('voice_names', $config);
     }
 
     /**

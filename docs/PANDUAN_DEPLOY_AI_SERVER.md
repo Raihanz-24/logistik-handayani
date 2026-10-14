@@ -293,6 +293,7 @@ AI_VOICE_LANG=id-ID
 AI_VOICE_RATE=1.0
 AI_VOICE_AUTO_SPEAK=false
 AI_VOICE_READ_SUMMARY=true
+AI_VOICE_NAMES=google indonesian,andika,gadis,damayanti,indonesian
 ```
 
 - **`AI_ENABLED=false`** dulu — wajib. Dinyalakan di Langkah 8.

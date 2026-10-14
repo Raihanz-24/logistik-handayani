@@ -114,6 +114,14 @@ return [
         // Baca ulang otomatis ringkasan draft yang menunggu konfirmasi.
         'read_summary' => (bool) env('AI_VOICE_READ_SUMMARY', true),
 
+        // Nama voice TTS yang diprioritaskan (cocok sebagian, huruf kecil).
+        // Contoh: "google indonesian", "andika", "gadis", "damayanti".
+        // Bila kosong, sistem otomatis memilih voice Bahasa Indonesia terbaik.
+        'voice_names' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('AI_VOICE_NAMES', 'google indonesian,andika,gadis,damayanti,indonesian')),
+        ))),
+
         // Kata perintah suara (dinormalkan ke huruf kecil, tanpa tanda baca).
         'commands' => [
             'confirm' => ['ya', 'iya', 'betul', 'benar', 'simpan', 'konfirmasi', 'lanjut', 'ok', 'oke', 'setuju'],

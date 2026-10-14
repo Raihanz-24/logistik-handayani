@@ -9,6 +9,7 @@
     @php($readSummary = (bool) config('ai.voice.read_summary', true))
     @php($confirmWords = implode(',', (array) config('ai.voice.commands.confirm', [])))
     @php($cancelWords = implode(',', (array) config('ai.voice.commands.cancel', [])))
+    @php($voiceNames = implode(',', (array) config('ai.voice.voice_names', [])))
 
     <div
         class="ai-page"
@@ -18,6 +19,7 @@
         data-ai-read-summary="{{ $readSummary ? '1' : '0' }}"
         data-ai-confirm="{{ $confirmWords }}"
         data-ai-cancel="{{ $cancelWords }}"
+        data-ai-voice-names="{{ $voiceNames }}"
     >
         @unless ($configured)
             <div class="ai-alert">

@@ -5,6 +5,7 @@ namespace App\Services\Ai\Tools;
 use App\Models\AiConversation;
 use App\Models\Barang;
 use App\Models\User;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Mencari master barang berdasarkan kata kunci nama atau kode.
@@ -50,14 +51,28 @@ class CariBarangTool extends AiTool
         $limit = (int) ($arguments['limit'] ?? 10);
         $limit = max(1, min($limit, 25));
 
+        // Kolom ai_alias mungkin belum ada (mis. migrasi belum dijalankan). Jangan
+        // sampai pencarian gagal total — turunkan ke pencarian nama/kode saja.
+        $hasAlias = Schema::hasColumn('barangs', 'ai_alias');
+
         $query = Barang::query()
-            ->select(['id', 'nama_barang', 'kode_barang', 'satuan', 'ai_alias', 'is_barang_pasar'])
+            ->select($hasAlias
+                ? ['id', 'nama_barang', 'kode_barang', 'satuan', 'ai_alias', 'is_barang_pasar']
+                : ['id', 'nama_barang', 'kode_barang', 'satuan', 'is_barang_pasar'])
             ->with('kategoriBarangs:id,nama');
 
         if ($keyword !== '') {
-            // Cari lewat nama, kode, DAN alias AI (nama panggilan) supaya
-            // ucapan seperti "aqua" tetap menemukan "Galon Aqua".
-            $query->cariUntukAi($keyword);
+            $like = '%'.$keyword.'%';
+
+            // Cari lewat nama, kode, DAN alias AI (nama panggilan) bila kolomnya ada.
+            $query->where(function ($q) use ($like, $hasAlias): void {
+                $q->where('nama_barang', 'like', $like)
+                    ->orWhere('kode_barang', 'like', $like);
+
+                if ($hasAlias) {
+                    $q->orWhere('ai_alias', 'like', $like);
+                }
+            });
         }
 
         $items = $query->orderBy('nama_barang')->limit($limit)->get()
@@ -66,7 +81,7 @@ class CariBarangTool extends AiTool
                 'nama_barang' => (string) $barang->nama_barang,
                 'kode_barang' => (string) $barang->kode_barang,
                 'satuan' => (string) $barang->satuan,
-                'alias' => $barang->aiAliases(),
+                'alias' => $hasAlias ? $barang->aiAliases() : [],
                 'kategori' => $barang->kategoriBarangs->pluck('nama')->implode(', '),
                 'barang_pasar' => $barang->isBarangPasar(),
                 'catatan' => $barang->isBarangPasar()
