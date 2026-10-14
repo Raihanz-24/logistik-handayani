@@ -356,7 +356,7 @@ class PengeluaranRelationManager extends RelationManager
                                         $set('harga_satuan', $latest['price']);
                                     }
                                 })
-                                ->helperText('Satuan pasar dapat dipilih sesuai pembelian.')
+                                ->helperText('Satuan pasar dapat dipilih sesuai pembelian. Pilih "-" bila barang dihitung 1 buah tanpa satuan.')
                                 ->columnSpan(['default' => 1, 'lg' => 1]),
                             Forms\Components\Placeholder::make('satuan_preview')
                                 ->label('Satuan')

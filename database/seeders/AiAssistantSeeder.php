@@ -115,6 +115,15 @@ class AiAssistantSeeder extends Seeder
             ],
             [
                 'type' => AiKnowledgeEntry::TYPE_RULE,
+                'title' => 'Tanpa satuan berarti 1 barang',
+                'content' => 'Bila pengguna menyebut harga TANPA satuan (mis. "ayam broiler 100 ribu", "cabai 25 ribu", "tempe 5 ribu"), artinya barang dihitung satuan: satu barang dengan harga sebesar nominal itu. Catat: jumlah = 1, satuan = "-" (strip), harga_satuan = nominal tersebut. JANGAN menanyakan satuan pada kasus ini. Bila ada angka jumlah di depan barang (mis. "2 ayam broiler 100 ribu"), pakai angka itu sebagai jumlah dan "-" sebagai satuan, harga per barang = nominal. Bila pengguna menyebut angka + satuan (mis. "2 kg cabai", "3 ikat kangkung"), pakai jumlah dan satuan tersebut seperti biasa.',
+                'keywords' => ['tanpa satuan', 'strip', 'harga', 'ribu', 'juta', 'seharga', 'satu barang', 'belanja', 'catat'],
+                'action_hint' => 'Untuk harga tanpa satuan: isi items dengan jumlah=1 dan satuan="-".',
+                'always_include' => true,
+                'priority' => 88,
+            ],
+            [
+                'type' => AiKnowledgeEntry::TYPE_RULE,
                 'title' => 'Cek stok sebelum mutasi keluar',
                 'content' => 'Sebelum menyiapkan mutasi keluar (transfer/pemakaian) atau perubahan kondisi, panggil cek_stok lebih dulu. Bila jumlah melebihi stok tersedia (setelah dikurangi mutasi pending), TOLAK dan jelaskan sisa stok. Jangan memaksakan draft yang melebihi stok. Mutasi masuk menambah stok sehingga tidak perlu cek.',
                 'keywords' => ['keluar', 'transfer', 'pemakaian', 'mutasi', 'stok', 'kondisi'],

@@ -159,6 +159,61 @@ class AiWriteFlowTest extends TestCase
         $this->assertSame('belanja', $result['type']);
     }
 
+    public function test_draft_belanja_tanpa_satuan_minimal_satu_barang(): void
+    {
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Toko Berkah', 'aktif' => true]);
+        $barang = Barang::query()->create(['nama_barang' => 'Ayam Broiler', 'satuan' => '-']);
+
+        $user = $this->userWithPermissions(['create_kalkulator_belanja', 'update_kalkulator_belanja']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        // "Ayam broiler 100 ribu" → jumlah 1, satuan "-", harga 100000.
+        $result = app(CatatTransaksiBelanjaTool::class)->execute([
+            'supplier_id' => $supplier->getKey(),
+            'items' => [
+                ['barang_id' => $barang->getKey(), 'jumlah' => 1, 'harga_satuan' => 100000, 'satuan' => '-'],
+            ],
+        ], $user, $conversation);
+
+        $action = AiPendingAction::query()->findOrFail($result['pending_action_id']);
+        $this->assertSame('-', $action->payload['items'][0]['satuan']);
+        $this->assertStringContainsString('Ayam Broiler × 1 -', $action->summary);
+
+        // Konfirmasi menyimpan satuan_snapshot "-" pada item.
+        app(AiActionService::class)->confirm($action, $user);
+
+        $this->assertDatabaseHas('pengeluaran_belanja_items', [
+            'barang_id' => $barang->getKey(),
+            'satuan_snapshot' => '-',
+            'harga_satuan' => 100000,
+            'subtotal' => 100000,
+        ]);
+    }
+
+    public function test_barang_gudang_dapat_dicatat_tanpa_satuan_strip(): void
+    {
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Toko Berkah', 'aktif' => true]);
+        // Barang gudang (bukan pasar) pun boleh dicatat tanpa satuan bila diminta.
+        $barang = Barang::query()->create(['nama_barang' => 'Tenda', 'satuan' => 'unit']);
+
+        $user = $this->userWithPermissions(['create_kalkulator_belanja', 'update_kalkulator_belanja']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        $result = app(CatatTransaksiBelanjaTool::class)->execute([
+            'supplier_id' => $supplier->getKey(),
+            'items' => [
+                ['barang_id' => $barang->getKey(), 'jumlah' => 1, 'harga_satuan' => 250000, 'satuan' => '-'],
+            ],
+        ], $user, $conversation);
+
+        app(AiActionService::class)->confirm(AiPendingAction::query()->findOrFail($result['pending_action_id']), $user);
+
+        $this->assertDatabaseHas('pengeluaran_belanja_items', [
+            'barang_id' => $barang->getKey(),
+            'satuan_snapshot' => '-',
+        ]);
+    }
+
     public function test_batal_aksi_menandai_dibatalkan(): void
     {
         $supplier = Supplier::query()->create(['nama_supplier' => 'Toko Berkah', 'aktif' => true]);

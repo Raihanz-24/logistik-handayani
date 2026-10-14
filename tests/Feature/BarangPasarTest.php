@@ -147,6 +147,9 @@ class BarangPasarTest extends TestCase
         foreach (['ikt', 'ppn', 'btr', 'bks'] as $unit) {
             $this->assertContains($unit, $context['units']);
         }
+
+        // Satuan strip "-" (tanpa satuan) juga tersedia.
+        $this->assertContains('-', $context['units']);
     }
 
     public function test_barang_pasar_tidak_muncul_di_daftar_stok_barang(): void

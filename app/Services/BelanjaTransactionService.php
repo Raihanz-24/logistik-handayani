@@ -18,8 +18,11 @@ class BelanjaTransactionService
 {
     public const MARKET_CATEGORY_SLUG = 'pasar';
 
+    /** Satuan khusus: barang dicatat TANPA satuan (hanya 1 barang seharga nominal). */
+    public const NO_UNIT = '-';
+
     /** @var array<int, string> */
-    public const FLEXIBLE_MARKET_UNITS = ['gr', 'kg', 'biji', 'buah', 'ekor', 'ikt', 'ppn', 'btr', 'bks'];
+    public const FLEXIBLE_MARKET_UNITS = ['gr', 'kg', 'biji', 'buah', 'ekor', 'ikt', 'ppn', 'btr', 'bks', self::NO_UNIT];
 
     /**
      * @param  array<string, mixed>  $data
@@ -434,15 +437,27 @@ class BelanjaTransactionService
 
     private function purchaseUnitFor(Barang $barang, mixed $requestedUnit, int $index): string
     {
+        $unit = mb_strtolower(trim((string) $requestedUnit));
+
+        // Tanpa satuan: dicatat sebagai 1 barang seharga nominal (satuan "-").
+        // Bisa dari barang pasar maupun barang gudang, bila memang tidak disertakan.
+        if ($unit === self::NO_UNIT) {
+            return self::NO_UNIT;
+        }
+
         if (! $this->isMarketItem($barang)) {
             return (string) $barang->satuan;
         }
 
-        $unit = mb_strtolower(trim((string) $requestedUnit));
+        // Barang pasar tanpa satuan sama artinya dengan tidak memakai satuan:
+        // dicatat sebagai 1 barang seharga nominal (satuan "-").
+        if ($unit === '') {
+            return self::NO_UNIT;
+        }
 
         if (! in_array($unit, self::FLEXIBLE_MARKET_UNITS, true)) {
             throw ValidationException::withMessages([
-                "items.{$index}.satuan" => 'Pilih satuan pasar yang valid: gr, kg, biji, buah, ekor, ikt, ppn, btr, atau bks.',
+                "items.{$index}.satuan" => 'Pilih satuan pasar yang valid: gr, kg, biji, buah, ekor, ikt, ppn, btr, bks, atau "-" (tanpa satuan).',
             ]);
         }
 

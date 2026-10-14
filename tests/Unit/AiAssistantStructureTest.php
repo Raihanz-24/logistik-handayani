@@ -76,4 +76,21 @@ class AiAssistantStructureTest extends TestCase
         $this->assertStringContainsString('BelanjaTransactionService::class', $service);
         $this->assertStringContainsString("'status' => 'pending'", $service);
     }
+
+    public function test_aturan_tanpa_satuan_tertanam_di_prompt_dan_seeder(): void
+    {
+        $prompt = (string) file_get_contents($this->root.'/app/Services/Ai/SystemPromptBuilder.php');
+        $seeder = (string) file_get_contents($this->root.'/database/seeders/AiAssistantSeeder.php');
+        $tool = (string) file_get_contents($this->root.'/app/Services/Ai/Tools/CatatTransaksiBelanjaTool.php');
+
+        // Aturan inti: tanpa satuan → jumlah 1, satuan "-".
+        $this->assertStringContainsString('TANPA SATUAN artinya', $prompt);
+        $this->assertStringContainsString('satuan = "-"', $prompt);
+
+        // Tersedia juga sebagai entri pengetahuan yang bisa diedit admin.
+        $this->assertStringContainsString('Tanpa satuan berarti 1 barang', $seeder);
+
+        // Deskripsi parameter tool menjelaskan pemakaian "-".
+        $this->assertStringContainsString('TANPA satuan', $tool);
+    }
 }

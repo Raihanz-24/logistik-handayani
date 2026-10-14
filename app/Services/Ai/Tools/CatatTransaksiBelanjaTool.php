@@ -59,7 +59,7 @@ class CatatTransaksiBelanjaTool extends AiTool
                             'barang_id' => ['type' => 'integer'],
                             'jumlah' => ['type' => 'number', 'description' => 'Jumlah/banyaknya.'],
                             'harga_satuan' => ['type' => 'integer', 'description' => 'Harga per satuan (Rp). Boleh 0.'],
-                            'satuan' => ['type' => 'string', 'description' => 'Satuan (wajib untuk barang kategori pasar: gr/kg/biji/buah/ekor/ikt/ppn/btr/bks).'],
+                            'satuan' => ['type' => 'string', 'description' => 'Satuan. Untuk barang kategori pasar pilih salah satu: gr/kg/biji/buah/ekor/ikt/ppn/btr/bks. Bila pengguna menyebut harga TANPA satuan, isi "-" (strip) dan jumlah=1 (artinya 1 barang seharga nominal itu).'],
                             'keterangan' => ['type' => 'string'],
                         ],
                         'required' => ['barang_id', 'jumlah'],
