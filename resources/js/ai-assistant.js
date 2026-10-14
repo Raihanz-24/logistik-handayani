@@ -1237,6 +1237,21 @@ const bindDelegatedEvents = () => {
 
     window.addEventListener('resize', () => fitHeight());
 
+    // Kunci scroll halaman pada Asisten AI: gulir hanya diizinkan di area
+    // daftar chat dan panel riwayat. Ini memastikan kolom isi pesan tetap
+    // menempel di bawah (di atas bottom navbar) dan tidak ikut bergeser.
+    document.addEventListener('touchmove', (event) => {
+        if (! document.querySelector(AI_ROOT)) {
+            return;
+        }
+
+        const scrollable = event.target.closest('#ai-chat-scroll, .ai-history__panel');
+
+        if (! scrollable) {
+            event.preventDefault();
+        }
+    }, { passive: false });
+
     // Lepas penanda padding saat meninggalkan halaman (mode SPA).
     document.addEventListener('livewire:navigate', () => {
         document.querySelector('.fi-main')?.classList.remove('ai-main');

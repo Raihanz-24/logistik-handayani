@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Ai\AiTextFormatter;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -29,6 +30,21 @@ class AiMessage extends Model
         return [
             'tool_payload' => 'array',
         ];
+    }
+
+    /**
+     * Konten siap tampil: balasan asisten lama mungkin masih menyimpan penanda
+     * Markdown ('#', '*'), jadi dirapikan saat diakses.
+     */
+    public function getDisplayContentAttribute(): string
+    {
+        $content = (string) ($this->content ?? '');
+
+        if ($this->role !== self::ROLE_ASSISTANT) {
+            return $content;
+        }
+
+        return AiTextFormatter::toPlain($content);
     }
 
     public function conversation(): BelongsTo

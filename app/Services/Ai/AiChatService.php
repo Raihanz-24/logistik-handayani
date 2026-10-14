@@ -87,7 +87,7 @@ class AiChatService
                 if (! is_array($toolCalls) || $toolCalls === []) {
                     $reply = $conversation->messages()->create([
                         'role' => AiMessage::ROLE_ASSISTANT,
-                        'content' => $content !== '' ? $content : '(tidak ada balasan)',
+                        'content' => $content !== '' ? AiTextFormatter::toPlain($content) : '(tidak ada balasan)',
                     ]);
 
                     $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_SUCCESS);

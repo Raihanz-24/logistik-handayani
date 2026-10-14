@@ -83,7 +83,7 @@
                             <div class="ai-bubble__role">
                                 {{ $chatMessage->role === 'user' ? 'Anda' : 'Asisten' }}
                             </div>
-                            <div class="ai-bubble__content">{!! nl2br(e($chatMessage->content)) !!}</div>
+                            <div class="ai-bubble__content">{!! nl2br(e($chatMessage->display_content)) !!}</div>
                         </div>
                     @endforeach
                 @endif
@@ -494,11 +494,18 @@
         .ai-page { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
         /* Tinggi halaman dihitung dari JS (ukur topbar + footer + bottom navbar)
            agar tidak ada scroll halaman dan composer selalu terlihat. */
-        .ai-page-wrap { height: var(--ai-page-h, calc(100dvh - 9rem)); }
+        .ai-page-wrap { height: var(--ai-page-h, calc(100dvh - 9rem)); overflow: hidden; }
         /* Saat halaman Asisten aktif, ruang samping/bawah .fi-main dirapikan. */
         .fi-main.ai-main { padding-bottom: .5rem !important; padding-left: .5rem !important; padding-right: .5rem !important; }
         /* Sembunyikan footer kredit di halaman chat Asisten AI saja. */
         html.ai-page-active .wm-global-footer { display: none !important; }
+        /* Kunci scroll halaman: hanya area daftar chat yang boleh menggulir,
+           agar kolom isi pesan selalu menempel tepat di atas bottom navbar. */
+        html.ai-page-active, html.ai-page-active body { overflow: hidden !important; height: 100%; }
+        html.ai-page-active .fi-body,
+        html.ai-page-active .fi-layout,
+        html.ai-page-active .fi-main,
+        html.ai-page-active main { overflow: hidden !important; }
         @media (max-width: 1023px) {
             .ai-page-wrap > section { padding-top: .35rem; padding-bottom: 0; }
             .ai-bubble { max-width: 90%; }

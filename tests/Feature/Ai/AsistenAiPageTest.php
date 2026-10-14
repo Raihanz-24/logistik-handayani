@@ -118,6 +118,61 @@ class AsistenAiPageTest extends TestCase
         ]);
     }
 
+    public function test_balasan_ai_dibersihkan_dari_simbol_markdown(): void
+    {
+        $this->enableAi();
+
+        Http::fake([
+            '*/chat/completions' => Http::response([
+                'choices' => [[
+                    'message' => [
+                        'role' => 'assistant',
+                        'content' => "## Ringkasan Stok\n\n**Galon** tersedia *20* unit.\n\n* Poin satu\n* Poin dua",
+                    ],
+                ]],
+            ]),
+        ]);
+
+        $user = $this->userWithPermissions(['view_any_barang']);
+        $this->actingAs($user);
+
+        $component = Livewire::test(AsistenAi::class)
+            ->set('message', 'Cek stok')
+            ->call('sendMessage');
+
+        $html = $component->html();
+
+        // Tidak ada lagi simbol pagar atau bintang mentah.
+        $this->assertStringNotContainsString('##', $html);
+        $this->assertStringNotContainsString('**', $html);
+
+        // Isi tetap terbaca (teks tanpa penanda).
+        $this->assertStringContainsString('Ringkasan Stok', $html);
+        $this->assertStringContainsString('Galon tersedia 20 unit.', $html);
+        $this->assertStringContainsString('• Poin satu', $html);
+
+        // Akun tersimpan sudah bersih di DB.
+        $this->assertDatabaseHas('ai_messages', [
+            'role' => AiMessage::ROLE_ASSISTANT,
+            'content' => "Ringkasan Stok\n\nGalon tersedia 20 unit.\n\n• Poin satu\n• Poin dua",
+        ]);
+    }
+
+    /**
+     * Halaman chat tidak boleh ikut ter-scroll: hanya area daftar chat yang
+     * menggulir, agar kolom isi pesan tetap di bawah (di atas bottom navbar).
+     */
+    public function test_halaman_chat_tidak_dapat_di_scroll(): void
+    {
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        $this->assertStringContainsString('html.ai-page-active', $html);
+        $this->assertStringContainsString('overflow: hidden !important', $html);
+        $this->assertStringContainsString('touchmove', $script);
+        $this->assertStringContainsString('#ai-chat-scroll', $script);
+    }
+
     public function test_pesan_kosong_diabaikan(): void
     {
         $this->enableAi();
