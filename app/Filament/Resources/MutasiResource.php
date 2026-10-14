@@ -523,6 +523,7 @@ class MutasiResource extends Resource
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('jumlah')->numeric()->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('barang.satuan')->label('Satuan')
+                    ->placeholder('-')
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('no_ref')->label('No. Referensi')->placeholder('-')
                     ->toggleable(isToggledHiddenByDefault: true),

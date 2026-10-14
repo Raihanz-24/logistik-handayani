@@ -203,6 +203,7 @@ class BarangResource extends Resource
                 Tables\Columns\TextColumn::make('kode_barang')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('satuan')
+                    ->placeholder('-')
                     ->searchable(),
                 Tables\Columns\ToggleColumn::make('is_barang_pasar')
                     ->label('Barang Pasar')

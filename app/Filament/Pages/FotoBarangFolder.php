@@ -441,7 +441,7 @@ class FotoBarangFolder extends Page
             'supplier' => $expense->namaSupplier(),
             'name' => $item->namaBarang(),
             'quantity' => $quantity,
-            'unit' => (string) $item->satuan_snapshot,
+            'unit' => (string) $item->satuan_snapshot ?: '-',
             'price' => KalkulatorBelanjaResource::rupiah((int) $item->harga_satuan),
             'subtotal' => KalkulatorBelanjaResource::rupiah((int) $item->subtotal),
             'transactionUrl' => KalkulatorBelanjaResource::getUrl('view', ['record' => $expense->kalkulatorBelanja]),

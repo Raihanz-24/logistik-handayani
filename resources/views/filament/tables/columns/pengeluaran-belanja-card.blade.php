@@ -47,7 +47,7 @@
                     @else
                         <strong>{{ $item->namaBarang() }}</strong>
                     @endif
-                    <small>{{ $item->kode_barang_snapshot }} · {{ $quantity }} {{ $item->satuan_snapshot ?: '' }} × {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $item->harga_satuan) }}</small>
+                    <small>{{ $item->kode_barang_snapshot }} · {{ $quantity }} {{ $item->satuan_snapshot ?: '-' }} × {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $item->harga_satuan) }}</small>
                     @if ($item->keterangan)
                         <em>{{ $item->keterangan }}</em>
                     @endif

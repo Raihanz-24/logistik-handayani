@@ -127,7 +127,7 @@ class BelanjaPdfExportService
 
                 foreach ($expense->items as $item) {
                     $quantity = rtrim(rtrim(number_format((float) $item->jumlah, 3, ',', '.'), '0'), ',')
-                        .' '.($item->satuan_snapshot ?: '');
+                        .' '.($item->satuan_snapshot ?: '-');
                     $itemNote = collect([$expense->keterangan, $item->keterangan])->filter()->implode(' · ');
 
                     $rows[] = $this->row(

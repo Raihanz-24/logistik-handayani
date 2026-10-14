@@ -51,7 +51,7 @@ class ItemsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('jumlah')
                     ->label('Jumlah')
                     ->formatStateUsing(fn (CatatanItem $record): string => trim(
-                        number_format($record->jumlah, 0, ',', '.').' '.($record->satuan_snapshot ?? '')
+                        number_format($record->jumlah, 0, ',', '.').' '.($record->satuan_snapshot ?: '-')
                     )),
                 Tables\Columns\TextColumn::make('keterangan')
                     ->label('Keterangan')

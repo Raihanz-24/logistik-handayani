@@ -201,7 +201,7 @@
                                 <div class="ff-product-label">
                                     <span>{{ $purchaseExpense?->namaSupplier() }}</span>
                                     <strong>{{ $purchaseItem->namaBarang() }}</strong>
-                                    <small>{{ $purchaseQuantity }} {{ $purchaseItem->satuan_snapshot }} × {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $purchaseItem->harga_satuan) }}</small>
+                                    <small>{{ $purchaseQuantity }} {{ $purchaseItem->satuan_snapshot ?: '-' }} × {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $purchaseItem->harga_satuan) }}</small>
                                     <b>Subtotal {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $purchaseItem->subtotal) }}</b>
                                 </div>
                             @elseif (false)
