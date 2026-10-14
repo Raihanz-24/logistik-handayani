@@ -393,6 +393,27 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('voicePrefs.append', $script);
     }
 
+    /**
+     * Tombol merah di panel voice = GAGALKAN rekaman: hentikan mic, hapus hasil
+     * suara, dan jangan kirim (bahkan saat auto-kirim menyala).
+     */
+    public function test_tombol_berhenti_menggagalkan_rekaman(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+
+        // Tombol masih ada dan diberi label "Batal".
+        $this->assertStringContainsString('id="ai-voice-stop"', $html);
+        $this->assertStringContainsString('Batal', $html);
+
+        // Logika pembatalan: fungsi khusus + tanda cancelled + tombol memanggilnya.
+        $this->assertStringContainsString('cancelVoiceSession', $script);
+        $this->assertStringContainsString('voiceSession.cancelled', $script);
+
+        // Saat dibatalkan, teks dikembalikan ke baseText (bukan dikirim).
+        $this->assertStringContainsString("syncTranscriptToField(voiceSession.baseText || '')", $script);
+    }
+
     public function test_saran_cepat_mengisi_kotak_pesan(): void
     {
         $this->enableAi();

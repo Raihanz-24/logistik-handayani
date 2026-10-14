@@ -220,9 +220,11 @@ const notifyVoice = (message, { sticky = false } = {}) => {
 const syncTranscriptToField = (text) => {
     const field = document.getElementById('ai-message-input');
 
-    if (!field || !text) {
+    if (!field) {
         return;
     }
+
+    text = text || '';
 
     field.value = text;
     field.dispatchEvent(new Event('input', { bubbles: true }));
@@ -251,13 +253,14 @@ let finalTranscript = '';
  * Status sesi suara. Mendukung dua mode:
  * - TAHAN (push-to-talk): tahan tombol mic -> bicara -> lepas untuk berhenti.
  * - KUNCI: geser tombol mic ke atas saat menahan (atau tap singkat) -> mikrofon
- *   tetap hidup sampai tombol Stop ditekan.
+ *   tetap hidup sampai ditekan lagi tombol mic (atau tombol Batal membuangnya).
  */
 const voiceSession = {
     intent: false,
     locked: false,
     gotResult: false,
     error: '',
+    cancelled: false,
 };
 
 const isVoiceActive = () => voiceSession.intent === true;
@@ -279,7 +282,7 @@ const applyMicState = (micButton) => {
         'title',
         on
             ? (voiceSession.locked
-                ? 'Mikrofon terkunci — tekan Stop untuk berhenti'
+                ? 'Mikrofon terkunci — tekan Batal untuk membuang rekaman'
                 : 'Lepas untuk kirim, geser ke atas untuk mengunci')
             : 'Tahan untuk bicara (geser ke atas untuk mengunci)',
     );
@@ -302,7 +305,7 @@ const toggleVoiceLock = (locked) => {
     const text = hint?.querySelector('.ai-lock-hint__text');
 
     if (title) {
-        title.textContent = voiceSession.locked ? 'Terkunci — tekan Stop' : 'Mendengarkan…';
+        title.textContent = voiceSession.locked ? 'Terkunci — tekan Batal untuk membuang' : 'Mendengarkan…';
     }
 
     if (hint) {
@@ -328,6 +331,7 @@ const beginVoiceSession = (micButton) => {
     voiceSession.error = '';
     voiceSession.attempts = 0;
     voiceSession.startedAt = Date.now();
+    voiceSession.finalized = false;
 
     // "Tambahkan" = pertahankan teks lama lalu sambung hasil mic.
     // "Ganti" = mulai dari kosong (hapus teks sebelumnya).
@@ -340,6 +344,14 @@ const beginVoiceSession = (micButton) => {
 
 /** Akhiri sesi suara total: bersihkan timer, meter, dan UI. */
 const endVoiceSession = (micButton) => {
+    // Idempoten: onend bisa terpanggil lagi setelah stop(), jadi pastikan
+    // auto-kirim/pembatalan hanya dijalankan SEKALI per sesi.
+    if (voiceSession.finalized) {
+        return;
+    }
+
+    voiceSession.finalized = true;
+
     clearTimeout(window.__aiChat?.voiceWatchdog);
     clearTimeout(window.__aiChat?.resultWatchdog);
     clearTimeout(window.__aiChat?.rearmTimer);
@@ -348,6 +360,7 @@ const endVoiceSession = (micButton) => {
     const wasActive = isVoiceActive();
     const hadResult = voiceSession.gotResult === true;
     const hadError = !! voiceSession.error;
+    const cancelled = voiceSession.cancelled === true;
 
     voiceSession.intent = false;
     voiceSession.locked = false;
@@ -361,10 +374,10 @@ const endVoiceSession = (micButton) => {
     }
 
     // Diagnosa SEBELUM meter dihentikan (butuh data peak/analyser). Lewati bila
-    // sesi terlalu singkat (tap tak sengaja) agar tidak memunculkan peringatan.
+    // sesi terlalu singkat (tap tak sengaja) atau dibatalkan.
     const tooShort = (Date.now() - (voiceSession.startedAt || 0)) < 600;
 
-    if (wasActive && ! hadResult && ! hadError && ! tooShort) {
+    if (wasActive && ! hadResult && ! hadError && ! tooShort && ! cancelled) {
         diagnoseEmptyResult();
     }
 
@@ -372,8 +385,13 @@ const endVoiceSession = (micButton) => {
     showVoicePanel(false, micButton);
     applyMicState(micButton);
 
-    // Auto-kirim: bila aktif dan ada hasil suara (tanpa error), langsung kirim.
-    if (hadResult && ! hadError && voicePrefs.autoSend) {
+    if (cancelled) {
+        // BATALKAN: buang hasil suara (kembalikan ke teks sebelum merekam),
+        // dan JANGAN kirim meski auto-kirim menyala. Bila mode "Tambah" aktif,
+        // teks yang sudah ada sebelum merekam tetap dipertahankan.
+        syncTranscriptToField(voiceSession.baseText || '');
+    } else if (hadResult && ! hadError && voicePrefs.autoSend) {
+        // Auto-kirim: bila aktif dan ada hasil suara (tanpa error), langsung kirim.
         // Pastikan teks final tersinkron ke state Livewire sebelum submit.
         if (voiceSession.lastCombined) {
             syncTranscriptToField(voiceSession.lastCombined);
@@ -386,6 +404,30 @@ const endVoiceSession = (micButton) => {
     voiceSession.error = '';
     voiceSession.lastCombined = '';
     voiceSession.baseText = '';
+    voiceSession.cancelled = false;
+};
+
+/**
+ * Tombol merah: GAGALKAN rekaman. Hentikan mikrofon, hapus hasil suara
+ * (kembalikan teks ke sebelum merekam), dan jangan kirim apa pun.
+ */
+const cancelVoiceSession = () => {
+    if (! isVoiceActive()) {
+        return;
+    }
+
+    voiceSession.cancelled = true;
+    voiceSession.intent = false;
+    voiceSession.locked = false;
+
+    try {
+        recognition?.stop();
+    } catch (e) {
+        /* diabaikan */
+    }
+
+    endVoiceSession(document.getElementById('ai-mic-button'));
+    notifyVoice('Rekaman dibatalkan.');
 };
 
 const isOpera = () => {
@@ -1083,7 +1125,8 @@ const bindDelegatedEvents = () => {
         }
 
         if (event.target.closest('#ai-voice-stop')) {
-            stopRecognition();
+            // Tombol merah = GAGALKAN rekaman (hentikan + hapus, jangan kirim).
+            cancelVoiceSession();
 
             return;
         }

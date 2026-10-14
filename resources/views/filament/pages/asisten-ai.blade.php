@@ -140,9 +140,9 @@
                     <strong class="ai-voice__title">Mendengarkan…</strong>
                     <span class="ai-voice__preview" id="ai-voice-preview">Mulai bicara sekarang</span>
                 </div>
-                <button type="button" class="ai-voice__stop" id="ai-voice-stop" aria-label="Berhenti merekam">
-                    <x-filament::icon icon="heroicon-m-stop" />
-                    <span>Stop</span>
+                <button type="button" class="ai-voice__stop ai-voice__stop--cancel" id="ai-voice-stop" aria-label="Batalkan rekaman">
+                    <x-filament::icon icon="heroicon-m-x-mark" />
+                    <span>Batal</span>
                 </button>
             </div>
 
