@@ -218,7 +218,8 @@ const VOICE_MESSAGES = {
 
 /**
  * Daftar voice TTS dengan cache. Chrome memuat voice secara ASINKRON, jadi kita
- * dengar event `voiceschanged` dan ambil ulang daftar saat tersedia.
+ * dengar event `voiceschanged` DAN melakukan beberapa kali percobaan ulang,
+ * karena di sebagian browser event itu tidak selalu menyala.
  */
 let ttsVoices = [];
 let ttsVoicesReady = false;
@@ -242,9 +243,35 @@ const refreshTtsVoices = () => {
 
 if ('speechSynthesis' in window) {
     refreshTtsVoices();
+
     // Voice dimuat asinkron di Chrome/Edge; muat ulang saat siap.
+    try {
+        window.speechSynthesis.addEventListener('voiceschanged', refreshTtsVoices);
+    } catch (e) {
+        /* fallback di bawah */
+    }
+
     window.speechSynthesis.onvoiceschanged = refreshTtsVoices;
+
+    // Cadangan: beberapa browser tidak menyala-kan `voiceschanged` dengan andal.
+    let voiceTries = 0;
+    const voiceTimer = setInterval(() => {
+        refreshTtsVoices();
+
+        if (ttsVoicesReady || ++voiceTries >= 12) {
+            clearInterval(voiceTimer);
+        }
+    }, 250);
 }
+
+/** Apakah voice sudah termuat (dengan sedikit usaha memuat ulang). */
+const ttsReady = () => {
+    if (! ttsVoicesReady) {
+        refreshTtsVoices();
+    }
+
+    return ttsVoicesReady;
+};
 
 /** Normalisasi kode bahasa: "id-ID" -> "id". */
 const langBase = (lang) => (lang || '').toLowerCase().split(/[-_]/)[0];
@@ -271,6 +298,14 @@ const pickVoice = (lang, preferred = []) => {
 
     const lower = (value) => (value || '').toLowerCase();
 
+    // Batasi ke voice yang berbahasa sama dengan yang diminta (mis. "id").
+    // Ini penting agar tidak mengambil voice bahasa lain.
+    const sameLang = pool.filter((voice) => langBase(voice.lang) === target);
+
+    if (sameLang.length === 0) {
+        return null;
+    }
+
     // 1. Voice pilihan eksplisit (nama mengandung salah satu kata di config).
     for (const want of preferred) {
         const needle = lower(want).trim();
@@ -279,47 +314,53 @@ const pickVoice = (lang, preferred = []) => {
             continue;
         }
 
-        const found = pool.find((voice) => lower(voice.name).includes(needle));
+        const found = sameLang.find((voice) => lower(voice.name).includes(needle));
 
         if (found) {
             return found;
         }
     }
 
-    // 2. Bahasa persis (mis. "id-ID").
-    const exact = pool.find((voice) => lower(voice.lang).replace('_', '-') === lower(lang));
+    // 2. Di antara voice sebahasa, utamakan yang paling natural:
+    //    "natural"/"neural"/"online" (Microsoft Edge Natural, Google) lebih
+    //    halus daripada voice SAPI/eSpeak yang kaku.
+    const natural = sameLang.find((voice) => /natural|neural|online/i.test(voice.name));
 
-    if (exact) {
-        return exact;
+    if (natural) {
+        return natural;
     }
 
-    // 3. Bahasa dasar sama (perhatikan: "id" tidak boleh cocok dengan "id" di
-    //    kata lain, jadi bandingkan bagian sebelum tanda hubung).
-    const sameLang = pool.filter((voice) => langBase(voice.lang) === target);
+    // 3. Google umumnya paling natural di Chrome.
+    const google = sameLang.find((voice) => /google/i.test(voice.name));
 
-    if (sameLang.length > 0) {
-        // 4. Di antara yang sebahasa, prioritaskan voice "natural"/Google/Microsoft.
-        const preferredEngine = sameLang.find((voice) => /google|natural|neural|online|microsoft/i.test(voice.name))
-            || sameLang.find((voice) => voice.localService === false)
-            || sameLang[0];
-
-        return preferredEngine;
+    if (google) {
+        return google;
     }
 
-    return null;
+    // 4. Voice daring (network) biasanya lebih halus daripada lokal/kaku.
+    const online = sameLang.find((voice) => voice.localService === false);
+
+    if (online) {
+        return online;
+    }
+
+    // 5. Kode bahasa persis (mis. "id-ID"), lalu apa pun yang sebahasa.
+    const exact = sameLang.find((voice) => lower(voice.lang).replace('_', '-') === lower(lang));
+
+    return exact || sameLang[0];
 };
 
 /**
  * Bacakan teks dengan voice Bahasa Indonesia yang paling natural.
  * Mengembalikan true bila benar-benar diucapkan.
  */
-const speak = (text, config) => {
+const speak = (text, config, forcedVoice = null) => {
     if (!text || ! ('speechSynthesis' in window)) {
         return false;
     }
 
     const lang = config.lang || 'id-ID';
-    const voice = pickVoice(lang, config.voiceNames || []);
+    const voice = forcedVoice || pickVoice(lang, config.voiceNames || []);
 
     try {
         const utter = new SpeechSynthesisUtterance(text);
@@ -342,21 +383,47 @@ const speak = (text, config) => {
     }
 };
 
+/** Ringkasan voice yang tersedia, untuk diagnostik di konsol. */
+const describeVoices = () => ttsVoices
+    .map((voice) => `${voice.name} [${voice.lang}]${voice.localService === false ? ' (online)' : ''}`)
+    .join(' | ');
+
 /**
- * Bacakan HANYA bila ada voice Bahasa Indonesia. Bila tidak ada, beri tahu
- * pengguna sekali (bukan membacakan dengan logat Inggris). Mengembalikan
- * true bila pembacaan dijalankan atau peringatan sudah cukup.
+ * Bacakan HANYA bila ada voice Bahasa Indonesia. Voice di Chrome dimuat
+ * asinkron, jadi bila daftar belum siap kita menunggu & mencoba ulang dulu —
+ * jangan langsung menyimpulkan "tidak tersedia". Bila setelah menunggu tetap
+ * tidak ada, beri tahu pengguna sekali (bukan dibacakan dengan logat Inggris).
+ *
+ * Mengembalikan true bila pembacaan dijalankan.
  */
 let lastVoiceWarned = false;
 
 const speakIndonesian = (text, config) => {
+    if (! text || ! ('speechSynthesis' in window)) {
+        return false;
+    }
+
+    if (! ttsReady()) {
+        // Tunggu sampai voice selesai dimuat (maks. ~3 detik), lalu coba lagi.
+        speakIndonesian.pending = (speakIndonesian.pending || 0) + 1;
+
+        if (speakIndonesian.pending <= 12) {
+            setTimeout(() => speakIndonesian(text, config), 250);
+
+            return false;
+        }
+    }
+
+    speakIndonesian.pending = 0;
+
     const voice = pickVoice(config.lang || 'id-ID', config.voiceNames || []);
 
     if (! voice) {
         if (! lastVoiceWarned) {
             lastVoiceWarned = true;
+            console.warn('[Asisten AI] Voice TTS tersedia: ' + (describeVoices() || '(belum ada)'));
             notifyVoice(
-                'Suara Bahasa Indonesia belum tersedia di perangkat ini. Pasang paket suara Indonesia di pengaturan sistem (mis. "Text-to-speech > Bahasa Indonesia" di Android/Windows), lalu muat ulang halaman.',
+                'Suara Bahasa Indonesia belum tersedia di perangkat ini. Pasang paket suara Indonesia (Android: Pengaturan > Sistem > Bahasa & input > Text-to-speech > instal data bahasa Indonesia; Windows: Pengaturan > Waktu & bahasa > Ucapan). Alternatif paling natural & gratis: buka lewat Microsoft Edge yang punya voice "Natural".',
                 { sticky: true },
             );
         }
@@ -364,7 +431,9 @@ const speakIndonesian = (text, config) => {
         return false;
     }
 
-    return speak(text, config);
+    lastVoiceWarned = false;
+
+    return speak(text, config, voice);
 };
 
 const fitHeight = () => {
