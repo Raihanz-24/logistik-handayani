@@ -134,6 +134,21 @@ class BarangPasarTest extends TestCase
         $this->assertContains('kg', $context['units']);
     }
 
+    public function test_satuan_pasar_menyediakan_ikt_ppn_btr_bks(): void
+    {
+        $barang = Barang::query()->create([
+            'nama_barang' => 'Ikan Segar',
+            'satuan' => 'kg',
+            'is_barang_pasar' => true,
+        ]);
+
+        $context = app(BelanjaTransactionService::class)->purchaseItemContext($barang->getKey());
+
+        foreach (['ikt', 'ppn', 'btr', 'bks'] as $unit) {
+            $this->assertContains($unit, $context['units']);
+        }
+    }
+
     public function test_barang_pasar_tidak_muncul_di_daftar_stok_barang(): void
     {
         $gudang = $this->gudang();

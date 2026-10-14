@@ -19,7 +19,7 @@ class BelanjaTransactionService
     public const MARKET_CATEGORY_SLUG = 'pasar';
 
     /** @var array<int, string> */
-    public const FLEXIBLE_MARKET_UNITS = ['gr', 'kg', 'biji', 'buah', 'ekor'];
+    public const FLEXIBLE_MARKET_UNITS = ['gr', 'kg', 'biji', 'buah', 'ekor', 'ikt', 'ppn', 'btr', 'bks'];
 
     /**
      * @param  array<string, mixed>  $data
@@ -442,7 +442,7 @@ class BelanjaTransactionService
 
         if (! in_array($unit, self::FLEXIBLE_MARKET_UNITS, true)) {
             throw ValidationException::withMessages([
-                "items.{$index}.satuan" => 'Pilih satuan pasar yang valid: gr, kg, biji, buah, atau ekor.',
+                "items.{$index}.satuan" => 'Pilih satuan pasar yang valid: gr, kg, biji, buah, ekor, ikt, ppn, btr, atau bks.',
             ]);
         }
 
