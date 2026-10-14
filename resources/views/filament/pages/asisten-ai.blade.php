@@ -110,7 +110,7 @@
                     <div class="ai-bubble__role">Asisten</div>
                     <div class="ai-bubble__content">
                         <span class="ai-dot"></span><span class="ai-dot"></span><span class="ai-dot"></span>
-                        <span class="ai-typing-text">sedang menyusun jawaban…</span>
+                        <span class="ai-typing-text">typing</span>
                     </div>
                 </div>
 

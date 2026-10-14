@@ -494,6 +494,23 @@ class AsistenAiPageTest extends TestCase
     }
 
     /**
+     * Indikator memuat balasan AI harus bertuliskan "typing" dan muncul DI BAWAH
+     * gelembung pesan pengguna (bukan di atasnya).
+     */
+    public function test_indikator_typing_di_bawah_pesan_pengguna(): void
+    {
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // Teks indikator.
+        $this->assertStringContainsString('<span class="ai-typing-text">typing</span>', $html);
+
+        // Gelembung pesan pengguna disisipkan TEPAT SEBELUM indikator typing,
+        // sehingga indikator tampil di bawah pesan pengguna.
+        $this->assertStringContainsString('insertBefore(wrap, typing)', $script);
+    }
+
+    /**
      * Kemampuan hands-free: toggle bacakan (TTS), perintah suara konfirmasi/batal,
      * dan ringkasan draft dibacakan.
      */

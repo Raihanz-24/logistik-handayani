@@ -1607,6 +1607,7 @@ const bindDelegatedEvents = () => {
 
         const field = document.getElementById('ai-message-input');
         const text = (field?.value || '').trim();
+        const typing = document.getElementById('ai-typing');
 
         if (text) {
             const wrap = document.createElement('div');
@@ -1621,10 +1622,19 @@ const bindDelegatedEvents = () => {
             body.textContent = text;
 
             wrap.append(role, body);
-            document.getElementById('ai-chat-scroll')?.appendChild(wrap);
+
+            const scroll = document.getElementById('ai-chat-scroll');
+            if (scroll) {
+                // Tempatkan pesan pengguna TEPAT SEBELUM indikator "typing"
+                // agar indikator mengetik tampil di bawah pesan pengguna.
+                if (typing) {
+                    scroll.insertBefore(wrap, typing);
+                } else {
+                    scroll.appendChild(wrap);
+                }
+            }
         }
 
-        const typing = document.getElementById('ai-typing');
         if (typing) {
             typing.hidden = false;
         }
