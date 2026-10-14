@@ -1,12 +1,18 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-DI_WH07h.css",
+    "file": "assets/app-CtBDu-Mg.css",
     "src": "resources/css/app.css",
     "isEntry": true
   },
   "resources/css/filament-dashboard.css": {
     "file": "assets/filament-dashboard-dWFiqT-k.css",
     "src": "resources/css/filament-dashboard.css",
+    "isEntry": true
+  },
+  "resources/js/ai-assistant.js": {
+    "file": "assets/ai-assistant-ojXbspUS.js",
+    "name": "ai-assistant",
+    "src": "resources/js/ai-assistant.js",
     "isEntry": true
   },
   "resources/js/app.js": {

@@ -5,6 +5,7 @@
         \Illuminate\Support\Facades\Vite::asset('resources/js/mobile-swipe-navigation.js'),
         \Illuminate\Support\Facades\Vite::asset('resources/js/foto-barang-maps.js'),
         \Illuminate\Support\Facades\Vite::asset('resources/js/foto-barang-folder.js'),
+        \Illuminate\Support\Facades\Vite::asset('resources/js/ai-assistant.js'),
         asset('images/logo-handayani.webp'),
     ];
 @endphp
@@ -15,6 +16,8 @@
 @vite('resources/js/foto-barang-folder.js')
 {{-- Camera controls must persist when Foto Maps is opened through Filament SPA navigation. --}}
 @vite('resources/js/foto-barang-maps.js')
+{{-- Asisten AI (chat/voice) must survive Filament SPA navigation. --}}
+@vite('resources/js/ai-assistant.js')
 
 <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
 <meta name="application-name" content="Logistik Handayani">

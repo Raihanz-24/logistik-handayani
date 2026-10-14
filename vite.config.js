@@ -13,6 +13,7 @@ export default defineConfig({
                 'resources/js/mobile-swipe-navigation.js',
                 'resources/js/foto-barang-maps.js',
                 'resources/js/foto-barang-folder.js',
+                'resources/js/ai-assistant.js',
             ],
             refresh: true,
         }),
