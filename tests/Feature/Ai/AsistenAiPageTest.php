@@ -371,6 +371,28 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('touch-action: none', $html);
     }
 
+    /**
+     * Dua toggle di header: (1) hasil suara ditambahkan ke teks lama atau
+     * mengganti, dan (2) auto-kirim setelah selesai bicara.
+     */
+    public function test_toggle_suara_tersedia_di_header(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+
+        // Tombol toggle di header.
+        $this->assertStringContainsString('id="ai-toggle-append"', $html);
+        $this->assertStringContainsString('id="ai-toggle-autosend"', $html);
+
+        // Logika JS: preferensi tersimpan, gabung teks, dan auto-kirim.
+        $this->assertStringContainsString('VOICE_PREFS_KEY', $script);
+        $this->assertStringContainsString('localStorage', $script);
+        $this->assertStringContainsString('joinVoiceText', $script);
+        $this->assertStringContainsString('submitComposer', $script);
+        $this->assertStringContainsString('voicePrefs.autoSend', $script);
+        $this->assertStringContainsString('voicePrefs.append', $script);
+    }
+
     public function test_saran_cepat_mengisi_kotak_pesan(): void
     {
         $this->enableAi();

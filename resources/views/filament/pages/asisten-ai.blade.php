@@ -31,6 +31,26 @@
                 </div>
 
                 <div class="ai-chat__bar-actions">
+                    <button
+                        type="button"
+                        id="ai-toggle-append"
+                        class="ai-toggle"
+                        aria-pressed="true"
+                        title="Sisipkan hasil suara ke teks yang sudah ada"
+                    >
+                        <x-filament::icon icon="heroicon-m-plus-circle" />
+                        <span class="ai-toggle__label">Tambah</span>
+                    </button>
+                    <button
+                        type="button"
+                        id="ai-toggle-autosend"
+                        class="ai-toggle"
+                        aria-pressed="false"
+                        title="Kirim pesan otomatis setelah selesai bicara"
+                    >
+                        <x-filament::icon icon="heroicon-m-paper-airplane" />
+                        <span class="ai-toggle__label">Auto</span>
+                    </button>
                     <button type="button" class="ai-iconbtn" wire:click="startNewChat" title="Mulai percakapan baru" aria-label="Mulai percakapan baru">
                         <x-filament::icon icon="heroicon-m-plus" />
                     </button>
@@ -302,6 +322,16 @@
         .ai-iconbtn:hover { background: rgba(148,163,184,.15); }
         .ai-iconbtn:active { transform: scale(.94); }
         .ai-iconbtn svg { width: 1.15rem; height: 1.15rem; }
+
+        /* Toggle fitur suara di header (Tambah teks & Auto kirim). */
+        .ai-toggle { display: inline-flex; align-items: center; gap: .3rem; height: 2.25rem; padding: 0 .6rem; border-radius: .65rem; border: 1px solid rgba(148,163,184,.3); background: transparent; color: rgb(100 116 139); cursor: pointer; font-size: .74rem; font-weight: 700; transition: background-color .15s ease, color .15s ease, border-color .15s ease, transform .15s ease; }
+        .dark .ai-toggle { color: rgb(148 163 184); }
+        .ai-toggle:hover { background: rgba(148,163,184,.15); }
+        .ai-toggle:active { transform: scale(.96); }
+        .ai-toggle svg { width: 1.05rem; height: 1.05rem; }
+        .ai-toggle.is-on { color: #fff; border-color: transparent; background: linear-gradient(145deg, #fbbf24, #d97706); box-shadow: 0 6px 14px rgba(217,119,6,.28); }
+        .ai-toggle__label { line-height: 1; }
+        @media (max-width: 480px) { .ai-toggle__label { display: none; } .ai-toggle { padding: 0 .5rem; } }
 
         .ai-chat__scroll { flex: 1; display: flex; flex-direction: column; gap: .75rem; padding: 1rem; overflow-y: auto; min-height: 0; scroll-behavior: smooth; }
         .ai-empty { display: flex; flex-direction: column; align-items: center; gap: .4rem; text-align: center; color: rgb(148 163 184); padding: 2rem 1rem; margin: auto; }

@@ -8,6 +8,87 @@
 
 const AI_ROOT = '.ai-page';
 
+/**
+ * Preferensi suara (disimpan di localStorage):
+ * - append  : hasil mic DITAMBAHKAN ke teks yang sudah ada (tidak menghapus).
+ * - autoSend: begitu selesai bicara, pesan langsung dikirim otomatis.
+ */
+const VOICE_PREFS_KEY = 'ai_voice_prefs';
+const voicePrefs = { append: true, autoSend: false };
+
+const loadVoicePrefs = () => {
+    try {
+        const raw = window.localStorage?.getItem(VOICE_PREFS_KEY);
+
+        if (raw) {
+            const parsed = JSON.parse(raw);
+
+            if (typeof parsed.append === 'boolean') {
+                voicePrefs.append = parsed.append;
+            }
+
+            if (typeof parsed.autoSend === 'boolean') {
+                voicePrefs.autoSend = parsed.autoSend;
+            }
+        }
+    } catch (e) {
+        /* localStorage bisa diblokir; abaikan dan pakai default. */
+    }
+};
+
+const saveVoicePrefs = () => {
+    try {
+        window.localStorage?.setItem(VOICE_PREFS_KEY, JSON.stringify(voicePrefs));
+    } catch (e) {
+        /* diabaikan */
+    }
+};
+
+/** Samakan tampilan tombol toggle di header dengan nilai preferensi saat ini. */
+const applyVoiceToggleState = () => {
+    const append = document.getElementById('ai-toggle-append');
+    const autoSend = document.getElementById('ai-toggle-autosend');
+
+    if (append) {
+        append.classList.toggle('is-on', voicePrefs.append);
+        append.setAttribute('aria-pressed', voicePrefs.append ? 'true' : 'false');
+    }
+
+    if (autoSend) {
+        autoSend.classList.toggle('is-on', voicePrefs.autoSend);
+        autoSend.setAttribute('aria-pressed', voicePrefs.autoSend ? 'true' : 'false');
+    }
+};
+
+const currentFieldValue = () => document.getElementById('ai-message-input')?.value || '';
+
+/** Gabungkan teks lama (base) dengan hasil suara baru sesuai preferensi. */
+const joinVoiceText = (base, spoken) => {
+    const cleanBase = (base || '').trim();
+    const cleanSpoken = (spoken || '').trim();
+
+    if (voicePrefs.append && cleanBase) {
+        if (! cleanSpoken) {
+            return cleanBase;
+        }
+
+        // Beri spasi pemisah agar kalimat tidak menempel.
+        return cleanBase.replace(/\s+$/, '') + ' ' + cleanSpoken;
+    }
+
+    return cleanSpoken;
+};
+
+/** Kirim form composer (dipakai fitur auto-kirim). */
+const submitComposer = () => {
+    const form = document.querySelector('.ai-composer');
+    const field = document.getElementById('ai-message-input');
+
+    if (form && field && field.value.trim() !== '') {
+        form.requestSubmit();
+    }
+};
+
 const scrollToEnd = () => {
     const box = document.getElementById('ai-chat-scroll');
     if (box) {
@@ -248,6 +329,10 @@ const beginVoiceSession = (micButton) => {
     voiceSession.attempts = 0;
     voiceSession.startedAt = Date.now();
 
+    // "Tambahkan" = pertahankan teks lama lalu sambung hasil mic.
+    // "Ganti" = mulai dari kosong (hapus teks sebelumnya).
+    voiceSession.baseText = voicePrefs.append ? currentFieldValue().trim() : '';
+
     finalTranscript = '';
 
     applyMicState(micButton);
@@ -287,8 +372,20 @@ const endVoiceSession = (micButton) => {
     showVoicePanel(false, micButton);
     applyMicState(micButton);
 
+    // Auto-kirim: bila aktif dan ada hasil suara (tanpa error), langsung kirim.
+    if (hadResult && ! hadError && voicePrefs.autoSend) {
+        // Pastikan teks final tersinkron ke state Livewire sebelum submit.
+        if (voiceSession.lastCombined) {
+            syncTranscriptToField(voiceSession.lastCombined);
+        }
+
+        submitComposer();
+    }
+
     voiceSession.gotResult = false;
     voiceSession.error = '';
+    voiceSession.lastCombined = '';
+    voiceSession.baseText = '';
 };
 
 const isOpera = () => {
@@ -787,10 +884,13 @@ const armRecognition = (micButton, config) => {
             finalTranscript += final;
         }
 
-        const combined = (finalTranscript || interim).trim();
+        // Hasil suara digabung dengan teks lama bila toggle "tambahkan" aktif.
+        const spoken = (finalTranscript || interim).trim();
+        const combined = joinVoiceText(voiceSession.baseText, spoken);
 
-        if (combined) {
+        if (spoken) {
             voiceSession.gotResult = true;
+            voiceSession.lastCombined = combined;
         }
 
         const preview = document.getElementById('ai-voice-preview');
@@ -802,7 +902,7 @@ const armRecognition = (micButton, config) => {
         if (final) {
             // Hanya sinkronkan ke Livewire saat hasil final agar tidak spam request.
             syncTranscriptToField(combined);
-        } else if (combined) {
+        } else if (spoken) {
             const field = document.getElementById('ai-message-input');
             if (field) {
                 field.value = combined;
@@ -984,6 +1084,34 @@ const bindDelegatedEvents = () => {
 
         if (event.target.closest('#ai-voice-stop')) {
             stopRecognition();
+
+            return;
+        }
+
+        // Toggle: hasil suara ditambahkan ke teks lama (bukan menghapus).
+        if (event.target.closest('#ai-toggle-append')) {
+            voicePrefs.append = ! voicePrefs.append;
+            saveVoicePrefs();
+            applyVoiceToggleState();
+            notifyVoice(
+                voicePrefs.append
+                    ? 'Mode "Tambah": hasil suara disisipkan ke teks yang sudah ada.'
+                    : 'Mode "Ganti": hasil suara akan mengganti teks sebelumnya.',
+            );
+
+            return;
+        }
+
+        // Toggle: kirim pesan otomatis setelah selesai bicara.
+        if (event.target.closest('#ai-toggle-autosend')) {
+            voicePrefs.autoSend = ! voicePrefs.autoSend;
+            saveVoicePrefs();
+            applyVoiceToggleState();
+            notifyVoice(
+                voicePrefs.autoSend
+                    ? 'Auto kirim AKTIF: pesan langsung terkirim setelah Anda selesai bicara.'
+                    : 'Auto kirim nonaktif: pesan tidak terkirim otomatis.',
+            );
         }
     });
 
@@ -1121,12 +1249,15 @@ const setup = () => {
 
     showLockHint(false);
     applyMicState(micButton);
+    applyVoiceToggleState();
     showVoicePanel(false, micButton);
     setTimeout(scrollToEnd, 50);
 };
 
 const boot = () => {
     window.__aiChat = window.__aiChat || {};
+
+    loadVoicePrefs();
 
     bindDelegatedEvents();
 
