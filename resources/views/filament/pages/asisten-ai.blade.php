@@ -338,7 +338,7 @@
         .ai-voice { display: flex; align-items: center; gap: .8rem; margin: .55rem .75rem 0; padding: .6rem .8rem; border-radius: .9rem; border: 1px solid rgba(239,68,68,.4); background: linear-gradient(135deg, rgba(239,68,68,.12), rgba(220,38,38,.06)); box-shadow: 0 10px 26px rgba(220,38,38,.18); animation: ai-voice-in .2s ease; }
         .ai-voice[hidden] { display: none; }
         .ai-voice__wave { display: flex; align-items: center; gap: 3px; height: 1.6rem; }
-        .ai-voice__wave span { width: 3px; height: .5rem; border-radius: 999px; background: rgb(239 68 68); animation: ai-voice-wave 1s ease-in-out infinite; }
+        .ai-voice__wave span { width: 3px; height: .5rem; border-radius: 999px; background: rgb(239 68 68); animation: ai-voice-wave 1s ease-in-out infinite; transform-origin: center; transform: scaleY(calc(.5 + var(--ai-mic-level, 0) * 2.2)); }
         .ai-voice__wave span:nth-child(2) { animation-delay: .12s; }
         .ai-voice__wave span:nth-child(3) { animation-delay: .24s; }
         .ai-voice__wave span:nth-child(4) { animation-delay: .36s; }

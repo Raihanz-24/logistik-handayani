@@ -112,6 +112,9 @@ const showVoicePanel = (state, mic) => {
 
     if (state && preview) {
         preview.textContent = 'Mulai bicara sekarang';
+
+        // Reset penanda "sudah menangkap suara" setiap sesi baru.
+        delete preview.dataset.heard;
     }
 };
 
@@ -170,8 +173,194 @@ const isOpera = () => {
     return /\bOPR\/|\bOpera\b/i.test(ua) && ! /\bEdg\//.test(ua);
 };
 
+/**
+ * Status mikrofon & pengukur level. Dipakai untuk memberi umpan balik nyata:
+ * bila panel "Mendengarkan" muncul tetapi tidak ada teks, kita bisa membedakan
+ * "tidak ada suara yang masuk" vs "suara masuk tetapi layanan pengenalan diam".
+ */
+const micCapture = {
+    stream: null,
+    ctx: null,
+    analyser: null,
+    raf: null,
+    level: 0,
+    peak: 0,
+    label: '',
+    deviceError: '',
+};
+
+const MIC_ERROR_MESSAGES = {
+    'no-mediadevices': 'Browser ini tidak menyediakan akses mikrofon (getUserMedia). Gunakan Google Chrome atau Microsoft Edge terbaru.',
+    denied: 'Akses mikrofon ditolak. Klik ikon kunci/mikrofon di address bar Chrome, izinkan mikrofon untuk situs ini, lalu coba lagi.',
+    missing: 'Tidak ada mikrofon yang terdeteksi di perangkat ini. Sambungkan mikrofon, lalu coba lagi.',
+    busy: 'Mikrofon sedang dipakai aplikasi lain. Tutup aplikasi tersebut, lalu coba lagi.',
+    overconstrained: 'Perangkat mikrofon tidak mendukung setelan yang diminta.',
+    unknown: 'Mikrofon tidak dapat diakses. Periksa perangkat dan izin browser.',
+};
+
+const releaseStream = (stream) => {
+    stream?.getTracks().forEach((track) => {
+        try { track.stop(); } catch (e) { /* diabaikan */ }
+    });
+};
+
+const updateVoiceLevel = (level) => {
+    const panel = document.getElementById('ai-voice-panel');
+
+    if (panel) {
+        panel.style.setProperty('--ai-mic-level', Math.min(1, level * 6).toFixed(3));
+    }
+};
+
+const startLevelMeter = (stream) => {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+
+    if (! AudioCtx) {
+        return;
+    }
+
+    try {
+        const ctx = new AudioCtx();
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+
+        micCapture.ctx = ctx;
+        micCapture.analyser = analyser;
+
+        const data = new Uint8Array(analyser.fftSize);
+
+        const tick = () => {
+            analyser.getByteTimeDomainData(data);
+
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) {
+                const v = (data[i] - 128) / 128;
+                sum += v * v;
+            }
+
+            const rms = Math.sqrt(sum / data.length);
+            micCapture.level = rms;
+            micCapture.peak = Math.max(micCapture.peak, rms);
+            updateVoiceLevel(rms);
+
+            micCapture.raf = requestAnimationFrame(tick);
+        };
+
+        tick();
+    } catch (e) {
+        /* Pengukur level bersifat opsional; lewati bila gagal. */
+    }
+};
+
+const stopLevelMeter = () => {
+    if (micCapture.raf) {
+        cancelAnimationFrame(micCapture.raf);
+        micCapture.raf = null;
+    }
+
+    try { micCapture.ctx?.close(); } catch (e) { /* diabaikan */ }
+
+    micCapture.ctx = null;
+    micCapture.analyser = null;
+    micCapture.level = 0;
+
+    releaseStream(micCapture.stream);
+    micCapture.stream = null;
+
+    updateVoiceLevel(0);
+};
+
+/** Mulai mengukur level SETELAH recognition memulai, agar tidak berebut perangkat. */
+const beginMetering = async () => {
+    micCapture.peak = 0;
+    micCapture.level = 0;
+    micCapture.deviceError = '';
+
+    if (! navigator.mediaDevices?.getUserMedia) {
+        micCapture.deviceError = 'no-mediadevices';
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const track = stream.getAudioTracks()[0] || null;
+        micCapture.label = (track?.label || '').trim();
+        micCapture.stream = stream;
+        startLevelMeter(stream);
+    } catch (error) {
+        const name = error?.name || '';
+
+        if (name === 'NotAllowedError' || name === 'SecurityError') {
+            micCapture.deviceError = 'denied';
+        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+            micCapture.deviceError = 'missing';
+        } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+            micCapture.deviceError = 'busy';
+        } else {
+            micCapture.deviceError = 'unknown';
+        }
+    }
+};
+
+const noteVoiceDiagnostic = (stage, detail = {}) => {
+    // Hanya untuk penelusuran: tidak menampilkan data sensitif, sekadar status mic.
+    console.info('[Asisten AI][voice]', stage, {
+        lang: detail.lang,
+        device: micCapture.label || undefined,
+        deviceError: micCapture.deviceError || undefined,
+        peak: Number.isFinite(micCapture.peak) ? micCapture.peak.toFixed(4) : undefined,
+        secure: window.isSecureContext,
+        protocol: window.location?.protocol,
+        codes: detail.codes,
+    });
+};
+
+const diagnoseEmptyResult = () => {
+    // Tidak ada teks sama sekali. Bedakan beberapa sebab berdasar pengukuran nyata,
+    // supaya pengguna tahu langkah perbaikannya (bukan panel yang diam saja).
+    if (micCapture.deviceError && MIC_ERROR_MESSAGES[micCapture.deviceError]) {
+        noteVoiceDiagnostic('empty:device-error', { codes: micCapture.deviceError });
+        notifyVoice(MIC_ERROR_MESSAGES[micCapture.deviceError], { sticky: true });
+
+        return;
+    }
+
+    if (! micCapture.analyser) {
+        // Pengukur level tidak tersedia; jangan menyalahkan mikrofon.
+        noteVoiceDiagnostic('empty:no-meter');
+        notifyVoice(
+            'Belum ada teks yang dikenali. Bicara setelah indikator aktif, periksa mikrofon default di Chrome, dan pastikan koneksi internet stabil.',
+            { sticky: true },
+        );
+
+        return;
+    }
+
+    if (micCapture.peak < 0.015) {
+        noteVoiceDiagnostic('empty:no-sound');
+        notifyVoice(
+            'Tidak ada suara yang terdeteksi. Cek mikrofon default di Chrome (ikon mikrofon di address bar → pilih mikrofon yang benar) dan pastikan tidak dalam kondisi bisu.',
+            { sticky: true },
+        );
+
+        return;
+    }
+
+    noteVoiceDiagnostic('empty:unrecognized');
+    notifyVoice(
+        'Suara Anda terekam tetapi Chrome tidak mengenalinya. Coba bicara lebih dekat dan jelas, atau periksa koneksi internet (pengenalan suara Chrome memakai layanan online).',
+        { sticky: true },
+    );
+};
+
 const startRecognition = (config) => {
-    const mic = document.getElementById('ai-mic-button');
+    const micButton = document.getElementById('ai-mic-button');
+
+    if (window.__aiChat.starting) {
+        return;
+    }
 
     const support = voiceSupport();
 
@@ -190,42 +379,80 @@ const startRecognition = (config) => {
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+    // PENTING: start() dipanggil sinkron di dalam gesture klik (tanpa await
+    // sebelumnya) supaya Chrome tidak menolak karena kehilangan user activation.
     recognition = new SR();
-    recognition.lang = mic?.dataset.lang || config.lang;
+    recognition.lang = micButton?.dataset.lang || config.lang;
     recognition.interimResults = true;
     recognition.continuous = false;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 3;
 
     finalTranscript = '';
+    window.__aiChat.starting = true;
 
     let started = false;
+    let gotResult = false;
+    let hadError = false;
 
     const clearWatchdog = () => {
         clearTimeout(window.__aiChat.voiceWatchdog);
+        clearTimeout(window.__aiChat.resultWatchdog);
     };
 
     recognition.onstart = () => {
         started = true;
         clearWatchdog();
-        showVoicePanel(true, mic);
-    };
+        showVoicePanel(true, micButton);
+        noteVoiceDiagnostic('start', { lang: recognition.lang });
 
-    recognition.onend = () => {
-        clearWatchdog();
-        showVoicePanel(false, mic);
+        // Ukur level mikrofon secara paralel (opsional & non-blocking) untuk
+        // memberi diagnosa tepat bila tidak ada teks sama sekali.
+        beginMetering();
+
+        // Watchdog "ada audio tapi tak ada teks": umum terjadi bila layanan
+        // pengenalan Chrome tidak mengembalikan hasil (mis. jaringan terblokir).
+        window.__aiChat.resultWatchdog = setTimeout(() => {
+            if (! gotResult) {
+                notifyVoice(
+                    'Belum ada teks yang dikenali. Bicara setelah indikator aktif, periksa koneksi internet, atau ganti mikrofon default di pengaturan Chrome.',
+                    { sticky: true },
+                );
+            }
+        }, 7000);
     };
 
     recognition.onaudiostart = () => {
         const preview = document.getElementById('ai-voice-preview');
+
         if (preview) {
             preview.textContent = 'Mendengarkan suara…';
         }
     };
 
+    recognition.onend = () => {
+        clearWatchdog();
+        showVoicePanel(false, micButton);
+
+        if (! gotResult && ! hadError) {
+            diagnoseEmptyResult();
+        }
+
+        stopLevelMeter();
+        window.__aiChat.starting = false;
+    };
+
     recognition.onerror = (event) => {
-        showVoicePanel(false, mic);
+        hadError = true;
+        clearWatchdog();
+        showVoicePanel(false, micButton);
+        stopLevelMeter();
+        window.__aiChat.starting = false;
 
         const code = event?.error || '';
+
+        if (code !== 'aborted') {
+            noteVoiceDiagnostic('error', { codes: code });
+        }
 
         if (code === 'not-allowed' || code === 'service-not-allowed') {
             notifyVoice('Akses mikrofon ditolak. Izinkan mikrofon untuk situs ini di pengaturan browser.');
@@ -233,7 +460,9 @@ const startRecognition = (config) => {
             notifyVoice('Mikrofon tidak terdeteksi pada perangkat ini.');
         } else if (code === 'network') {
             notifyVoice('Pengenalan suara butuh koneksi internet yang stabil.');
-        } else if (code && code !== 'no-speech' && code !== 'aborted') {
+        } else if (code === 'no-speech') {
+            notifyVoice('Belum ada suara yang terdeteksi. Coba bicara lebih dekat ke mikrofon.');
+        } else if (code && code !== 'aborted') {
             notifyVoice('Gagal mendengarkan suara (' + code + ').');
         }
     };
@@ -258,6 +487,11 @@ const startRecognition = (config) => {
         }
 
         const combined = (finalTranscript || interim).trim();
+
+        if (combined) {
+            gotResult = true;
+        }
+
         const preview = document.getElementById('ai-voice-preview');
 
         if (combined && preview) {
@@ -282,32 +516,37 @@ const startRecognition = (config) => {
 
         // Watchdog: sebagian browser (mis. Edge) membuat objeknya tetapi tidak
         // pernah memulai. Jika tak ada sinyal apa pun, beri tahu pengguna.
-        clearWatchdog();
         window.__aiChat.voiceWatchdog = setTimeout(() => {
             if (! started) {
-                showVoicePanel(false, mic);
+                showVoicePanel(false, micButton);
                 notifyVoice(
                     'Mikrofon tidak merespons. Pastikan Anda mengizinkan akses mikrofon, lalu coba lagi dengan Chrome atau Edge terbaru.',
                     { sticky: true },
                 );
                 stopRecognition();
+                window.__aiChat.starting = false;
             }
         }, 3000);
     } catch (e) {
         clearWatchdog();
+        window.__aiChat.starting = false;
         try { recognition.stop(); } catch (_) { /* diabaikan */ }
+        stopLevelMeter();
         notifyVoice('Tidak dapat memulai perekaman suara. Coba muat ulang halaman.');
     }
 };
 
 const stopRecognition = () => {
     clearTimeout(window.__aiChat?.voiceWatchdog);
+    clearTimeout(window.__aiChat?.resultWatchdog);
 
     try {
         recognition?.stop();
     } catch (e) {
         /* diabaikan */
     }
+
+    stopLevelMeter();
 };
 
 const bindDelegatedEvents = () => {

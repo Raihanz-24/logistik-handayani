@@ -302,6 +302,32 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('ai-page-active', $script);
     }
 
+    public function test_modul_js_mendiagnosis_mikrofon_diam(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // Pengukur level nyata (AudioContext/Analyser) untuk umpan balik visual.
+        $this->assertStringContainsString('createMediaStreamSource', $script);
+        $this->assertStringContainsString('getByteTimeDomainData', $script);
+
+        // Diagnosa membedakan: tak ada suara vs suara ada tapi tak dikenali.
+        $this->assertStringContainsString('diagnoseEmptyResult', $script);
+        $this->assertStringContainsString('Tidak ada suara yang terdeteksi', $script);
+        $this->assertStringContainsString('tidak mengenalinya', $script);
+
+        // Pesan perangkat mikrofon (izin/perangkat/sibuk).
+        $this->assertStringContainsString('MIC_ERROR_MESSAGES', $script);
+        $this->assertStringContainsString('Akses mikrofon ditolak', $script);
+    }
+
+    public function test_warna_level_suara_terpasang_di_panel_voice(): void
+    {
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+
+        // CSS memakai variabel level mikrofon yang di-set dari JS.
+        $this->assertStringContainsString('--ai-mic-level', $html);
+    }
+
     public function test_saran_cepat_mengisi_kotak_pesan(): void
     {
         $this->enableAi();
