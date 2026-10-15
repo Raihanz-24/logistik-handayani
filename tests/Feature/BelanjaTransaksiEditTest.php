@@ -326,4 +326,104 @@ class BelanjaTransaksiEditTest extends TestCase
             ->mountTableAction('atur-foto-maps', $expense)
             ->assertTableActionMounted('atur-foto-maps');
     }
+
+    /**
+     * Barang pasar dengan satuan lama di luar daftar (mis. "pcs") TIDAK boleh
+     * membuat edit "diam-diam gagal". Saat modal dibuka, satuan dinormalkan ke
+     * "-" sehingga transaksi lama tetap bisa disimpan.
+     */
+    public function test_satuan_pasar_lama_di_luar_daftar_tidak_memblokir_edit(): void
+    {
+        $user = $this->actingUser();
+        $session = $this->sesi($user);
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Toko Sumber', 'aktif' => true]);
+
+        $gado = Barang::query()->create([
+            'nama_barang' => 'Gado-Gado',
+            'kode_barang' => 'BRG-202',
+            'satuan' => 'ikt',
+            'is_barang_pasar' => true,
+        ]);
+
+        $expense = PengeluaranBelanja::query()->create([
+            'kalkulator_belanja_id' => $session->getKey(),
+            'supplier_id' => $supplier->getKey(),
+            'nominal' => 5000,
+            'urutan' => 1,
+        ]);
+
+        // Data lama: barang pasar tersimpan dengan satuan "pcs" (di luar daftar).
+        $expense->items()->create([
+            'barang_id' => $gado->getKey(),
+            'kode_barang_snapshot' => 'BRG-202',
+            'nama_barang_snapshot' => 'Gado-Gado',
+            'satuan_snapshot' => 'pcs',
+            'jumlah' => '1.000',
+            'harga_satuan' => 5000,
+            'subtotal' => 5000,
+            'urutan' => 0,
+        ]);
+
+        $component = Livewire::test(PengeluaranRelationManager::class, [
+            'ownerRecord' => $session,
+            'pageClass' => \App\Filament\Resources\KalkulatorBelanjaResource\Pages\ViewKalkulatorBelanja::class,
+        ]);
+
+        $component->mountTableAction('ubah-transaksi', $expense);
+
+        // Satuan lama yang tidak valid sudah dinormalkan ke "-".
+        $mounted = $component->instance()->mountedTableActionsData[0];
+        $firstItem = array_values($mounted['items'])[0];
+        $this->assertSame('-', $firstItem['satuan']);
+
+        $component->callMountedTableAction();
+
+        $component->assertHasNoErrors();
+        $this->assertSame(
+            '-',
+            (string) $expense->fresh()->items()->where('barang_id', $gado->getKey())->value('satuan_snapshot'),
+        );
+    }
+
+    /**
+     * Kegagalan validasi sisi service HARUS terlihat (notifikasi), bukan tombol
+     * Simpan yang "muter" tanpa respon. Service memakai key numerik
+     * (items.0.barang_id) yang tidak cocok dengan path form UUID, jadi tanpa
+     * penanganan khusus pesannya tidak pernah tampil.
+     */
+    public function test_kegagalan_validasi_service_menampilkan_notifikasi(): void
+    {
+        $user = $this->actingUser();
+        $session = $this->sesi($user);
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Toko Sumber', 'aktif' => true]);
+
+        $expense = PengeluaranBelanja::query()->create([
+            'kalkulator_belanja_id' => $session->getKey(),
+            'supplier_id' => $supplier->getKey(),
+            'nominal' => 1000,
+            'urutan' => 1,
+        ]);
+
+        $component = Livewire::test(PengeluaranRelationManager::class, [
+            'ownerRecord' => $session,
+            'pageClass' => \App\Filament\Resources\KalkulatorBelanjaResource\Pages\ViewKalkulatorBelanja::class,
+        ]);
+
+        // barang_id tidak ada di master -> lolos validasi Form (select non-relasi)
+        // tetapi ditolak service (exists:barangs,id).
+        $component->callTableAction('ubah-transaksi', $expense, data: [
+            'supplier_id' => $supplier->getKey(),
+            'keterangan' => null,
+            'items' => [
+                ['barang_id' => 999_999, 'jumlah' => 1, 'harga_satuan' => 1000, 'satuan' => null, 'keterangan' => null],
+            ],
+            'nota_paths' => [],
+        ]);
+
+        $component->assertNotified();
+        $component->assertTableActionMounted('ubah-transaksi');
+
+        // Tidak ada perubahan tersimpan.
+        $this->assertSame(0, $expense->fresh()->items()->count());
+    }
 }

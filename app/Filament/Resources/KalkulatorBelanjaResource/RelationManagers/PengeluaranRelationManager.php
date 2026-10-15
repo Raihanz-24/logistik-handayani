@@ -21,6 +21,7 @@ use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
@@ -28,7 +29,10 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Throwable;
 
 class PengeluaranRelationManager extends RelationManager
 {
@@ -81,11 +85,7 @@ class PengeluaranRelationManager extends RelationManager
                     ->stickyModalFooter()
                     ->createAnother(false)
                     ->form($this->transactionForm())
-                    ->using(fn (array $data): Model => app(BelanjaTransactionService::class)->save(
-                        $this->ownerSession(),
-                        null,
-                        $data,
-                    ))
+                    ->using(fn (array $data): Model => $this->persistTransaction(null, $data))
                     ->after(fn () => $this->dispatch('belanja-updated')),
             ])
             ->actions([
@@ -104,10 +104,20 @@ class PengeluaranRelationManager extends RelationManager
                                 ->purchaseItemContext((int) $item->barang_id);
                             $satuan = (string) $item->satuan_snapshot;
 
-                            // Barang pasar tanpa satuan tersimpan sebagai "-"
-                            // agar tidak memicu validasi "Satuan wajib diisi".
-                            if ($context['market'] && trim($satuan) === '') {
-                                $satuan = BelanjaTransactionService::NO_UNIT;
+                            if ($context['market']) {
+                                // Barang pasar: satuan lama yang di luar daftar
+                                // (mis. "pcs", "galon") dinormalkan supaya form
+                                // tidak langsung menampilkan error dan edit lama
+                                // tetap bisa disimpan.
+                                $normalized = mb_strtolower(trim($satuan));
+
+                                if ($normalized === '') {
+                                    $satuan = BelanjaTransactionService::NO_UNIT;
+                                } elseif (! in_array($normalized, BelanjaTransactionService::FLEXIBLE_MARKET_UNITS, true)) {
+                                    $satuan = BelanjaTransactionService::NO_UNIT;
+                                } else {
+                                    $satuan = $normalized;
+                                }
                             }
 
                             return [
@@ -123,8 +133,7 @@ class PengeluaranRelationManager extends RelationManager
                         })->values()->all(),
                         'nota_paths' => $record->notas->pluck('path')->all(),
                     ])
-                    ->using(fn (array $data, Model $record): Model => app(BelanjaTransactionService::class)->save(
-                        $this->ownerSession(),
+                    ->using(fn (array $data, Model $record): Model => $this->persistTransaction(
                         $record instanceof PengeluaranBelanja ? $record : null,
                         $data,
                     ))
@@ -362,6 +371,21 @@ class PengeluaranRelationManager extends RelationManager
                                 })
                                 ->native(false)
                                 ->live()
+                                ->rules(function (Get $get): array {
+                                    $context = app(BelanjaTransactionService::class)->purchaseItemContext(
+                                        (int) $get('barang_id'),
+                                    );
+
+                                    // Hanya barang pasar yang boleh memilih satuan.
+                                    // Divalidasi di FORM agar pesan error tampil di
+                                    // kolom satuan (bukan "diam-diam gagal").
+                                    return $context['market']
+                                        ? ['nullable', Rule::in(BelanjaTransactionService::FLEXIBLE_MARKET_UNITS)]
+                                        : [];
+                                })
+                                ->validationMessages([
+                                    'in' => 'Satuan pasar harus salah satu dari: gr, kg, biji, buah, ekor, ikt, ppn, btr, bks, atau "-".',
+                                ])
                                 ->visible(fn (Get $get): bool => app(BelanjaTransactionService::class)
                                     ->purchaseItemContext((int) $get('barang_id'))['market'])
                                 // Tidak dibuat ->required() di sini: barang pasar boleh
@@ -574,6 +598,63 @@ class PengeluaranRelationManager extends RelationManager
         abort_unless($record instanceof KalkulatorBelanja, 404);
 
         return $record;
+    }
+
+    /**
+     * Simpan transaksi belanja lewat service, tetapi PASTIKAN setiap kegagalan
+     * terlihat oleh user.
+     *
+     * Latar masalah: service memvalidasi ulang data dan melempar
+     * ValidationException dengan key seperti "items.0.satuan". Key itu TIDAK
+     * cocok dengan path field form yang memakai UUID
+     * (mountedTableActionsData.0.items.<uuid>.satuan), sehingga Filament tidak
+     * bisa menempelkan pesan error ke field mana pun. Akibatnya tombol Simpan
+     * "muter" lalu berhenti tanpa pesan apa-apa. Di sini setiap error diubah
+     * menjadi Notification yang jelas, lalu modal dipertahankan (Halt).
+     */
+    private function persistTransaction(?PengeluaranBelanja $expense, array $data): PengeluaranBelanja
+    {
+        try {
+            return app(BelanjaTransactionService::class)->save(
+                $this->ownerSession(),
+                $expense,
+                $data,
+            );
+        } catch (ValidationException $exception) {
+            Notification::make()
+                ->title('Transaksi tidak dapat disimpan')
+                ->body($this->readableValidationMessage($exception))
+                ->danger()
+                ->persistent()
+                ->send();
+
+            throw (new Halt)->rollBackDatabaseTransaction();
+        } catch (Throwable $exception) {
+            // Kesalahan tak terduga (mis. kolom DB belum dimigrasi). Selalu
+            // tampilkan supaya user tidak melihat tombol "muter" tanpa respon.
+            report($exception);
+
+            Notification::make()
+                ->title('Transaksi gagal disimpan')
+                ->body('Terjadi kesalahan saat menyimpan. Silakan coba lagi atau hubungi admin.')
+                ->danger()
+                ->persistent()
+                ->send();
+
+            throw (new Halt)->rollBackDatabaseTransaction();
+        }
+    }
+
+    private function readableValidationMessage(ValidationException $exception): string
+    {
+        $messages = collect($exception->errors())
+            ->flatten()
+            ->filter(fn (mixed $message): bool => is_string($message) && $message !== '')
+            ->values();
+
+        return $messages->isEmpty()
+            ? 'Periksa kembali data transaksi lalu coba simpan lagi.'
+            : $messages->take(5)->implode("\n");
     }
 
     /** @return array<int, string> */
