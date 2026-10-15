@@ -88,6 +88,7 @@ class ToolRegistry
             app(CariSupplierTool::class),
             app(BuatDraftMutasiTool::class),
             app(CatatTransaksiBelanjaTool::class),
+            app(TambahItemBelanjaTool::class),
         ];
     }
 }

@@ -7,6 +7,7 @@ use App\Models\AiPendingAction;
 use App\Models\Barang;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Ai\AiUserMemoryService;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -29,7 +30,9 @@ class CatatTransaksiBelanjaTool extends AiTool
         return 'Menyiapkan draft pencatatan transaksi belanja ke satu supplier (satu nota toko). '
             .'Draft TIDAK langsung tersimpan — pengguna harus menekan tombol konfirmasi. '
             .'Butuh supplier_id (cari_supplier) dan daftar barang (barang_id dari cari_barang). '
-            .'Setiap baris: barang_id, jumlah, dan harga_satuan (boleh 0 bila belum diketahui).';
+            .'Setiap baris: barang_id, jumlah, dan harga_satuan (boleh 0 bila belum diketahui). '
+            .'Bila SUDAH ada draft belanja berjalan dan pengguna hanya menambah/mengoreksi item, '
+            .'gunakan tambah_item_belanja agar item lama tidak hilang.';
     }
 
     public function isReadOnly(): bool
@@ -131,6 +134,10 @@ class CatatTransaksiBelanjaTool extends AiTool
             'summary' => $summary,
         ]);
 
+        // Pelajari pola ucapan user (memori pribadi) bila draft akhirnya hanya
+        // memuat satu barang, agar Asisten makin mengerti sebutan pengguna.
+        $this->learnFromConversation($user, $conversation, $payload);
+
         return [
             'pending_action_id' => (int) $action->getKey(),
             'ringkasan' => $summary,
@@ -161,5 +168,33 @@ class CatatTransaksiBelanjaTool extends AiTool
     private function formatNumber(float $value): string
     {
         return rtrim(rtrim(number_format($value, 3, ',', '.'), '0'), ',');
+    }
+
+    /**
+     * Pelajari frasa user terakhir -> barang pada draft (memori pribadi).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function learnFromConversation(User $user, ?AiConversation $conversation, array $payload): void
+    {
+        if (! $conversation) {
+            return;
+        }
+
+        $lastUserMessage = $conversation->messages()
+            ->where('role', \App\Models\AiMessage::ROLE_USER)
+            ->orderByDesc('id')
+            ->value('content');
+
+        if (! is_string($lastUserMessage) || trim($lastUserMessage) === '') {
+            return;
+        }
+
+        $barangIds = collect($payload['items'] ?? [])
+            ->pluck('barang_id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        app(AiUserMemoryService::class)->learnFromBelanja($user, $lastUserMessage, $barangIds);
     }
 }

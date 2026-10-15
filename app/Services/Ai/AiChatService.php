@@ -184,8 +184,9 @@ class AiChatService
      */
     private function buildModelMessages(User $user, AiConversation $conversation, string $userMessage): array
     {
-        $limit = max(2, (int) config('ai.history_limit', 20));
-        $history = $conversation->messages()->orderBy('id')->get()->slice(-$limit)->values();
+        $limit = max(2, (int) config('ai.history_limit', 40));
+        $all = $conversation->messages()->orderBy('id')->get();
+        $history = $all->slice(-$limit)->values();
 
         // Jangan mulai dari pesan 'tool' (butuh assistant tool_calls pendahulu).
         while ($history->isNotEmpty() && $history->first()->role === AiMessage::ROLE_TOOL) {
@@ -194,8 +195,20 @@ class AiChatService
 
         $messages = [[
             'role' => 'system',
-            'content' => $this->promptBuilder->build($user, $userMessage),
+            'content' => $this->promptBuilder->build($user, $userMessage, $conversation),
         ]];
+
+        // Rangkuman deterministik pesan yang jatuh di luar jendela riwayat, agar
+        // percakapan panjang tidak "lupa" topik yang dibahas di awal.
+        $older = $all->slice(0, max(0, $all->count() - $history->count()));
+        $recent = $this->summarizeOlderMessages($older);
+
+        if ($recent !== '') {
+            $messages[] = [
+                'role' => 'system',
+                'content' => "RINGKASAN PERCAKAPAN SEBELUMNYA (yang sudah di luar jendela riwayat):\n".$recent,
+            ];
+        }
 
         foreach ($history as $message) {
             $toolCalls = $message->tool_payload['tool_calls'] ?? null;
@@ -228,6 +241,34 @@ class AiChatService
         }
 
         return $messages;
+    }
+
+    /**
+     * Rangkuman ringan (deterministik, tanpa panggilan model) dari pesan yang
+     * sudah keluar dari jendela riwayat: ambil pokok pesan user + ringkasan
+     * aksi yang pernah disiapkan. Dibatasi agar hemat token.
+     *
+     * @param  \Illuminate\Support\Collection<int, AiMessage>  $older
+     */
+    private function summarizeOlderMessages($older): string
+    {
+        if ($older->isEmpty()) {
+            return '';
+        }
+
+        $userLines = $older
+            ->where('role', AiMessage::ROLE_USER)
+            ->map(fn (AiMessage $message): string => trim((string) $message->content))
+            ->filter()
+            ->take(-8);
+
+        if ($userLines->isEmpty()) {
+            return '';
+        }
+
+        return $userLines
+            ->map(fn (string $line): string => '- '.mb_substr($line, 0, 160))
+            ->implode("\n");
     }
 
     /** @return array{temperature?: float, max_tokens?: int} */

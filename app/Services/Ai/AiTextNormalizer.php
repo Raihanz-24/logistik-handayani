@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Support\BarangSatuan;
+
 /**
  * Normalisasi teks perintah suara SEBELUM dikirim ke model.
  *
@@ -11,9 +13,15 @@ namespace App\Services\Ai;
  * seperti "satuan" atau "Sepuluh" (bagian kata lain) tetap aman.
  *
  * Selain kata-angka, beberapa pecahan umum juga dinormalkan:
- * - "setengah"    → 0.5
- * - "seperempat"  → 0.25
- * - "tiga perempat" → 0.75
+ * - "setengah"    → 0,5
+ * - "seperempat"  → 0,25
+ * - "tiga perempat" → 0,75
+ *
+ * Terakhir, sinonim satuan dinormalkan ke bentuk kanonik (lihat BarangSatuan):
+ * - "kilo"/"kilogram" → kg
+ * - "bungkus"/"pack"  → bks
+ * - "ikat"            → ikt
+ * sehingga "setengah kilo" menjadi "0,5 kg" dan "3 bungkus" menjadi "3 bks".
  */
 class AiTextNormalizer
 {
@@ -56,11 +64,11 @@ class AiTextNormalizer
     /** Pecahan khusus yang tidak dicakup pola kata-angka biasa. */
     private const FRACTIONS = [
         // Frasa multi-kata lebih dulu agar tidak "terpotong" oleh bentuk pendek.
-        'satu setengah' => '1.5',
-        'dua setengah' => '2.5',
-        'tiga perempat' => '0.75',
-        'setengah' => '0.5',
-        'seperempat' => '0.25',
+        'satu setengah' => '1,5',
+        'dua setengah' => '2,5',
+        'tiga perempat' => '0,75',
+        'setengah' => '0,5',
+        'seperempat' => '0,25',
     ];
 
     /** Apakah sebuah token (huruf kecil) termasuk kata-angka yang dikenali. */
@@ -79,6 +87,9 @@ class AiTextNormalizer
         if (trim($text) === '') {
             return $text;
         }
+
+        // Gabungkan digit + kata pengali mata uang ("25 ribu" → 25000).
+        $text = self::normalizeDigitScales($text);
 
         // Pecahan multi-kata lebih dulu (sebelum tokenisasi).
         $text = self::normalizeFractions($text);
@@ -114,7 +125,34 @@ class AiTextNormalizer
             $i++;
         }
 
+        // Normalisasi sinonim satuan ("kilo"→kg, "bungkus"→bks, "ikat"→ikt).
+        $out = self::normalizeUnits($out);
+
         return $out;
+    }
+
+    /**
+     * Ganti sinonim satuan menjadi bentuk kanonik tanpa mengubah tanda baca
+     * maupun kata lain. Hanya token utuh (dipisah spasi/tanda baca) yang diubah
+     * sehingga "kiloan" pada nama barang tetap aman bila bukan satuan.
+     */
+    public static function normalizeUnits(string $text): string
+    {
+        if ($text === '') {
+            return $text;
+        }
+
+        $changed = preg_replace_callback(
+            '/\b([A-Za-z]+)\b/u',
+            static function (array $matches): string {
+                $canonical = BarangSatuan::canonical($matches[1]);
+
+                return $canonical === $matches[1] ? $matches[1] : $canonical;
+            },
+            $text,
+        );
+
+        return $changed ?? $text;
     }
 
     /** Ganti pecahan khusus dengan bentuk desimalnya. */
@@ -125,6 +163,37 @@ class AiTextNormalizer
             array_values(self::FRACTIONS),
             $text,
         );
+    }
+
+    /**
+     * Gabungkan digit yang diikuti kata pengali menjadi satu bilangan.
+     * Contoh: "25 ribu" → "25000", "1,5 juta" → "1500000".
+     *
+     * Hanya berlaku bila sebelum pengali ada digit (bukan kata-angka, yang
+     * sudah ditangani wordsToNumber).
+     */
+    private static function normalizeDigitScales(string $text): string
+    {
+        $scales = [
+            'ratus' => 100,
+            'ribu' => 1000,
+            'juta' => 1000000,
+            'miliar' => 1000000000,
+            'milyar' => 1000000000,
+            'triliun' => 1000000000000,
+        ];
+
+        $pattern = '/(\d+(?:[.,]\d+)?)\s*('.implode('|', array_keys($scales)).')\b/ui';
+
+        $changed = preg_replace_callback($pattern, static function (array $matches) use ($scales): string {
+            $number = (float) str_replace(',', '.', $matches[1]);
+            $scale = $scales[mb_strtolower($matches[2])];
+            $value = $number * $scale;
+
+            return rtrim(rtrim(number_format($value, 3, '.', ''), '0'), '.');
+        }, $text);
+
+        return $changed ?? $text;
     }
 
     /**

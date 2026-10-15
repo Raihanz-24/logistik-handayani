@@ -3,8 +3,12 @@
 namespace App\Services\Ai;
 
 use App\Models\AiKnowledgeEntry;
+use App\Models\AiPendingAction;
+use App\Models\AiConversation;
 use App\Models\AiSetting;
+use App\Models\Barang;
 use App\Models\Lokasi;
+use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Support\Facades\Schema;
 
@@ -21,8 +25,9 @@ class SystemPromptBuilder
 {
     /**
      * @param  string  $userMessage  Pesan user untuk menyaring pengetahuan relevan.
+     * @param  AiConversation|null  $conversation  Konteks percakapan (draft berjalan).
      */
-    public function build(User $user, string $userMessage = ''): string
+    public function build(User $user, string $userMessage = '', ?AiConversation $conversation = null): string
     {
         $setting = AiSetting::current();
         $knowledge = $this->relevantKnowledge($userMessage, $setting);
@@ -30,6 +35,19 @@ class SystemPromptBuilder
         $parts = [];
         $parts[] = $this->baseInstructions($setting, $user);
         $parts[] = $this->contextBlock($user, $setting);
+        $parts[] = $this->personaBlock($setting);
+
+        $preferences = app(AiUserMemoryService::class)->preferencesBlock($user);
+
+        if ($preferences !== '') {
+            $parts[] = $preferences;
+        }
+
+        $draft = $this->activeDraftBlock($conversation);
+
+        if ($draft !== '') {
+            $parts[] = $draft;
+        }
 
         if (filled($setting?->scope_description)) {
             $parts[] = "RUANG LINGKUP (SCOPE):\n".trim((string) $setting->scope_description);
@@ -81,6 +99,13 @@ ATURAN PENTING:
 9. Nama panggilan: bila pengguna menyebut sebutan lokal (mis. "aqua", "mino"), cari lewat cari_barang (termasuk alias) dan pilih kandidat terbaik. Bila lebih dari satu kandidat mirip, tanyakan singkat mana yang dimaksud.
 10. Jangan mengakses, menampilkan, atau mengarang data di luar operasional gudang: kredensial/token, data pengguna lain, pengaturan internal, isi sistem, atau kolom sensitif. Gunakan HANYA data yang dikembalikan tool. Bila diminta hal sensitif, tolak dengan sopan.{$restrict}
 11. TANPA SATUAN artinya barang dihitung satuan (1 buah). Bila pengguna menyebut harga tanpa satuan (mis. "ayam broiler 100 ribu", "cabai 25 ribu"), artinya: jumlah = 1, satuan = "-" (strip), harga_satuan = nominal tersebut. JANGAN menanyakan satuan untuk kasus ini, langsung buat draft dengan jumlah 1 dan satuan "-". Bila pengguna menyebut angka jumlah di depan barang (mis. "2 ayam broiler 100 ribu"), pakai jumlah itu: jumlah = 2, satuan = "-", harga_satuan = 100000 (harga per barang). Bila pengguna menyebut angka + satuan (mis. "2 kg cabai"), pakai jumlah dan satuan itu apa adanya.
+12. TATA CARA SINGKAT (PENTING — belajar dari pola chat): pola umum pengguna adalah "NAMA [JUMLAH] [SATUAN] HARGA", mis. "cabai 2 kg 25000", "kangkung 3 ikt 5000", "ayam broiler 100000". Artinya:
+   - HARGA selalu = harga SATUAN (per kg/ikat/buah), BUKAN total — kecuali pengguna menyebut kata "total" atau "semuanya".
+   - Bila JUMLAH tidak disebut, anggap jumlah = 1.
+   - Bila SATUAN tidak disebut, pakai satuan "-" (lihat aturan 11).
+   - Bila harga ditulis "25 ribu" / "25rb" / "25k", artinya 25000.
+   Jangan menanyakan hal yang sudah bisa disimpulkan dari pola ini; langsung susun draft.
+13. RAPIKAN saat menampilkan daftar belanja: tulis bernomor berurutan, satu baris per barang, dengan format "1. Nama, satuan, harga/" (contoh: "1. Cabai, kg, 25000/"), lalu baris "Total: Rp…". Ini memudahkan pengguna mengecek. Tetap ringkas, tanpa penjelasan panjang.
 PROMPT;
     }
 
@@ -103,6 +128,105 @@ KONTEKS:
 - Gudang yang tersedia:
 {$warehouses}
 PROMPT;
+    }
+
+    /**
+     * Persona (kepribadian) asisten dari ai_settings. Sebelumnya hanya di-seed
+     * tapi tidak pernah disuntik ke prompt; kini disertakan bila diisi.
+     */
+    private function personaBlock(?AiSetting $setting): string
+    {
+        if (blank($setting?->persona)) {
+            return '';
+        }
+
+        return "PERSONA:\n".trim((string) $setting->persona);
+    }
+
+    /**
+     * Ringkasan DRAFT aksi yang masih menunggu konfirmasi pada percakapan ini.
+     *
+     * Inilah memori jangka-pendek yang membuat AI tidak "lupa" item belanja:
+     * tiap giliran, daftar item draft berjalan disuntik kembali ke prompt,
+     * sehingga model bisa melanjutkan/menambah tanpa menebak ulang.
+     */
+    private function activeDraftBlock(?AiConversation $conversation): string
+    {
+        if (! $conversation || ! Schema::hasTable('ai_pending_actions')) {
+            return '';
+        }
+
+        $actions = AiPendingAction::query()
+            ->where('ai_conversation_id', $conversation->getKey())
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->orderBy('id')
+            ->get();
+
+        if ($actions->isEmpty()) {
+            return '';
+        }
+
+        $lines = $actions->map(function (AiPendingAction $action): string {
+            $summary = trim((string) ($action->summary ?? ''));
+
+            if ($action->type === AiPendingAction::TYPE_PENGELUARAN_BELANJA) {
+                $items = $this->draftBelanjaLines($action->payload ?? []);
+
+                return "- DRAFT BELANJA (id={$action->getKey()}) BELUM dikonfirmasi:\n"
+                    .($items !== '' ? $items : '  (kosong)')
+                    ."\n  Ringkasan: ".($summary !== '' ? $summary : '-');
+            }
+
+            return '- DRAFT '.strtoupper((string) $action->type)." (id={$action->getKey()}) BELUM dikonfirmasi: "
+                .($summary !== '' ? $summary : '-');
+        })->implode("\n");
+
+        return <<<PROMPT
+DRAFT BERJALAN (memori percakapan — PENTING):
+{$lines}
+Aturan draft berjalan:
+- Daftar item di atas adalah kondisi TERKINI draft belanja pada percakapan ini.
+- Bila pengguna menyebut barang baru / menambah item, GABUNGKAN dengan daftar di atas, lalu panggil ulang catat_transaksi_belanja dengan SELURUH item (lama + baru). Jangan menghapus item yang sudah ada kecuali pengguna memintanya.
+- Bila pengguna mengoreksi harga/jumlah sebuah item, ganti nilai item itu dan pertahankan sisanya.
+- Sebutkan ringkas bahwa draft diperbarui; jangan mengulang seluruh daftar panjang.
+PROMPT;
+    }
+
+    /**
+     * Baris item draft belanja untuk disuntik ke prompt (id + nama + jumlah +
+     * satuan + harga satuan).
+     */
+    private function draftBelanjaLines(array $payload): string
+    {
+        $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+
+        if ($items === []) {
+            return '';
+        }
+
+        $names = Barang::query()
+            ->whereKey(collect($items)->pluck('barang_id')->filter()->all())
+            ->pluck('nama_barang', 'id');
+
+        $supplier = Supplier::query()
+            ->whereKey((int) ($payload['supplier_id'] ?? 0))
+            ->value('nama_supplier');
+
+        $lines = collect($items)->values()->map(function (array $item, int $index) use ($names): string {
+            $id = (int) ($item['barang_id'] ?? 0);
+            $nama = $names[$id] ?? ('barang #'.$id);
+            $jumlah = rtrim(rtrim(number_format((float) ($item['jumlah'] ?? 0), 3, ',', '.'), '0'), ',');
+            $satuan = filled($item['satuan'] ?? null) ? (string) $item['satuan'] : '-';
+            $harga = (int) ($item['harga_satuan'] ?? 0);
+
+            return '  '.($index + 1).'. '.$nama.' | barang_id='.$id
+                .' | jumlah='.$jumlah.' | satuan='.$satuan
+                .' | harga_satuan='.$harga;
+        })->implode("\n");
+
+        $header = $supplier ? '  Supplier: '.$supplier : '  Supplier: (belum dipilih)';
+
+        return $header."\n".$lines;
     }
 
     /**

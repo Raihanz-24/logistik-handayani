@@ -75,7 +75,7 @@ return [
     |--------------------------------------------------------------------------
     | Jumlah pesan terakhir yang disertakan sebagai konteks percakapan.
     */
-    'history_limit' => (int) env('AI_HISTORY_LIMIT', 20),
+    'history_limit' => (int) env('AI_HISTORY_LIMIT', 40),
 
     /*
     |--------------------------------------------------------------------------
@@ -95,6 +95,7 @@ return [
         'buat_draft_mutasi' => 'create_mutasi',
         'buat_sesi_belanja' => 'create_kalkulator_belanja',
         'catat_transaksi_belanja' => 'update_kalkulator_belanja',
+        'tambah_item_belanja' => 'update_kalkulator_belanja',
     ],
 
     /*

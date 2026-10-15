@@ -8,6 +8,7 @@ use App\Models\HargaBarangSupplier;
 use App\Models\KalkulatorBelanja;
 use App\Models\PengeluaranBelanja;
 use App\Models\PengeluaranBelanjaItem;
+use App\Support\BarangSatuan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -17,11 +18,14 @@ class BelanjaTransactionService
 {
     public const MARKET_CATEGORY_SLUG = 'pasar';
 
-    /** Satuan khusus: barang dicatat TANPA satuan (hanya 1 barang seharga nominal). */
-    public const NO_UNIT = '-';
+    /**
+     * Satuan khusus: barang dicatat TANPA satuan (hanya 1 barang seharga nominal).
+     * Nilai didelegasikan ke BarangSatuan (sumber tunggal daftar satuan).
+     */
+    public const NO_UNIT = BarangSatuan::NO_UNIT;
 
     /** @var array<int, string> */
-    public const FLEXIBLE_MARKET_UNITS = ['gr', 'kg', 'biji', 'buah', 'ekor', 'ikt', 'ppn', 'btr', 'bks', self::NO_UNIT];
+    public const FLEXIBLE_MARKET_UNITS = BarangSatuan::FLEXIBLE_MARKET_UNITS;
 
     /**
      * Cache per-request agar form belanja tidak mengulang query yang sama
