@@ -6,6 +6,7 @@ use App\Http\Responses\Auth\LogoutResponse;
 use App\Models\User;
 use App\Observers\UserObserver;
 use App\Services\AuditLogger;
+use App\Services\BelanjaTransactionService;
 use App\Services\DashboardCacheService;
 use Filament\Tables\Table;
 use Illuminate\Auth\Events\Login;
@@ -23,6 +24,11 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(DashboardCacheService::class);
+
+        // Singleton agar cache per-request (context barang, riwayat harga)
+        // dipakai ulang selama satu request Livewire, bukan di-reset tiap
+        // kali form dievaluasi. Lihat BelanjaTransactionService.
+        $this->app->singleton(BelanjaTransactionService::class);
 
         // Ganti tujuan setelah logout panel Filament:
         // SSO aktif → halaman utama Portal; SSO nonaktif → login Logistik.

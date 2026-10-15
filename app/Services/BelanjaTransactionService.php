@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-
 class BelanjaTransactionService
 {
     public const MARKET_CATEGORY_SLUG = 'pasar';
@@ -23,6 +22,21 @@ class BelanjaTransactionService
 
     /** @var array<int, string> */
     public const FLEXIBLE_MARKET_UNITS = ['gr', 'kg', 'biji', 'buah', 'ekor', 'ikt', 'ppn', 'btr', 'bks', self::NO_UNIT];
+
+    /**
+     * Cache per-request agar form belanja tidak mengulang query yang sama
+     * berkali-kali tiap kali Livewire me-render ulang. Dipakai bersama dengan
+     * binding singleton di AppServiceProvider.
+     *
+     * @var array<int, array{market: bool, unit: string, units: array<int, string>}>
+     */
+    private array $purchaseItemContextCache = [];
+
+    /** @var array<string, array<int, array{unit: string, price: int, date: ?string}>> */
+    private array $priceHistoryCache = [];
+
+    /** @var array<string, array{price: ?int, date: ?string}> */
+    private array $latestPriceCache = [];
 
     /**
      * @param  array<string, mixed>  $data
@@ -203,6 +217,8 @@ class BelanjaTransactionService
             (int) $validated['supplier_id'],
             (int) $row['barang_id'],
         ])->all();
+        $this->flushCaches();
+
         $this->refreshPricePairs([...$oldPairs, ...$newPairs]);
 
         app(AuditLogger::class)->activity(
@@ -232,6 +248,10 @@ class BelanjaTransactionService
         $supplier = $expense->namaSupplier();
         $deleted = (bool) $expense->delete();
 
+        if ($deleted) {
+            $this->flushCaches();
+        }
+
         if ($deleted && $releasedPhotoLabelCount > 0) {
             app(AuditLogger::class)->activity(
                 'pengeluaran_belanja_photo_labels_release',
@@ -256,6 +276,14 @@ class BelanjaTransactionService
             return ['price' => null, 'date' => null];
         }
 
+        $cacheKey = $supplierId.':'.$barangId;
+
+        if ($refresh) {
+            unset($this->latestPriceCache[$cacheKey]);
+        } elseif (array_key_exists($cacheKey, $this->latestPriceCache)) {
+            return $this->latestPriceCache[$cacheKey];
+        }
+
         if (! $refresh) {
             $cached = HargaBarangSupplier::query()
                 ->where('supplier_id', $supplierId)
@@ -263,7 +291,7 @@ class BelanjaTransactionService
                 ->first();
 
             if ($cached) {
-                return [
+                return $this->latestPriceCache[$cacheKey] = [
                     'price' => (int) $cached->harga_terakhir,
                     'date' => $cached->tanggal_harga_terakhir->toDateString(),
                 ];
@@ -302,13 +330,13 @@ class BelanjaTransactionService
                 ->first();
 
             if ($cached) {
-                return [
+                return $this->latestPriceCache[$cacheKey] = [
                     'price' => (int) $cached->harga_terakhir,
                     'date' => $cached->tanggal_harga_terakhir->toDateString(),
                 ];
             }
 
-            return ['price' => null, 'date' => null];
+            return $this->latestPriceCache[$cacheKey] = ['price' => null, 'date' => null];
         }
 
         HargaBarangSupplier::query()->updateOrCreate(
@@ -319,7 +347,7 @@ class BelanjaTransactionService
             ],
         );
 
-        return [
+        return $this->latestPriceCache[$cacheKey] = [
             'price' => (int) $latest->harga_satuan,
             'date' => (string) $latest->tanggal,
         ];
@@ -328,17 +356,25 @@ class BelanjaTransactionService
     /** @return array{market: bool, unit: string, units: array<int, string>} */
     public function purchaseItemContext(int $barangId): array
     {
+        if (array_key_exists($barangId, $this->purchaseItemContextCache)) {
+            return $this->purchaseItemContextCache[$barangId];
+        }
+
+        if (array_key_exists($barangId, $this->purchaseItemContextCache)) {
+            return $this->purchaseItemContextCache[$barangId];
+        }
+
         $barang = Barang::query()
             ->with('kategoriBarangs:id,nama,slug')
             ->find($barangId);
 
         if (! $barang) {
-            return ['market' => false, 'unit' => '', 'units' => []];
+            return $this->purchaseItemContextCache[$barangId] = ['market' => false, 'unit' => '', 'units' => []];
         }
 
         $market = $this->isMarketItem($barang);
 
-        return [
+        return $this->purchaseItemContextCache[$barangId] = [
             'market' => $market,
             'unit' => (string) $barang->satuan,
             'units' => $market ? self::FLEXIBLE_MARKET_UNITS : [(string) $barang->satuan],
@@ -352,44 +388,49 @@ class BelanjaTransactionService
             return [];
         }
 
-        $records = PengeluaranBelanjaItem::query()
-            ->select([
-                'pengeluaran_belanja_items.satuan_snapshot',
-                'pengeluaran_belanja_items.harga_satuan',
-                'kalkulator_belanjas.tanggal',
-            ])
-            ->join(
-                'pengeluaran_belanjas',
-                'pengeluaran_belanjas.id',
-                '=',
-                'pengeluaran_belanja_items.pengeluaran_belanja_id',
-            )
-            ->join(
-                'kalkulator_belanjas',
-                'kalkulator_belanjas.id',
-                '=',
-                'pengeluaran_belanjas.kalkulator_belanja_id',
-            )
-            ->where('pengeluaran_belanjas.supplier_id', $supplierId)
-            ->where('pengeluaran_belanja_items.barang_id', $barangId)
-            ->where('pengeluaran_belanja_items.harga_satuan', '>', 0)
-            ->orderByDesc('kalkulator_belanjas.tanggal')
-            ->orderByDesc('pengeluaran_belanja_items.updated_at')
-            ->orderByDesc('pengeluaran_belanja_items.id')
-            ->limit(100)
-            ->get();
+        $cacheKey = $supplierId.':'.$barangId;
 
-        return $records
-            ->map(fn (PengeluaranBelanjaItem $record): array => [
-                'unit' => trim((string) $record->satuan_snapshot),
-                'price' => (int) $record->harga_satuan,
-                'date' => $record->tanggal ? (string) $record->tanggal : null,
-            ])
-            ->filter(fn (array $record): bool => $record['unit'] !== '')
-            ->unique(fn (array $record): string => mb_strtolower($record['unit']))
-            ->take(max(1, min($limit, 10)))
-            ->values()
-            ->all();
+        if (! array_key_exists($cacheKey, $this->priceHistoryCache)) {
+            $records = PengeluaranBelanjaItem::query()
+                ->select([
+                    'pengeluaran_belanja_items.satuan_snapshot',
+                    'pengeluaran_belanja_items.harga_satuan',
+                    'kalkulator_belanjas.tanggal',
+                ])
+                ->join(
+                    'pengeluaran_belanjas',
+                    'pengeluaran_belanjas.id',
+                    '=',
+                    'pengeluaran_belanja_items.pengeluaran_belanja_id',
+                )
+                ->join(
+                    'kalkulator_belanjas',
+                    'kalkulator_belanjas.id',
+                    '=',
+                    'pengeluaran_belanjas.kalkulator_belanja_id',
+                )
+                ->where('pengeluaran_belanjas.supplier_id', $supplierId)
+                ->where('pengeluaran_belanja_items.barang_id', $barangId)
+                ->where('pengeluaran_belanja_items.harga_satuan', '>', 0)
+                ->orderByDesc('kalkulator_belanjas.tanggal')
+                ->orderByDesc('pengeluaran_belanja_items.updated_at')
+                ->orderByDesc('pengeluaran_belanja_items.id')
+                ->limit(100)
+                ->get();
+
+            $this->priceHistoryCache[$cacheKey] = $records
+                ->map(fn (PengeluaranBelanjaItem $record): array => [
+                    'unit' => trim((string) $record->satuan_snapshot),
+                    'price' => (int) $record->harga_satuan,
+                    'date' => $record->tanggal ? (string) $record->tanggal : null,
+                ])
+                ->filter(fn (array $record): bool => $record['unit'] !== '')
+                ->unique(fn (array $record): string => mb_strtolower($record['unit']))
+                ->values()
+                ->all();
+        }
+
+        return array_slice($this->priceHistoryCache[$cacheKey], 0, max(1, min($limit, 10)));
     }
 
     /** @return array{price: ?int, date: ?string} */
@@ -416,6 +457,18 @@ class BelanjaTransactionService
             ->filter(fn (array $pair): bool => ($pair[0] ?? 0) > 0 && ($pair[1] ?? 0) > 0)
             ->unique(fn (array $pair): string => $pair[0].':'.$pair[1])
             ->each(fn (array $pair): array => $this->latestPrice($pair[0], $pair[1], true));
+    }
+
+    /**
+     * Bersihkan cache harga per-request. Dipanggil setelah data belanja
+     * berubah agar saran harga berikutnya (dalam request yang sama) memakai
+     * nilai terbaru, bukan nilai lama yang tersimpan di memori.
+     */
+    public function flushCaches(): void
+    {
+        $this->purchaseItemContextCache = [];
+        $this->priceHistoryCache = [];
+        $this->latestPriceCache = [];
     }
 
     public function subtotal(mixed $quantity, int $unitPrice): int

@@ -34,6 +34,11 @@ class PengeluaranRelationManager extends RelationManager
 {
     private const MAX_ORIGINAL_RECEIPT_SIZE_KB = 10 * 1024;
 
+    /** Cache opsi form dalam satu request agar tidak query berulang tiap item repeater. */
+    private ?array $barangOptionsCache = null;
+
+    private ?array $supplierOptionsCache = null;
+
     protected static string $relationship = 'pengeluaran';
 
     protected static ?string $title = 'Transaksi per Toko';
@@ -96,16 +101,28 @@ class PengeluaranRelationManager extends RelationManager
                     ->form($this->transactionForm())
                     ->mutateRecordDataUsing(fn (array $data, PengeluaranBelanja $record): array => [
                         ...$data,
-                        'items' => $record->items->map(fn ($item): array => [
-                            'barang_id' => $item->barang_id,
-                            'satuan' => $item->satuan_snapshot,
-                            'jumlah' => $item->jumlah,
-                            // Rp0 adalah penanda internal untuk harga yang belum
-                            // diisi. Di form tetap tampil kosong agar mudah diisi
-                            // setelah daftar barang selesai dibuat.
-                            'harga_satuan' => (int) $item->harga_satuan > 0 ? $item->harga_satuan : null,
-                            'keterangan' => $item->keterangan,
-                        ])->values()->all(),
+                        'items' => $record->items->map(function ($item): array {
+                            $context = app(BelanjaTransactionService::class)
+                                ->purchaseItemContext((int) $item->barang_id);
+                            $satuan = (string) $item->satuan_snapshot;
+
+                            // Barang pasar tanpa satuan tersimpan sebagai "-"
+                            // agar tidak memicu validasi "Satuan wajib diisi".
+                            if ($context['market'] && trim($satuan) === '') {
+                                $satuan = BelanjaTransactionService::NO_UNIT;
+                            }
+
+                            return [
+                                'barang_id' => $item->barang_id,
+                                'satuan' => $satuan,
+                                'jumlah' => $item->jumlah,
+                                // Rp0 adalah penanda internal untuk harga yang belum
+                                // diisi. Di form tetap tampil kosong agar mudah diisi
+                                // setelah daftar barang selesai dibuat.
+                                'harga_satuan' => (int) $item->harga_satuan > 0 ? $item->harga_satuan : null,
+                                'keterangan' => $item->keterangan,
+                            ];
+                        })->values()->all(),
                         'nota_paths' => $record->notas->pluck('path')->all(),
                     ])
                     ->using(fn (array $data, Model $record): Model => app(BelanjaTransactionService::class)->save(
@@ -212,8 +229,8 @@ class PengeluaranRelationManager extends RelationManager
                 ->schema([
                     Forms\Components\Select::make('supplier_id')
                         ->label('Toko / Supplier')
-                        ->options(fn (): array => Supplier::query()->aktif()->orderBy('nama_supplier')
-                            ->pluck('nama_supplier', 'id')->all())
+                        ->options(fn (): array => $this->supplierOptionsCache ??= Supplier::query()->aktif()
+                            ->orderBy('nama_supplier')->pluck('nama_supplier', 'id')->all())
                         ->getOptionLabelUsing(fn (mixed $value): ?string => Supplier::query()
                             ->whereKey((int) $value)->value('nama_supplier'))
                         ->searchable()
@@ -281,9 +298,20 @@ class PengeluaranRelationManager extends RelationManager
                         ->collapsible()
                         ->addActionLabel('Tambah Barang')
                         ->itemLabel(function (array $state): string {
-                            $name = filled($state['barang_id'] ?? null)
-                                ? Barang::query()->whereKey((int) $state['barang_id'])->value('nama_barang')
-                                : null;
+                            $barangId = (int) ($state['barang_id'] ?? 0);
+                            if ($barangId > 0) {
+                                $this->barangOptionsCache ??= Barang::query()
+                                    ->orderBy('nama_barang')
+                                    ->get(['id', 'kode_barang', 'nama_barang'])
+                                    ->mapWithKeys(fn (Barang $barang): array => [
+                                        $barang->getKey() => "{$barang->kode_barang} — {$barang->nama_barang}",
+                                    ])->all();
+                                $label = $this->barangOptionsCache[$barangId] ?? null;
+                                $name = $label !== null ? str($label)->after(' — ')->toString() : null;
+                            } else {
+                                $name = null;
+                            }
+
                             $subtotal = app(BelanjaTransactionService::class)->subtotal(
                                 $state['jumlah'] ?? 0,
                                 (int) ($state['harga_satuan'] ?? 0),
@@ -294,7 +322,7 @@ class PengeluaranRelationManager extends RelationManager
                         ->schema([
                             Forms\Components\Select::make('barang_id')
                                 ->label('Barang')
-                                ->options(fn (): array => Barang::query()
+                                ->options(fn (): array => $this->barangOptionsCache ??= Barang::query()
                                     ->orderBy('nama_barang')
                                     ->get(['id', 'kode_barang', 'nama_barang'])
                                     ->mapWithKeys(fn (Barang $barang): array => [
@@ -307,7 +335,11 @@ class PengeluaranRelationManager extends RelationManager
                                 ->disableOptionsWhenSelectedInSiblingRepeaterItems()
                                 ->afterStateUpdated(function (mixed $state, Get $get, Set $set): void {
                                     $context = app(BelanjaTransactionService::class)->purchaseItemContext((int) $state);
-                                    $set('satuan', $context['market'] ? null : $context['unit']);
+                                    // Barang pasar: default ke "-" (tanpa satuan) supaya
+                                    // form tidak gagal validasi saat user lupa memilih satuan.
+                                    $set('satuan', $context['market']
+                                        ? BelanjaTransactionService::NO_UNIT
+                                        : $context['unit']);
                                     $latest = $this->suggestedPrice(
                                         (int) $get('../../supplier_id'),
                                         (int) $state,
@@ -344,8 +376,10 @@ class PengeluaranRelationManager extends RelationManager
                                 ->live()
                                 ->visible(fn (Get $get): bool => app(BelanjaTransactionService::class)
                                     ->purchaseItemContext((int) $get('barang_id'))['market'])
-                                ->required(fn (Get $get): bool => app(BelanjaTransactionService::class)
-                                    ->purchaseItemContext((int) $get('barang_id'))['market'])
+                                // Tidak dibuat ->required() di sini: barang pasar boleh
+                                // dibiarkan kosong, dan backend otomatis memakai "-"
+                                // (1 barang seharga nominal). Ini mencegah "simpan diam-diam
+                                // gagal" ketika user lupa memilih satuan.
                                 ->afterStateUpdated(function (mixed $state, Get $get, Set $set): void {
                                     $latest = app(BelanjaTransactionService::class)->latestPriceForUnit(
                                         (int) $get('../../supplier_id'),
@@ -360,9 +394,8 @@ class PengeluaranRelationManager extends RelationManager
                                 ->columnSpan(['default' => 1, 'lg' => 1]),
                             Forms\Components\Placeholder::make('satuan_preview')
                                 ->label('Satuan')
-                                ->content(fn (Get $get): string => (string) (Barang::query()
-                                    ->whereKey((int) $get('barang_id'))
-                                    ->value('satuan') ?: '-'))
+                                ->content(fn (Get $get): string => (string) (app(BelanjaTransactionService::class)
+                                    ->purchaseItemContext((int) $get('barang_id'))['unit'] ?: '-'))
                                 ->visible(fn (Get $get): bool => ! app(BelanjaTransactionService::class)
                                     ->purchaseItemContext((int) $get('barang_id'))['market'])
                                 ->columnSpan(['default' => 1, 'lg' => 1]),

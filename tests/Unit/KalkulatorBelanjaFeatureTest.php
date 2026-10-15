@@ -61,7 +61,7 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("Select::make('satuan')", $relationManager);
         $this->assertStringContainsString('Satuan pasar dapat dipilih sesuai pembelian.', $relationManager);
         $this->assertStringContainsString('Harga terakhir:', $relationManager);
-        $this->assertStringContainsString("'satuan' => \$item->satuan_snapshot", $relationManager);
+        $this->assertStringContainsString("'satuan' => \$satuan,", $relationManager);
         $this->assertStringContainsString('label Foto Maps hanya dilepas', $relationManager);
         $this->assertStringContainsString('NotaBelanjaImageService::class', $relationManager);
         $this->assertStringContainsString('latestPrice(', $relationManager);
