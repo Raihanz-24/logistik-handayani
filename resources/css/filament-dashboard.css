@@ -86,6 +86,72 @@
     backdrop-filter: blur(18px);
 }
 
+/* Tombol pintasan "Xcode AI" di topbar: ikon AI dengan nama di bawahnya. */
+.wm-ai-topbar-btn {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.05rem;
+    height: 2.9rem;
+    min-width: 3.6rem;
+    padding: 0.2rem 0.6rem;
+    margin-inline-end: 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 0.85rem;
+    color: var(--wd-muted);
+    text-decoration: none;
+    line-height: 1;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.wm-ai-topbar-btn:hover {
+    color: var(--wd-text);
+    background: var(--wd-nav-hover);
+}
+
+.wm-ai-topbar-btn:active {
+    transform: scale(0.96);
+}
+
+.wm-ai-topbar-btn.is-active {
+    color: #fff;
+    border-color: transparent;
+    background: linear-gradient(145deg, #fbbf24, #d97706);
+    box-shadow: 0 8px 18px rgba(217, 119, 6, 0.3);
+}
+
+.wm-ai-topbar-btn__icon {
+    display: inline-grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+}
+
+.wm-ai-topbar-btn__icon svg {
+    width: 1.35rem;
+    height: 1.35rem;
+}
+
+.wm-ai-topbar-btn__label {
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .wm-ai-topbar-btn {
+        min-width: 2.9rem;
+        padding: 0.2rem 0.4rem;
+        margin-inline-end: 0.15rem;
+    }
+
+    .wm-ai-topbar-btn__label {
+        display: none;
+    }
+}
+
 .fi-body .fi-sidebar {
     border-right: 1px solid var(--wd-border);
     background: var(--wd-shell) !important;
