@@ -123,13 +123,20 @@
 .wm-ai-topbar-btn__icon {
     display: inline-grid;
     place-items: center;
-    width: 1.35rem;
-    height: 1.35rem;
+    width: 1.6rem;
+    height: 1.6rem;
 }
 
 .wm-ai-topbar-btn__icon svg {
     width: 1.35rem;
     height: 1.35rem;
+}
+
+.wm-ai-topbar-btn__icon img {
+    width: 1.6rem;
+    height: 1.6rem;
+    object-fit: contain;
+    border-radius: 0.35rem;
 }
 
 .wm-ai-topbar-btn__label {

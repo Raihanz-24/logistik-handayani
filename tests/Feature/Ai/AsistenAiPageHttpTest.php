@@ -61,6 +61,9 @@ class AsistenAiPageHttpTest extends TestCase
         $response->assertSee('Xcode AI', false);
         $response->assertSee('/admin/asisten-ai', false);
 
+        // Memakai logo AI milik sendiri (WebP), bukan ikon SVG.
+        $response->assertSee('images/logo-ai.webp', false);
+
         // Kolom pencarian global di topbar sudah dihapus.
         $response->assertDontSee('fi-global-search', false);
     }
