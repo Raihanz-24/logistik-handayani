@@ -60,6 +60,9 @@ class AsistenAiPageHttpTest extends TestCase
         $response->assertSee('wm-ai-topbar-btn', false);
         $response->assertSee('Xcode AI', false);
         $response->assertSee('/admin/asisten-ai', false);
+
+        // Kolom pencarian global di topbar sudah dihapus.
+        $response->assertDontSee('fi-global-search', false);
     }
 
     public function test_tombol_xcode_ai_tidak_tampil_saat_ai_nonaktif(): void

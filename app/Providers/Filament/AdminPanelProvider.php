@@ -16,7 +16,6 @@ use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
-use Filament\Support\Enums\Platform;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -60,11 +59,11 @@ class AdminPanelProvider extends PanelProvider
             )
             ->renderHook(
                 PanelsRenderHook::GLOBAL_SEARCH_AFTER,
-                fn (): string => view('filament.photo-editor-shortcut')->render()
+                fn (): string => view('filament.ai-topbar-button')->render()
             )
             ->renderHook(
-                PanelsRenderHook::TOPBAR_START,
-                fn (): string => view('filament.ai-topbar-button')->render()
+                PanelsRenderHook::GLOBAL_SEARCH_AFTER,
+                fn (): string => view('filament.photo-editor-shortcut')->render()
             )
              // ->renderHook('head.end', fn () => view('filament.ga4'))
             ->sidebarCollapsibleOnDesktop()
@@ -128,13 +127,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->profile(isSimple: false)
             ->unsavedChangesAlerts()
-            ->globalSearchKeyBindings(['command+k', 'ctrl+k'])
-            ->globalSearchDebounce('750ms')
-            ->globalSearchFieldSuffix(fn (): ?string => match (Platform::detect()) {
-                Platform::Windows, Platform::Linux => 'CTRL+K',
-                Platform::Mac => '⌘K',
-                default => null,
-            })
+            ->globalSearch(false)
             ->plugins([
                 FilamentShieldPlugin::make(),
                 LightSwitchPlugin::make()
