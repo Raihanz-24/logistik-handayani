@@ -216,6 +216,59 @@ class BelanjaTransaksiEditTest extends TestCase
         $this->assertGreaterThan(0, count(DB::getQueryLog()) - $second);
     }
 
+    /**
+     * Regresi performa: daftar Barang TIDAK boleh ditanam ke HTML tiap baris
+     * repeater. Sebelumnya `->options()` + `->preload()` membuat payload modal
+     * membengkak ~67 KB/baris (10 item ~695 KB) sehingga form terasa lemot dan
+     * tombol Simpan "muter" tanpa hasil. Sekarang pencarian dilakukan server-side.
+     */
+    public function test_daftar_barang_tidak_ditanam_ke_tiap_baris_repeater(): void
+    {
+        $user = $this->actingUser();
+        $session = $this->sesi($user);
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Toko Sumber', 'aktif' => true]);
+
+        for ($i = 1; $i <= 50; $i++) {
+            Barang::query()->create([
+                'nama_barang' => 'Barang Uji '.$i,
+                'kode_barang' => 'BRG-'.str_pad((string) $i, 3, '0', STR_PAD_LEFT),
+                'satuan' => 'pcs',
+            ]);
+        }
+
+        $expense = PengeluaranBelanja::query()->create([
+            'kalkulator_belanja_id' => $session->getKey(),
+            'supplier_id' => $supplier->getKey(),
+            'nominal' => 1000,
+            'urutan' => 1,
+        ]);
+
+        $component = Livewire::test(PengeluaranRelationManager::class, [
+            'ownerRecord' => $session,
+            'pageClass' => \App\Filament\Resources\KalkulatorBelanjaResource\Pages\ViewKalkulatorBelanja::class,
+        ]);
+
+        $component->mountTableAction('ubah-transaksi', $expense);
+        $html = $component->html();
+
+        // Kode barang master tidak boleh muncul di HTML modal (hanya via search).
+        $this->assertSame(0, substr_count($html, 'BRG-'), 'Daftar barang seharusnya tidak ditanam ke HTML modal.');
+
+        // Tambah satu baris agar punya path select barang_id.
+        $component->set('mountedTableActionsData.0.items.uji', [
+            'barang_id' => null, 'jumlah' => 1, 'harga_satuan' => 1000, 'satuan' => null, 'keterangan' => null,
+        ]);
+        $barangPath = 'mountedTableActionsData.0.items.uji.barang_id';
+
+        // Pencarian barang tetap berfungsi (diambil dari server saat diketik).
+        $results = $component->call('getFormSelectSearchResults', $barangPath, 'Barang Uji 7');
+        $this->assertNotEmpty($results->effects['returns'] ?? [], 'Pencarian server-side barang tidak mengembalikan hasil.');
+
+        // Label supplier terpilih tetap dapat ditampilkan tanpa memuat seluruh daftar.
+        $label = $component->call('getFormSelectOptionLabel', 'mountedTableActionsData.0.supplier_id');
+        $this->assertContains('Toko Sumber', (array) ($label->effects['returns'] ?? []));
+    }
+
     public function test_aksi_ubah_dan_hapus_transaksi_dirender(): void
     {
         $user = $this->actingUser();

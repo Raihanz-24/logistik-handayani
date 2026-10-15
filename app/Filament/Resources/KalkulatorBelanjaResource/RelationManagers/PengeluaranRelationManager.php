@@ -34,10 +34,8 @@ class PengeluaranRelationManager extends RelationManager
 {
     private const MAX_ORIGINAL_RECEIPT_SIZE_KB = 10 * 1024;
 
-    /** Cache opsi form dalam satu request agar tidak query berulang tiap item repeater. */
-    private ?array $barangOptionsCache = null;
-
-    private ?array $supplierOptionsCache = null;
+    /** Cache label barang per id dalam satu request agar tidak query berulang tiap item repeater. */
+    private array $barangLabelCache = [];
 
     protected static string $relationship = 'pengeluaran';
 
@@ -229,12 +227,12 @@ class PengeluaranRelationManager extends RelationManager
                 ->schema([
                     Forms\Components\Select::make('supplier_id')
                         ->label('Toko / Supplier')
-                        ->options(fn (): array => $this->supplierOptionsCache ??= Supplier::query()->aktif()
-                            ->orderBy('nama_supplier')->pluck('nama_supplier', 'id')->all())
-                        ->getOptionLabelUsing(fn (mixed $value): ?string => Supplier::query()
-                            ->whereKey((int) $value)->value('nama_supplier'))
                         ->searchable()
-                        ->preload()
+                        ->getSearchResultsUsing(fn (string $search): array => $this->searchSupplierOptions($search))
+                        ->getOptionLabelUsing(fn (mixed $value): ?string => $this->supplierLabel((int) $value))
+                        ->optionsLimit(50)
+                        ->searchPrompt('Ketik nama toko/supplier...')
+                        ->noSearchResultsMessage('Supplier tidak ditemukan.')
                         ->native(false)
                         ->live()
                         ->afterStateUpdated(function (mixed $state, Get $get, Set $set): void {
@@ -298,19 +296,8 @@ class PengeluaranRelationManager extends RelationManager
                         ->collapsible()
                         ->addActionLabel('Tambah Barang')
                         ->itemLabel(function (array $state): string {
-                            $barangId = (int) ($state['barang_id'] ?? 0);
-                            if ($barangId > 0) {
-                                $this->barangOptionsCache ??= Barang::query()
-                                    ->orderBy('nama_barang')
-                                    ->get(['id', 'kode_barang', 'nama_barang'])
-                                    ->mapWithKeys(fn (Barang $barang): array => [
-                                        $barang->getKey() => "{$barang->kode_barang} — {$barang->nama_barang}",
-                                    ])->all();
-                                $label = $this->barangOptionsCache[$barangId] ?? null;
-                                $name = $label !== null ? str($label)->after(' — ')->toString() : null;
-                            } else {
-                                $name = null;
-                            }
+                            $label = $this->barangLabel((int) ($state['barang_id'] ?? 0));
+                            $name = $label !== null ? str($label)->after(' — ')->toString() : null;
 
                             $subtotal = app(BelanjaTransactionService::class)->subtotal(
                                 $state['jumlah'] ?? 0,
@@ -322,14 +309,15 @@ class PengeluaranRelationManager extends RelationManager
                         ->schema([
                             Forms\Components\Select::make('barang_id')
                                 ->label('Barang')
-                                ->options(fn (): array => $this->barangOptionsCache ??= Barang::query()
-                                    ->orderBy('nama_barang')
-                                    ->get(['id', 'kode_barang', 'nama_barang'])
-                                    ->mapWithKeys(fn (Barang $barang): array => [
-                                        $barang->getKey() => "{$barang->kode_barang} — {$barang->nama_barang}",
-                                    ])->all())
+                                // Pencarian dilakukan di server agar daftar barang
+                                // TIDAK ditanam ke tiap baris repeater. Ini sumber
+                                // utama form terasa lemot & tombol Simpan "muter".
                                 ->searchable()
-                                ->preload()
+                                ->getSearchResultsUsing(fn (string $search): array => $this->searchBarangOptions($search))
+                                ->getOptionLabelUsing(fn (mixed $value): ?string => $this->barangLabel((int) $value))
+                                ->optionsLimit(50)
+                                ->searchPrompt('Ketik nama atau kode barang...')
+                                ->noSearchResultsMessage('Barang tidak ditemukan.')
                                 ->native(false)
                                 ->live()
                                 ->disableOptionsWhenSelectedInSiblingRepeaterItems()
@@ -518,6 +506,65 @@ class PengeluaranRelationManager extends RelationManager
         $date = Carbon::parse($latest['date'])->translatedFormat('d M Y');
 
         return 'Harga terakhir '.self::rupiah($latest['price']).' · '.$date;
+    }
+
+    /** @return array<int, string> */
+    private function searchBarangOptions(string $search): array
+    {
+        $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim($search)).'%';
+        $term = trim($search);
+
+        return Barang::query()
+            ->when($term !== '', fn (Builder $query): Builder => $query->where(function (Builder $inner) use ($like): void {
+                $inner->where('nama_barang', 'like', $like)
+                    ->orWhere('kode_barang', 'like', $like);
+            }))
+            ->orderBy('nama_barang')
+            ->limit(50)
+            ->get(['id', 'kode_barang', 'nama_barang'])
+            ->mapWithKeys(fn (Barang $barang): array => [
+                $barang->getKey() => "{$barang->kode_barang} — {$barang->nama_barang}",
+            ])->all();
+    }
+
+    private function barangLabel(int $barangId): ?string
+    {
+        if ($barangId <= 0) {
+            return null;
+        }
+
+        if (array_key_exists($barangId, $this->barangLabelCache)) {
+            return $this->barangLabelCache[$barangId];
+        }
+
+        $barang = Barang::query()->find($barangId, ['id', 'kode_barang', 'nama_barang']);
+
+        return $this->barangLabelCache[$barangId] = $barang !== null
+            ? "{$barang->kode_barang} — {$barang->nama_barang}"
+            : null;
+    }
+
+    /** @return array<int, string> */
+    private function searchSupplierOptions(string $search): array
+    {
+        $term = trim($search);
+
+        return Supplier::query()->aktif()
+            ->when($term !== '', fn (Builder $query): Builder => $query
+                ->where('nama_supplier', 'like', '%'.str_replace(['%', '_'], ['\\%', '\\_'], $term).'%'))
+            ->orderBy('nama_supplier')
+            ->limit(50)
+            ->pluck('nama_supplier', 'id')
+            ->all();
+    }
+
+    private function supplierLabel(int $supplierId): ?string
+    {
+        if ($supplierId <= 0) {
+            return null;
+        }
+
+        return Supplier::query()->whereKey($supplierId)->value('nama_supplier');
     }
 
     private function ownerSession(): KalkulatorBelanja
