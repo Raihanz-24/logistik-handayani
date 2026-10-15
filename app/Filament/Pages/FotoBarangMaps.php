@@ -696,6 +696,54 @@ class FotoBarangMaps extends Page
         return ['deleted' => true, 'uuid' => $sessionUuid];
     }
 
+    /** @return array{renamed: bool, judul: string|null, message?: string} */
+    public function renameSession(int $sessionId, string $judul): array
+    {
+        $this->ensureCanManagePhotos();
+
+        $session = $this->findVisibleSession($sessionId);
+
+        $judul = trim($judul);
+
+        if ($judul === '') {
+            return ['renamed' => false, 'judul' => null, 'message' => 'Nama folder wajib diisi.'];
+        }
+
+        if (mb_strlen($judul) > 150) {
+            return ['renamed' => false, 'judul' => null, 'message' => 'Nama folder maksimal 150 karakter.'];
+        }
+
+        $oldJudul = (string) $session->judul;
+
+        if ($oldJudul === $judul) {
+            return ['renamed' => true, 'judul' => $judul];
+        }
+
+        $session->update(['judul' => $judul]);
+
+        app(AuditLogger::class)->activity(
+            'foto_session_rename',
+            "Mengubah nama folder sesi foto: {$oldJudul} → {$judul}",
+            auth()->user(),
+            [
+                'session_id' => $session->getKey(),
+                'session_uuid' => $session->uuid,
+                'old_judul' => $oldJudul,
+                'new_judul' => $judul,
+            ],
+        );
+
+        Notification::make()
+            ->title('Nama folder diperbarui')
+            ->body($judul)
+            ->success()
+            ->send();
+
+        $this->skipRender();
+
+        return ['renamed' => true, 'judul' => $judul];
+    }
+
     public function retryPhotoProcessing(int $photoId): void
     {
         $this->ensureCanManagePhotos();

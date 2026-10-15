@@ -204,12 +204,13 @@ class KalkulatorBelanjaFeatureTest extends TestCase
         $this->assertStringContainsString("whereHas('pengeluaranBelanja.kalkulatorBelanja'", $service);
         $this->assertStringContainsString('public function savePurchaseItemLabels', $page);
         $this->assertStringContainsString('Supplier:', $view);
-        $this->assertStringContainsString('Tentukan Barang', $view);
+        $this->assertStringContainsString('Tentukan', $view);
         $this->assertStringContainsString('Tetapkan Barang', $view);
         $this->assertStringContainsString('Lepas Label', $view);
         $this->assertStringContainsString('this.$wire.savePurchaseItemLabels', $script);
         $this->assertStringContainsString('public function purchaseItemPayload', $page);
-        $this->assertStringContainsString('result.purchase || null', $script);
+        $this->assertStringContainsString('data-photo-label', $view);
+        $this->assertStringContainsString('purchaseItemPayload($photo->purchaseLink->purchaseItem)', $view);
         $this->assertStringContainsString('public function returnToMapsUrl', $page);
         $this->assertStringContainsString('public static function photoUrl', $page);
         $this->assertStringContainsString('focusLinkedPhoto()', $script);

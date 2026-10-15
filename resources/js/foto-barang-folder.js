@@ -35,6 +35,20 @@ const fotoBarangFolder = (config = {}) => ({
     sequentialExpenseId: '',
 
     initialize(nextConfig = {}) {
+        this.applyConfig(nextConfig);
+        this.$nextTick(() => {
+            this.reconcileThumbnails();
+            this.focusLinkedPhoto();
+        });
+    },
+
+    /**
+     * Menyimpan state terbaru dari server. Dipanggil saat init DAN setiap kali
+     * Livewire selesai `$refresh`. Tanpa ini, array `photos` (mis. purchaseItemId)
+     * bisa basi setelah refresh sehingga label/pelabelan tertukar dengan foto
+     * lain, dan baru benar setelah halaman di-reload.
+     */
+    applyConfig(nextConfig = {}) {
         this.photos = Array.isArray(nextConfig.photos) ? nextConfig.photos : [];
         this.sessionUuid = nextConfig.sessionUuid || '';
         this.archiveUrl = nextConfig.archiveUrl || '';
@@ -43,10 +57,24 @@ const fotoBarangFolder = (config = {}) => ({
         this.focusPhotoId = Number(nextConfig.focusPhotoId || 0);
         this.sequentialTransactions = Array.isArray(nextConfig.sequentialTransactions) ? nextConfig.sequentialTransactions : [];
         this.unlabeledPhotoCount = Number(nextConfig.unlabeledPhotoCount || 0);
-        this.$nextTick(() => {
-            this.reconcileThumbnails();
-            this.focusLinkedPhoto();
-        });
+
+        const availableIds = new Set(this.photos.map((photo) => Number(photo.id)));
+        this.selectedIds = this.selectedIds.filter((id) => availableIds.has(Number(id)));
+        this.selectionMode = this.selectedIds.length > 0;
+    },
+
+    /** Baca ulang konfigurasi yang baru dirender server setelah `$refresh`. */
+    syncFromServer() {
+        const source = this.$root?.querySelector('script[x-ref="folderConfig"]');
+        if (! source) return;
+
+        try {
+            this.applyConfig(JSON.parse(source.textContent || '{}'));
+        } catch (error) {
+            // Biarkan state lama bila konfigurasi server tidak terbaca.
+        }
+
+        this.$nextTick(() => this.reconcileThumbnails());
     },
 
     thumbnailReady(image) {
@@ -120,17 +148,21 @@ const fotoBarangFolder = (config = {}) => ({
             .slice(0, 100);
         if (normalized.length === 0) return;
 
-        const assignedIds = normalized
+        // `currentItemId` dikirim server langsung dari kartu foto, jadi selalu
+        // sinkron dengan foto yang diklik. Fallback ke state `photos` hanya bila
+        // server tidak mengirimkannya.
+        const hydratedAssignedIds = normalized
             .map((photoId) => this.photos.find((photo) => Number(photo.id) === photoId)?.purchaseItemId)
             .filter((itemId) => Number(itemId) > 0)
             .map(Number);
-        const uniqueAssignedIds = [...new Set(assignedIds)];
+        const uniqueAssignedIds = [...new Set(hydratedAssignedIds)];
+        const explicitItemId = Number(currentItemId) > 0 ? Number(currentItemId) : null;
 
         this.labelIds = normalized;
-        this.labelItemId = Number(currentItemId) > 0
-            ? String(Number(currentItemId))
+        this.labelItemId = explicitItemId
+            ? String(explicitItemId)
             : (uniqueAssignedIds.length === 1 ? String(uniqueAssignedIds[0]) : '');
-        this.labelHasExisting = assignedIds.length > 0;
+        this.labelHasExisting = explicitItemId !== null || hydratedAssignedIds.length > 0;
         this.labelOpen = true;
         this.$nextTick(() => {
             const dialog = this.$refs.labelDialog;
@@ -181,6 +213,8 @@ const fotoBarangFolder = (config = {}) => ({
             this.labelBusy = false;
             this.closeLabelDialog();
             this.clearSelection();
+            // Ambil ulang label yang dirender server agar kartu selalu cocok.
+            this.syncFromServer();
         } catch (error) {
             this.actionMessage = error?.message || 'Label barang gagal disimpan. Silakan coba kembali.';
             this.labelBusy = false;
@@ -254,6 +288,8 @@ const fotoBarangFolder = (config = {}) => ({
             this.sequentialBusy = false;
             this.closeSequentialLabelDialog();
             this.clearSelection();
+            // Ambil ulang label yang dirender server agar kartu selalu cocok.
+            this.syncFromServer();
         } catch (error) {
             this.actionMessage = error?.message || 'Pelabelan berurutan gagal disimpan. Silakan coba kembali.';
             this.sequentialBusy = false;
@@ -407,7 +443,10 @@ const fotoBarangFolder = (config = {}) => ({
             this.actionMessage = `${deletedIds.size} foto berhasil dihapus.`;
             this.confirmBusy = false;
             this.closeConfirm();
+            // Sinkronkan ulang dari server supaya label & urutan foto tetap tepat
+            // setelah penghapusan (tanpa perlu hard refresh halaman).
             await this.$wire.$refresh();
+            this.syncFromServer();
         } catch (error) {
             this.actionMessage = error?.message || 'Foto gagal dihapus. Silakan coba kembali.';
             this.confirmBusy = false;

@@ -60,6 +60,11 @@ const fotoBarangMaps = (config = {}) => ({
             confirmInput: '',
             confirmRequiresText: false,
             confirmBusy: false,
+            renameOpen: false,
+            renameBusy: false,
+            renameTargetId: null,
+            renameInput: '',
+            renameError: '',
             refreshTimer: null,
             serverRefreshPending: false,
             refreshInProgress: false,
@@ -991,6 +996,70 @@ const fotoBarangMaps = (config = {}) => ({
                         this.closeConfirm();
                         if (refreshAfterDelete) this.scheduleServerRefresh(150);
                     }
+                }
+            },
+            requestRenameFolder(sessionId, currentJudul) {
+                const id = Number(sessionId);
+                if (! Number.isInteger(id) || id < 1) return;
+                this.renameTargetId = id;
+                this.renameInput = String(currentJudul ?? '');
+                this.renameError = '';
+                this.renameOpen = true;
+                this.$nextTick(() => {
+                    const dialog = this.$refs.renameDialog;
+                    if (! dialog) return;
+                    if (! dialog.open) {
+                        if (typeof dialog.showModal === 'function') {
+                            try {
+                                dialog.showModal();
+                            } catch (error) {
+                                dialog.setAttribute('open', '');
+                            }
+                        } else {
+                            dialog.setAttribute('open', '');
+                        }
+                    }
+                    window.setTimeout(() => {
+                        const input = this.$refs.renameInput;
+                        input?.focus();
+                        input?.select?.();
+                    }, 60);
+                });
+            },
+            closeRenameFolder() {
+                if (this.renameBusy) return;
+                this.renameOpen = false;
+                this.renameTargetId = null;
+                this.renameInput = '';
+                this.renameError = '';
+                const dialog = this.$refs.renameDialog;
+                if (dialog?.open && typeof dialog.close === 'function') {
+                    dialog.close();
+                } else {
+                    dialog?.removeAttribute('open');
+                }
+                document.body.style.overflow = '';
+            },
+            async saveRenameFolder() {
+                if (this.renameBusy) return;
+                const id = Number(this.renameTargetId);
+                const judul = String(this.renameInput ?? '').trim();
+                if (! Number.isInteger(id) || id < 1) return;
+                if (judul === '') {
+                    this.renameError = 'Nama folder wajib diisi.';
+                    return;
+                }
+                this.renameBusy = true;
+                this.renameError = '';
+                try {
+                    const result = await this.$wire.renameSession(id, judul);
+                    if (! result?.renamed) throw new Error(result?.message || 'Nama folder gagal disimpan.');
+                    this.renameBusy = false;
+                    this.closeRenameFolder();
+                    await this.$wire.$refresh();
+                } catch (error) {
+                    this.renameError = error?.message || 'Nama folder gagal disimpan. Silakan coba lagi.';
+                    this.renameBusy = false;
                 }
             },
             async deleteLocalSessionCaptures(sessionUuid) {

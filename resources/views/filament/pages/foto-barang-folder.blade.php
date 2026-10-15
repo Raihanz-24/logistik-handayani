@@ -148,6 +148,14 @@
                         $version = $photo->updated_at->getTimestamp();
                         $thumbnailUrl = route('foto-barang.thumbnail', [$folder, $photo]).'?v='.$version;
                         $downloadUrl = route('foto-barang.download', [$folder, $photo]);
+                        // Label barang dirender di SERVER (bukan lewat Alpine) supaya
+                        // selalu cocok dengan foto pada kartu ini. Sebelumnya label
+                        // dirender klien dari array `photos` yang bisa basi setelah
+                        // Livewire refresh, sehingga label tertukar antar foto dan
+                        // baru benar setelah halaman di-reload.
+                        $purchase = $photo->relationLoaded('purchaseLink') && $photo->purchaseLink
+                            ? $this->purchaseItemPayload($photo->purchaseLink->purchaseItem)
+                            : null;
                     @endphp
                     <article
                         wire:key="foto-folder-{{ $photo->id }}"
@@ -197,30 +205,19 @@
                                 <span class="ff-status is-pending">Sedang diproses</span>
                             @endif
                             <small>{{ $this->formatBytes((int) $photo->ukuran_hasil) }} · {{ $photo->lebar }}×{{ $photo->tinggi }} px</small>
-                            @if (false)
-                                <div class="ff-product-label">
-                                    <span>{{ $purchaseExpense?->namaSupplier() }}</span>
-                                    <strong>{{ $purchaseItem->namaBarang() }}</strong>
-                                    <small>{{ $purchaseQuantity }} {{ $purchaseItem->satuan_snapshot ?: '-' }} × {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $purchaseItem->harga_satuan) }}</small>
-                                    <b>Subtotal {{ \App\Filament\Resources\KalkulatorBelanjaResource::rupiah((int) $purchaseItem->subtotal) }}</b>
-                                </div>
-                            @elseif (false)
-                                <div class="ff-product-empty">Barang pada foto belum ditentukan</div>
-                            @endif
 
-                            <template x-if="photos[{{ $loop->index }}]?.purchase">
-                                <div class="ff-product-label">
-                                    <span x-text="photos[{{ $loop->index }}].purchase.supplier"></span>
-                                    <strong x-text="photos[{{ $loop->index }}].purchase.name"></strong>
-                                    <small x-text="`${photos[{{ $loop->index }}].purchase.quantity} ${photos[{{ $loop->index }}].purchase.unit} × ${photos[{{ $loop->index }}].purchase.price}`"></small>
-                                    <b x-text="`Subtotal ${photos[{{ $loop->index }}].purchase.subtotal}`"></b>
-                                </div>
-                            </template>
-                            @if ($canManagePhotos && $purchaseItemGroups !== [])
-                                <template x-if="! photos[{{ $loop->index }}]?.purchase">
+                            <div class="ff-product-slot" data-photo-label="{{ $photo->id }}">
+                                @if ($purchase)
+                                    <div class="ff-product-label">
+                                        <span>{{ $purchase['supplier'] }}</span>
+                                        <strong>{{ $purchase['name'] }}</strong>
+                                        <small>{{ $purchase['quantity'] }} {{ $purchase['unit'] }} × {{ $purchase['price'] }}</small>
+                                        <b>Subtotal {{ $purchase['subtotal'] }}</b>
+                                    </div>
+                                @elseif ($canManagePhotos && $purchaseItemGroups !== [])
                                     <div class="ff-product-empty">Barang pada foto belum ditentukan</div>
-                                </template>
-                            @endif
+                                @endif
+                            </div>
 
                             @if ($canManagePhotos && $purchaseItemGroups !== [])
                                 <button
@@ -228,10 +225,10 @@
                                     class="ff-card__label-action"
                                     x-show="! selectionMode"
                                     x-cloak
-                                    x-on:click="requestLabel({{ $photo->id }}, photos[{{ $loop->index }}]?.purchaseItemId || null)"
+                                    x-on:click="requestLabel({{ $photo->id }}, {{ $purchase['id'] ?? 'null' }})"
                                 >
                                     <x-filament::icon icon="heroicon-m-tag" />
-                                    <span x-text="photos[{{ $loop->index }}]?.purchase ? 'Ubah Barang' : 'Tentukan Barang'"></span>
+                                    <span x-text="'{{ $purchase ? 'Ubah' : 'Tentukan' }} Barang'"></span>
                                 </button>
                             @endif
                         </div>

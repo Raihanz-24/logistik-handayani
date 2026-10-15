@@ -566,6 +566,16 @@
                                 </span>
                                 <x-filament::icon icon="heroicon-m-chevron-right" />
                             </a>
+                            @if ($this->canManagePhotos())
+                                <button
+                                    type="button"
+                                    class="fm-session-rename"
+                                    x-on:click="requestRenameFolder(@js($session->id), @js($session->judul))"
+                                    aria-label="Ubah nama folder {{ $session->judul }}"
+                                >
+                                    <x-filament::icon icon="heroicon-m-pencil-square" />
+                                </button>
+                            @endif
                             @if ($this->canManagePhotos() && ! $session->isActive())
                                 <button
                                     type="button"
@@ -623,6 +633,45 @@
                         </button>
                     </div>
                 </section>
+        </dialog>
+
+        <dialog
+            x-ref="renameDialog"
+            class="fm-confirm"
+            wire:ignore
+            x-on:cancel.prevent="closeRenameFolder()"
+            aria-label="Ubah nama folder"
+        >
+            <section class="fm-confirm__card" x-on:click.stop>
+                <div class="fm-confirm__icon fm-confirm__icon--rename"><x-filament::icon icon="heroicon-o-pencil-square" /></div>
+                <h2>Ubah nama folder</h2>
+                <p>Nama folder membantu Anda menemukan sesi foto dengan cepat.</p>
+                <label>
+                    <span>Nama folder</span>
+                    <input
+                        type="text"
+                        x-ref="renameInput"
+                        x-model="renameInput"
+                        maxlength="150"
+                        x-on:keydown.enter.prevent="saveRenameFolder()"
+                        autocomplete="off"
+                        placeholder="Contoh: Barang datang supplier dapur"
+                    >
+                </label>
+                <p class="fm-confirm__error" x-show="renameError" x-text="renameError" x-cloak></p>
+                <div class="fm-confirm__actions">
+                    <button type="button" class="is-cancel" x-on:click="closeRenameFolder()" x-bind:disabled="renameBusy">Batal</button>
+                    <button
+                        type="button"
+                        class="is-save"
+                        x-on:click="saveRenameFolder()"
+                        x-bind:disabled="renameBusy || renameInput.trim() === ''"
+                    >
+                        <span x-show="! renameBusy">Simpan Nama</span>
+                        <span x-show="renameBusy">Menyimpan...</span>
+                    </button>
+                </div>
+            </section>
         </dialog>
     </div>
 
@@ -872,7 +921,10 @@
         .fm-confirm__actions button { min-height:2.6rem; border-radius:.7rem; font-size:.7rem; font-weight:850; }
         .fm-confirm__actions .is-cancel { border:1px solid #45566b; color:#e2e8f0; background:#172131; }
         .fm-confirm__actions .is-delete { border:1px solid #ef4444; color:#fff; background:linear-gradient(135deg,#dc2626,#991b1b); }
+        .fm-confirm__actions .is-save { border:1px solid #2563eb; color:#fff; background:linear-gradient(135deg,#2563eb,#1d4ed8); }
         .fm-confirm__actions button:disabled { opacity:.45; cursor:not-allowed; }
+        .fm-confirm__icon--rename { color:#bfdbfe; background:linear-gradient(145deg,#1d4ed8,#172554); box-shadow:0 10px 25px rgba(29,78,216,.28); }
+        .fm-confirm__error { margin-top:.6rem !important; color:#fca5a5 !important; font-weight:750; }
         .fm-history-filter-button { display:flex; align-items:center; gap:.35rem; padding:.55rem .75rem; border:1px solid var(--fm-line); border-radius:.65rem; color:var(--fm-ink); background:var(--fm-soft); font-size:.65rem; font-weight:800; cursor:pointer; }
         .fm-history-filter-button svg { width:1rem; }
         .fm-history-filters { display:flex; flex-wrap:wrap; gap:.55rem; align-items:end; padding:.75rem; border:1px solid var(--fm-line); border-radius:.8rem; background:var(--fm-soft); }
@@ -896,6 +948,10 @@
         .fm-session-delete:hover { background:#fef2f2; }
         .dark .fm-session-delete:hover { background:#351820; }
         .fm-session-delete svg { width:1.05rem; }
+        .fm-session-rename { display:grid; place-items:center; flex:0 0 3rem; border:0; border-left:1px solid var(--fm-line); color:#2563eb; background:transparent; cursor:pointer; }
+        .fm-session-rename:hover { background:#eff6ff; }
+        .dark .fm-session-rename:hover { background:#16233a; }
+        .fm-session-rename svg { width:1.05rem; }
         .fm-pagination { overflow-x:auto; padding-top:.15rem; }
         .fm-live-camera[x-cloak] { display:none!important; }
         .fm-live-camera { position:fixed; z-index:9999; inset:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; color:#fff; background:#020408; font-family:"Roboto Condensed","Arial Narrow",Roboto,Arial,sans-serif; }

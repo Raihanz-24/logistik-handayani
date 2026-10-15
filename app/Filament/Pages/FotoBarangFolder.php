@@ -175,7 +175,6 @@ class FotoBarangFolder extends Page
         int|string|null $purchaseItemId,
     ): array {
         $this->ensureCanManagePhotos();
-        $this->skipRender();
 
         if (! $this->purchaseLabelsAvailable()) {
             return [
@@ -227,7 +226,6 @@ class FotoBarangFolder extends Page
         int|string|null $expenseId,
     ): array {
         $this->ensureCanManagePhotos();
-        $this->skipRender();
 
         if (! $this->purchaseLabelsAvailable()) {
             return [
