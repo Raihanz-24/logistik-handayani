@@ -22,9 +22,12 @@
     >
         <span class="wm-ai-topbar-btn__icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3.5 13.7 8l4.5 1.7-4.5 1.7L12 16l-1.7-4.6L5.8 9.7 10.3 8 12 3.5Z" />
-                <path d="M18.5 14.5l.8 2.1 2.2.8-2.2.8-.8 2.1-.8-2.1-2.2-.8 2.2-.8.8-2.1Z" />
-                <path d="M5 15.5l.6 1.6 1.7.6-1.7.6L5 20l-.6-1.7L2.7 17.7l1.7-.6L5 15.5Z" />
+                <rect x="4" y="7.5" width="16" height="12" rx="4" />
+                <path d="M12 7.5V4.5" />
+                <circle cx="12" cy="3.2" r="1.3" />
+                <circle cx="9" cy="13" r="1.05" fill="currentColor" stroke="none" />
+                <circle cx="15" cy="13" r="1.05" fill="currentColor" stroke="none" />
+                <path d="M9.2 16.6h5.6" />
             </svg>
         </span>
         <span class="wm-ai-topbar-btn__label">Xcode AI</span>

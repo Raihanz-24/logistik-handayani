@@ -141,13 +141,12 @@
 
 @media (max-width: 640px) {
     .wm-ai-topbar-btn {
-        min-width: 2.9rem;
-        padding: 0.2rem 0.4rem;
-        margin-inline-end: 0.15rem;
+        min-width: 0;
+        padding: 0.2rem 0.45rem;
     }
 
     .wm-ai-topbar-btn__label {
-        display: none;
+        font-size: 0.58rem;
     }
 }
 
