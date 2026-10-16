@@ -544,10 +544,10 @@ class AsistenAiPageTest extends TestCase
     }
 
     /**
-     * Pemisah otomatis: setiap frasa yang selesai (setelah jeda) dipisah spasi,
-     * dan diberi tanda titik bila belum ada — agar kata tidak menempel.
+     * Pemisah otomatis: kata tidak menempel (spasi), hasil tidak dobel (kursor),
+     * dan titik muncul HANYA saat jeda panjang.
      */
-    public function test_ucapan_otomatis_dipisah_dan_diberi_titik(): void
+    public function test_ucapan_dipisah_tanpa_dobel_dan_titik_saat_jeda_panjang(): void
     {
         $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
         $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
@@ -556,13 +556,18 @@ class AsistenAiPageTest extends TestCase
         // Fungsi penggabung dengan spasi tunggal antar segmen.
         $this->assertStringContainsString('joinSpeechSegments', $script);
 
-        // Sisipkan titik pada frasa final yang belum berakhir tanda baca.
-        $this->assertStringContainsString('autoPunctuation', $script);
-        $this->assertStringContainsString('finalTranscript = joinSpeechSegments', $script);
+        // Anti-dobel: proses hanya hasil final yang belum diambil (kursor).
+        $this->assertStringContainsString('processedResults', $script);
+
+        // Titik berbasis jeda panjang, bukan tiap frasa.
+        $this->assertStringContainsString('armPunctuationTimer', $script);
+        $this->assertStringContainsString('appendSentencePunctuation', $script);
+        $this->assertStringContainsString('punctuationPause', $script);
 
         // Konfigurasi server + disuntik ke halaman.
-        $this->assertStringContainsString('auto_punctuation', $config);
+        $this->assertStringContainsString('punctuation_pause_ms', $config);
         $this->assertStringContainsString('data-ai-auto-punctuation=', $html);
+        $this->assertStringContainsString('data-ai-punctuation-pause=', $html);
     }
 
     /**

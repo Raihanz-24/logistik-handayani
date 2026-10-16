@@ -275,9 +275,13 @@ return [
         // memutusnya (mis. Chrome Android). Kecil = awalan tidak terpotong.
         'restart_delay_ms' => (int) env('AI_VOICE_RESTART_DELAY_MS', 0),
 
-        // Sisipkan tanda titik + spasi otomatis di setiap jeda/frasa selesai,
-        // sehingga hasil suara tidak menempel ("halo. apa kabar."). Default true.
+        // Sisipkan tanda titik otomatis HANYA saat Anda berjeda PANJANG
+        // (lihat punctuation_pause_ms), sehingga kata tidak diberi titik.
         'auto_punctuation' => (bool) env('AI_VOICE_AUTO_PUNCTUATION', true),
+
+        // Lama jeda (milidetik) yang dianggap "selesai satu kalimat" → titik.
+        // Jeda pendek hanya diberi spasi. Default 2000 ms (2 detik).
+        'punctuation_pause_ms' => (int) env('AI_VOICE_PUNCTUATION_PAUSE_MS', 2000),
 
         // Nama voice TTS yang diprioritaskan (cocok sebagian, huruf kecil).
         // Contoh: "google indonesian", "andika", "gadis", "damayanti".
