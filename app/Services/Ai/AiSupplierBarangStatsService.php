@@ -6,7 +6,9 @@ use App\Models\AiSupplierBarangStat;
 use App\Models\Barang;
 use App\Models\PengeluaranBelanja;
 use App\Models\Supplier;
+use App\Support\PolaUrutanBarang;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -274,6 +276,62 @@ class AiSupplierBarangStatsService
     }
 
     /**
+     * Urutan barang_id sesuai pola yang dipelajari dari supplier (terurut).
+     * Hanya barang dengan histori cukup (frekuensi >= 2) agar pola tidak menyesatkan.
+     *
+     * @return array<int, int>
+     */
+    public function patternBarangIds(int $supplierId, int $limit = 50): array
+    {
+        if (! $this->available() || $supplierId < 1) {
+            return [];
+        }
+
+        $limit = max(1, min($limit, 100));
+
+        return $this->statsFor($supplierId)->values()
+            ->filter(fn (AiSupplierBarangStat $stat): bool => $stat->avg_urutan !== null && (int) $stat->frekuensi >= 2)
+            ->sortBy(fn (AiSupplierBarangStat $stat): float => (float) $stat->avg_urutan)
+            ->take($limit)
+            ->map(fn (AiSupplierBarangStat $stat): int => (int) $stat->barang_id)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Urutkan daftar item draft mengikuti pola urutan supplier. Item yang tak ada
+     * di pola tetap kembali di belakang tanpa mengubah urutan relatifnya.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    public function orderItemsByPattern(int $supplierId, array $items): array
+    {
+        if ($supplierId < 1 || $items === []) {
+            return $items;
+        }
+
+        $pola = $this->patternBarangIds($supplierId);
+
+        if ($pola === []) {
+            return $items;
+        }
+
+        $byId = [];
+        $ids = [];
+
+        foreach ($items as $item) {
+            $id = (int) ($item['barang_id'] ?? 0);
+            $byId[$id] = $item;
+            $ids[] = $id;
+        }
+
+        $terurut = PolaUrutanBarang::urutkan($ids, $pola);
+
+        return array_map(fn (int $id): array => $byId[$id], $terurut);
+    }
+
+    /**
      * Blok pola urutan untuk disuntik ke prompt. Kosong bila belum ada pola kuat.
      */
     public function orderPatternBlock(int $supplierId, string $supplierName): string
@@ -292,7 +350,7 @@ class AiSupplierBarangStatsService
         return <<<PROMPT
 POLA URUTAN ITEM DARI {$supplierName} (dari transaksi sebelumnya):
 {$lines}
-Saat menyusun draft belanja untuk {$supplierName}, utamakan urutan ini agar draft rapi & konsisten (mis. ayam utuh lebih dulu). Tetap sesuaikan bila pengguna menentukan urutan sendiri.
+Saat menyusun draft belanja untuk {$supplierName}, urutkan item mengikuti pola di atas. Bila ada item pola yang TIDAK dibeli, cukup LOMPATI item itu — sisanya tetap urut seperti kebiasaan (mis. pola A,B,C,D tapi yang dibeli A,B,D → urutkan A,B,D). Bila pengguna menentukan urutan sendiri, ikuti urutan pengguna.
 PROMPT;
     }
 
@@ -320,7 +378,7 @@ PROMPT;
         return $this->statsFor($supplierId)->get($barangId);
     }
 
-    /** @return \Illuminate\Support\Collection<int, AiSupplierBarangStat> */
+    /** @return Collection<int, AiSupplierBarangStat> */
     private function statsFor(int $supplierId)
     {
         if (! array_key_exists($supplierId, $this->cache)) {

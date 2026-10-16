@@ -2,9 +2,9 @@
 
 namespace App\Services\Ai;
 
+use App\Models\AiConversation;
 use App\Models\AiKnowledgeEntry;
 use App\Models\AiPendingAction;
-use App\Models\AiConversation;
 use App\Models\AiSetting;
 use App\Models\Barang;
 use App\Models\Lokasi;
@@ -113,7 +113,8 @@ ATURAN PENTING:
 15. HARGA & SATUAN dari histori: bila pengguna TIDAK menyebut satuan, gunakan satuan terakhir yang biasa dipakai untuk barang+supplier tersebut (dari saran_belanja_supplier / histori). Bila pengguna tidak menyebut harga, isi dari harga terakhir supplier itu, lalu BERI TAHU singkat (mis. "harga pakai harga terakhir Rp8.000"). Bila harga yang disebut pengguna berbeda jauh (naik/turun) dari harga terakhir, tetap pakai angka pengguna tapi sebutkan perbedaannya singkat. Jangan ragu berulang kali — putuskan dan jelaskan.
 16. SUPPLIER & POLA BELANJA: bila pengguna menyebut supplier (mis. "Bu Elly", "Bu Hen") dan minta "seperti biasa" atau belum menyebut daftar barang, panggil saran_belanja_supplier untuk melihat barang yang BIASA diorder dari supplier itu. Bila tahu supplier tujuan, sertakan supplier_id saat cari_barang. Hasil saran bersifat usulan; tetap ikuti barang yang pengguna sebut.
 17. RIWAYAT TRANSAKSI (LANDASAN KEPUTUSAN): bila pengguna menanyakan transaksi tertentu ("orderan ke Bu Elly tanggal 12", "belanja kemarin apa saja"), panggil riwayat_transaksi_belanja dengan supplier_id dan tanggal/rentang. SELALU tampilkan SEMUA item pada transaksi tersebut (jangan sebagian) — nama, jumlah, satuan, harga, dan total. Pakai riwayat nyata ini sebagai patokan saat perintah ambigu: cocokkan barang yang diminta dengan yang benar-benar pernah diorder, pilih yang paling sesuai, dan JANGAN mengarang. Pola langganan tiap supplier dibentuk dari seluruh item pada setiap transaksi.
-18. POLA URUTAN ITEM: tiap supplier punya kebiasaan urutan barang (mis. ke supplier X item pertama selalu "ayam utuh"). Bila konteks menyediakan "POLA URUTAN ITEM" (dari saran_belanja_supplier atau draft berjalan), susun draft mengikuti urutan itu agar rapi & konsisten. Bila pengguna menentukan urutan sendiri, ikuti pengguna.
+18. POLA URUTAN ITEM: tiap supplier punya kebiasaan urutan barang (mis. ke supplier X item pertama selalu "ayam utuh"). Tool catat_transaksi_belanja/tambah_item_belanja SUDAH mengurutkan item otomatis mengikuti pola supplier, dan item yang tidak dibeli cukup DILOMPATI (mis. pola A,B,C,D tapi yang dibeli A,B,D → tetap A,B,D). Jadi kirim item apa pun urutannya; biarkan sistem merapikan. Bila pengguna MENENTUKAN URUTAN SENDIRI secara eksplisit, set parameter ikuti_urutan_pengguna=true dan pertahankan urutan pengguna.
+19. JANGAN LUPA DRAFT SAAT TANYA-JAWAB: bila di tengah menyusun belanja Anda perlu bertanya (mis. "tempe yang mana?") tetapi sudah tahu sebagian item, JANGAN menunda menyimpan. Segera panggil catat_transaksi_belanja dengan item yang sudah PASTI (buat draft), lalu tambahkan item lain dengan tambah_item_belanja. Draft belanja berjalan (termasuk urutannya) selalu dikirim ulang ke Anda tiap giliran, jadi item yang sudah masuk draft TIDAK akan hilang walau pengguna baru menjawab sebagian pertanyaan. Setelah pengguna menjawab, LANJUTKAN dari draft berjalan — jangan meminta item diulang.
 PROMPT;
     }
 
@@ -253,7 +254,7 @@ PROMPT;
         }
 
         try {
-            $service = app(\App\Services\Ai\AiSupplierBarangStatsService::class);
+            $service = app(AiSupplierBarangStatsService::class);
             $name = $service->supplierName($supplierId) ?? ('#'.$supplierId);
 
             return $service->orderPatternBlock($supplierId, $name);

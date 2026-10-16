@@ -2,16 +2,19 @@
 
 namespace Tests\Feature\Ai;
 
+use App\Models\AiConversation;
+use App\Models\AiPendingAction;
 use App\Models\AiSupplierBarangStat;
 use App\Models\Barang;
 use App\Models\KalkulatorBelanja;
-use App\Models\Lokasi;
 use App\Models\PengeluaranBelanja;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Ai\AiSupplierBarangStatsService;
 use App\Services\Ai\BarangVariantResolver;
+use App\Services\Ai\SystemPromptBuilder;
 use App\Services\Ai\Tools\CariBarangTool;
+use App\Services\Ai\Tools\CatatTransaksiBelanjaTool;
 use App\Services\Ai\Tools\SaranBelanjaSupplierTool;
 use App\Services\BelanjaTransactionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -178,15 +181,15 @@ class AiAffinityVariantTest extends TestCase
             ['barang_id' => $tempe->getKey(), 'jumlah' => 1, 'harga_satuan' => 9000, 'satuan' => '-'],
         ]);
 
-        $conversation = \App\Models\AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
 
         // Harga & satuan tidak disebut -> diisi dari histori.
-        $result = app(\App\Services\Ai\Tools\CatatTransaksiBelanjaTool::class)->execute([
+        $result = app(CatatTransaksiBelanjaTool::class)->execute([
             'supplier_id' => $supplier->getKey(),
             'items' => [['barang_id' => $tempe->getKey(), 'jumlah' => 1]],
         ], $user, $conversation);
 
-        $action = \App\Models\AiPendingAction::query()->findOrFail($result['pending_action_id']);
+        $action = AiPendingAction::query()->findOrFail($result['pending_action_id']);
         $this->assertSame(9000, $action->payload['items'][0]['harga_satuan']);
         $this->assertSame('-', $action->payload['items'][0]['satuan']);
         $this->assertTrue($result['harga_otomatis_dari_histori']);
@@ -259,16 +262,81 @@ class AiAffinityVariantTest extends TestCase
             ]);
         }
 
-        $conversation = \App\Models\AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
 
-        app(\App\Services\Ai\Tools\CatatTransaksiBelanjaTool::class)->execute([
+        app(CatatTransaksiBelanjaTool::class)->execute([
             'supplier_id' => $supplier->getKey(),
             'items' => [['barang_id' => $tempe->getKey(), 'jumlah' => 1, 'harga_satuan' => 8000, 'satuan' => '-']],
         ], $user, $conversation);
 
-        $prompt = app(\App\Services\Ai\SystemPromptBuilder::class)->build($user, 'tambah ayam', $conversation);
+        $prompt = app(SystemPromptBuilder::class)->build($user, 'tambah ayam', $conversation);
 
         $this->assertStringContainsString('POLA URUTAN ITEM', $prompt);
         $this->assertStringContainsString('Ayam Utuh', $prompt);
+    }
+
+    public function test_draft_diurutkan_pola_dan_item_yang_tak_dibeli_dilompati(): void
+    {
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Bu Elly', 'aktif' => true]);
+        $ayam = Barang::query()->create(['nama_barang' => 'Ayam Utuh', 'satuan' => '-']);
+        $tempe = Barang::query()->create(['nama_barang' => 'Tempe', 'satuan' => '-']);
+        $cabai = Barang::query()->create(['nama_barang' => 'Cabai', 'satuan' => 'kg']);
+        $user = $this->userWithPermissions(['create_kalkulator_belanja', 'update_kalkulator_belanja']);
+
+        // Pola konsisten: ayam(0), tempe(1), cabai(2).
+        foreach ([1, 2] as $i) {
+            $this->buatTransaksi($supplier, $user, [
+                ['barang_id' => $ayam->getKey(), 'jumlah' => 1, 'harga_satuan' => 35000, 'satuan' => '-'],
+                ['barang_id' => $tempe->getKey(), 'jumlah' => 1, 'harga_satuan' => 8000, 'satuan' => '-'],
+                ['barang_id' => $cabai->getKey(), 'jumlah' => 1, 'harga_satuan' => 25000, 'satuan' => 'kg'],
+            ]);
+        }
+
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        // Dikirim tidak urut + tanpa tempe -> harus jadi Ayam lalu Cabai.
+        $result = app(CatatTransaksiBelanjaTool::class)->execute([
+            'supplier_id' => $supplier->getKey(),
+            'items' => [
+                ['barang_id' => $cabai->getKey(), 'jumlah' => 1, 'harga_satuan' => 25000, 'satuan' => 'kg'],
+                ['barang_id' => $ayam->getKey(), 'jumlah' => 1, 'harga_satuan' => 35000, 'satuan' => '-'],
+            ],
+        ], $user, $conversation);
+
+        $action = AiPendingAction::query()->findOrFail($result['pending_action_id']);
+        $ids = collect($action->payload['items'])->pluck('barang_id')->all();
+
+        $this->assertSame([$ayam->getKey(), $cabai->getKey()], $ids);
+    }
+
+    public function test_urutan_pengguna_dihormati_bila_flag_diset(): void
+    {
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Bu Elly', 'aktif' => true]);
+        $ayam = Barang::query()->create(['nama_barang' => 'Ayam Utuh', 'satuan' => '-']);
+        $cabai = Barang::query()->create(['nama_barang' => 'Cabai', 'satuan' => 'kg']);
+        $user = $this->userWithPermissions(['create_kalkulator_belanja', 'update_kalkulator_belanja']);
+
+        foreach ([1, 2] as $i) {
+            $this->buatTransaksi($supplier, $user, [
+                ['barang_id' => $ayam->getKey(), 'jumlah' => 1, 'harga_satuan' => 35000, 'satuan' => '-'],
+                ['barang_id' => $cabai->getKey(), 'jumlah' => 1, 'harga_satuan' => 25000, 'satuan' => 'kg'],
+            ]);
+        }
+
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        $result = app(CatatTransaksiBelanjaTool::class)->execute([
+            'supplier_id' => $supplier->getKey(),
+            'ikuti_urutan_pengguna' => true,
+            'items' => [
+                ['barang_id' => $cabai->getKey(), 'jumlah' => 1, 'harga_satuan' => 25000, 'satuan' => 'kg'],
+                ['barang_id' => $ayam->getKey(), 'jumlah' => 1, 'harga_satuan' => 35000, 'satuan' => '-'],
+            ],
+        ], $user, $conversation);
+
+        $action = AiPendingAction::query()->findOrFail($result['pending_action_id']);
+        $ids = collect($action->payload['items'])->pluck('barang_id')->all();
+
+        $this->assertSame([$cabai->getKey(), $ayam->getKey()], $ids);
     }
 }

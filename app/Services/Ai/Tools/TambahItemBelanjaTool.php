@@ -7,6 +7,7 @@ use App\Models\AiPendingAction;
 use App\Models\Barang;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Ai\AiSupplierBarangStatsService;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -62,6 +63,10 @@ class TambahItemBelanjaTool extends AiTool
                         ],
                         'required' => ['barang_id', 'jumlah'],
                     ],
+                ],
+                'ikuti_urutan_pengguna' => [
+                    'type' => 'boolean',
+                    'description' => 'Set true HANYA bila pengguna secara eksplisit menentukan urutan. Default false: draft diurutkan otomatis mengikuti pola urutan supplier (item yang tidak dibeli dilompati).',
                 ],
             ],
             'required' => ['items'],
@@ -121,6 +126,15 @@ class TambahItemBelanjaTool extends AiTool
         }
 
         $payload['items'] = array_values($merged);
+
+        // Urutkan mengikuti pola urutan supplier, kecuali pengguna menentukan urutan.
+        $followUserOrder = (bool) ($arguments['ikuti_urutan_pengguna'] ?? false);
+
+        if (! $followUserOrder && count($payload['items']) > 1) {
+            $payload['items'] = app(AiSupplierBarangStatsService::class)
+                ->orderItemsByPattern((int) ($payload['supplier_id'] ?? 0), $payload['items']);
+        }
+
         $summary = $this->summary($payload);
 
         $draft->update([

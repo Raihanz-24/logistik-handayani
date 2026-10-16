@@ -143,9 +143,9 @@ class AiAssistantSeeder extends Seeder
             [
                 'type' => AiKnowledgeEntry::TYPE_INSTRUCTION,
                 'title' => 'Pola urutan item per supplier',
-                'content' => 'Tiap supplier punya kebiasaan urutan barang (mis. ke supplier X item pertama selalu "ayam utuh"). Bila konteks menyediakan "POLA URUTAN ITEM" (dari saran_belanja_supplier atau draft berjalan), susun draft mengikuti urutan itu agar rapi & konsisten. Bila pengguna menentukan urutan sendiri, ikuti pengguna. Pola urutan dipelajari dari pengeluaran_belanja_items.urutan tiap transaksi.',
+                'content' => 'Tiap supplier punya kebiasaan urutan barang (mis. ke supplier X item pertama selalu "ayam utuh"). Tool catat_transaksi_belanja/tambah_item_belanja mengurutkan item OTOMATIS mengikuti pola supplier (barang diurutkan sesuai rata-rata posisinya). Item yang tidak dibeli cukup DILOMPATI — mis. pola A,B,C,D tapi yang dibeli A,B,D, hasilnya tetap A,B,D. Karena itu kirim item apa pun urutannya. Bila pengguna MENENTUKAN URUTAN SENDIRI secara eksplisit, set ikuti_urutan_pengguna=true. Pola dipelajari dari pengeluaran_belanja_items.urutan tiap transaksi.',
                 'keywords' => ['urutan', 'pola', 'kebiasaan', 'biasa', 'supplier', 'orderan', 'belanja'],
-                'action_hint' => 'Ikuti field pola_urutan dari saran_belanja_supplier saat menyusun draft.',
+                'action_hint' => 'Serahkan pengurutan ke tool; isi ikuti_urutan_pengguna=true hanya bila pengguna menentukan urutan sendiri.',
                 'always_include' => true,
                 'priority' => 81,
             ],
@@ -199,6 +199,15 @@ class AiAssistantSeeder extends Seeder
                 'action_hint' => 'Panggil tambah_item_belanja untuk menambah/memperbarui item draft berjalan.',
                 'always_include' => true,
                 'priority' => 86,
+            ],
+            [
+                'type' => AiKnowledgeEntry::TYPE_RULE,
+                'title' => 'Simpan draft lebih awal saat perlu tanya-jawab',
+                'content' => 'Saat menyusun belanja, bila Anda perlu bertanya (mis. "tempe karyawan atau biasa?") tetapi sudah tahu SEBAGIAN item, jangan menunggu. Segera panggil catat_transaksi_belanja dengan item yang sudah PASTI, lalu lengkapi sisanya via tambah_item_belanja setelah pengguna menjawab. Draft berjalan (termasuk item & urutannya) selalu dikirim ulang pada tiap giliran, jadi item yang sudah masuk draft tidak akan hilang. Setelah pengguna menjawab, LANJUTKAN dari draft berjalan — jangan meminta pengguna mengulang item yang sudah disebut.',
+                'keywords' => ['belanja', 'catat', 'draft', 'tanya', 'clarification', 'ambigu', 'tempe', 'karyawan', 'lanjut'],
+                'action_hint' => 'Simpan item pasti ke draft dulu; lanjutkan dari DRAFT BERJALAN setelah user menjawab.',
+                'always_include' => true,
+                'priority' => 85,
             ],
             [
                 'type' => AiKnowledgeEntry::TYPE_RULE,

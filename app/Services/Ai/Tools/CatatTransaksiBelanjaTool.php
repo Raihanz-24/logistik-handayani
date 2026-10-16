@@ -3,10 +3,12 @@
 namespace App\Services\Ai\Tools;
 
 use App\Models\AiConversation;
+use App\Models\AiMessage;
 use App\Models\AiPendingAction;
 use App\Models\Barang;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Ai\AiSupplierBarangStatsService;
 use App\Services\Ai\AiUserMemoryService;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -52,6 +54,10 @@ class CatatTransaksiBelanjaTool extends AiTool
             'properties' => [
                 'supplier_id' => ['type' => 'integer', 'description' => 'ID supplier aktif.'],
                 'keterangan' => ['type' => 'string', 'description' => 'Catatan singkat transaksi (opsional).'],
+                'ikuti_urutan_pengguna' => [
+                    'type' => 'boolean',
+                    'description' => 'Set true HANYA bila pengguna secara eksplisit menentukan urutan barangnya sendiri. Default false: item diurutkan otomatis mengikuti pola urutan supplier (item yang tidak dibeli cukup dilompati).',
+                ],
                 'items' => [
                     'type' => 'array',
                     'description' => 'Daftar barang yang dibeli.',
@@ -110,7 +116,7 @@ class CatatTransaksiBelanjaTool extends AiTool
         // Lengkapi harga/satuan yang belum diisi dari histori supplier (afinitas),
         // agar Asisten tidak ragu/berhenti bertanya. Satuan hanya dipakai bila
         // pengguna memang tidak menyebutkannya.
-        $affinity = app(\App\Services\Ai\AiSupplierBarangStatsService::class);
+        $affinity = app(AiSupplierBarangStatsService::class);
         $autoFilled = [];
 
         $payload = [
@@ -146,6 +152,15 @@ class CatatTransaksiBelanjaTool extends AiTool
         ];
 
         $summary = $this->summary($payload);
+
+        // Urutkan item mengikuti pola urutan supplier (item yang tak dibeli
+        // dilompati), KECUALI pengguna menentukan urutannya sendiri.
+        $followUserOrder = (bool) ($arguments['ikuti_urutan_pengguna'] ?? false);
+
+        if (! $followUserOrder && count($payload['items']) > 1) {
+            $payload['items'] = $affinity->orderItemsByPattern((int) $data['supplier_id'], $payload['items']);
+            $summary = $this->summary($payload);
+        }
 
         // Draft belanja lama pada percakapan ini digantikan draft terbaru agar
         // tidak muncul dua kartu konfirmasi (mis. saat user menambah item).
@@ -210,7 +225,7 @@ class CatatTransaksiBelanjaTool extends AiTool
         }
 
         $lastUserMessage = $conversation->messages()
-            ->where('role', \App\Models\AiMessage::ROLE_USER)
+            ->where('role', AiMessage::ROLE_USER)
             ->orderByDesc('id')
             ->value('content');
 

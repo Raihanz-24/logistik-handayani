@@ -3,6 +3,7 @@
 namespace App\Services\Ai\Tools;
 
 use App\Models\AiConversation;
+use App\Models\AiSearchLog;
 use App\Models\Barang;
 use App\Models\User;
 use App\Services\Ai\AiSupplierBarangStatsService;
@@ -170,7 +171,39 @@ class CariBarangTool extends AiTool
             $payload['penanda_varian_dipakai'] = $mentionedMarker;
         }
 
+        $this->logSearch($user, $keyword, $ranked->all(), $bestPick);
+
         return $this->limitPayload($payload);
+    }
+
+    /**
+     * Catat pencarian untuk penilaian kualitas pengenalan barang (halaman
+     * "Kecerdasan AI"). Aman: gagal/absen tabel tidak mengganggu pencarian.
+     *
+     * @param  array<int, array<string, mixed>>  $ranked  sudah terurut menurun
+     * @param  array<string, mixed>|null  $bestPick
+     */
+    private function logSearch(User $user, string $keyword, array $ranked, ?array $bestPick): void
+    {
+        try {
+            if ($keyword === '' || ! Schema::hasTable('ai_search_logs')) {
+                return;
+            }
+
+            $topScore = (int) ($ranked[0]['_score'] ?? 0);
+            $bestId = $bestPick !== null ? (int) ($bestPick['barang_id'] ?? 0) : null;
+
+            AiSearchLog::query()->create([
+                'user_id' => $user->getKey(),
+                'kata_kunci' => mb_substr($keyword, 0, 191),
+                'jumlah_kandidat' => count($ranked),
+                'pilihan_terbaik_barang_id' => $bestId ?: null,
+                'skor_teratas' => $topScore,
+                'ambigu' => $bestId === null,
+            ]);
+        } catch (\Throwable) {
+            // Diamkan: log penilaian tidak boleh menggagalkan pencarian.
+        }
     }
 
     /**
