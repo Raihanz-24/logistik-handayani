@@ -233,7 +233,17 @@ PROMPT;
             return '  '.($index + 1).'. '.$nama.' | barang_id='.$id
                 .' | jumlah='.$jumlah.' | satuan='.$satuan
                 .' | harga_satuan='.$harga;
-        })->implode("\n");
+        });
+
+        // Batasi agar prompt tidak membengkak; item selebihnya diringkas.
+        $cap = max(1, (int) config('ai.context.draft_item_cap', 60));
+
+        if ($lines->count() > $cap) {
+            $sisa = $lines->count() - $cap;
+            $lines = $lines->take($cap)->push('  … dan '.$sisa.' item lainnya (masih tersimpan di draft).');
+        }
+
+        $lines = $lines->implode("\n");
 
         $header = $supplier ? '  Supplier: '.$supplier : '  Supplier: (belum dipilih)';
 
@@ -281,6 +291,7 @@ PROMPT;
         }
 
         $needle = mb_strtolower(trim($userMessage));
+        $limit = max(1, (int) config('ai.context.knowledge_limit', 30));
 
         $selected = $entries->filter(function (AiKnowledgeEntry $entry) use ($needle, $setting): bool {
             // Aturan global (mis. batasan) selalu disertakan bila diizinkan.
@@ -310,7 +321,7 @@ PROMPT;
             }
 
             return false;
-        })->take(12);
+        })->take($limit);
 
         if ($selected->isEmpty()) {
             return '';

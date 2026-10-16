@@ -117,7 +117,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'temperature' => (float) env('AI_TEMPERATURE', 0.2),
-    'max_tokens' => (int) env('AI_MAX_TOKENS', 1024),
+    'max_tokens' => (int) env('AI_MAX_TOKENS', 2048),
 
     /*
     |--------------------------------------------------------------------------
@@ -126,7 +126,7 @@ return [
     | Maksimum berapa kali AI boleh memanggil tool dalam satu balasan sebelum
     | dipaksa berhenti. Mencegah loop tak berujung.
     */
-    'max_tool_iterations' => (int) env('AI_MAX_TOOL_ITERATIONS', 6),
+    'max_tool_iterations' => (int) env('AI_MAX_TOOL_ITERATIONS', 10),
 
     /*
     |--------------------------------------------------------------------------
@@ -134,7 +134,19 @@ return [
     |--------------------------------------------------------------------------
     | Jumlah pesan terakhir yang disertakan sebagai konteks percakapan.
     */
-    'history_limit' => (int) env('AI_HISTORY_LIMIT', 40),
+    'history_limit' => (int) env('AI_HISTORY_LIMIT', 80),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Anggaran token harian
+    |--------------------------------------------------------------------------
+    | Dipakai halaman pemakaian untuk memantau & memperingatkan bila pemakaian
+    | mendekati/melampaui batas. Bukan hard-stop (tidak memblokir permintaan),
+    | hanya indikator agar terkendali.
+    */
+    'budget' => [
+        'daily_tokens' => (int) env('AI_BUDGET_DAILY_TOKENS', 1000000),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -152,6 +164,20 @@ return [
         'frequency_cap' => (int) env('AI_AFFINITY_FREQUENCY_CAP', 10),
         'recency_days' => (int) env('AI_AFFINITY_RECENCY_DAYS', 60),
         'suggestion_limit' => (int) env('AI_AFFINITY_SUGGESTION_LIMIT', 15),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Penghematan konteks (agar hemat token & ingatan lebih longgar)
+    |--------------------------------------------------------------------------
+    | knowledge_limit   : jumlah entri pengetahuan relevan yang disuntik.
+    | older_summary_lines: jumlah baris ringkasan percakapan lama.
+    | draft_item_cap    : item maksimum yang dirinci di prompt draft berjalan.
+    */
+    'context' => [
+        'knowledge_limit' => (int) env('AI_CONTEXT_KNOWLEDGE_LIMIT', 30),
+        'older_summary_lines' => (int) env('AI_CONTEXT_OLDER_SUMMARY_LINES', 12),
+        'draft_item_cap' => (int) env('AI_CONTEXT_DRAFT_ITEM_CAP', 60),
     ],
 
     /*

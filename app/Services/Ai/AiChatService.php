@@ -290,7 +290,7 @@ class AiChatService
             ->where('role', AiMessage::ROLE_USER)
             ->map(fn (AiMessage $message): string => trim((string) $message->content))
             ->filter()
-            ->take(-8);
+            ->take(-max(1, (int) config('ai.context.older_summary_lines', 12)));
 
         if ($userLines->isEmpty()) {
             return '';
