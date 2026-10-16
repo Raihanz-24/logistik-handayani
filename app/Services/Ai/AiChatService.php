@@ -8,6 +8,7 @@ use App\Models\AiSetting;
 use App\Models\AiTrainingExample;
 use App\Models\AiUsage;
 use App\Models\User;
+use App\Services\Ai\Local\LocalIntentService;
 use App\Services\Ai\Tools\ToolException;
 use App\Services\Ai\Tools\ToolRegistry;
 use Illuminate\Support\Collection;
@@ -70,6 +71,29 @@ class AiChatService
             'content' => $userMessage,
         ]);
         $conversation->forceFill(['last_message_at' => now()])->save();
+
+        // "Kecerdasan lokal" (deterministik): tangani perintah JELAS tanpa
+        // memanggil API model — hemat token & lebih akurat. Bila ragu, null.
+        $localReply = app(LocalIntentService::class)
+            ->tryHandle($user, $conversation, $userMessage);
+
+        if ($localReply instanceof AiMessage) {
+            $this->recordUsage(
+                $user,
+                $conversation,
+                $setting,
+                ['prompt_tokens' => 0, 'completion_tokens' => 0, 'total_tokens' => 0],
+                0,
+                0,
+                microtime(true),
+                AiUsage::STATUS_SUCCESS,
+                null,
+                'Lokal (Xcode AI)',
+                'deterministik',
+            );
+
+            return $localReply;
+        }
 
         $messages = $this->buildModelMessages($user, $conversation, $userMessage);
         $tools = $registry->toOpenAiTools();

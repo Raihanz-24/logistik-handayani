@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Models\AiSearchLog;
+use App\Models\AiUsage;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Ai\AiSupplierBarangStatsService;
@@ -78,6 +79,29 @@ class KecerdasanAi extends Page
             'tepat' => $tepat,
             'ambigu' => $ambigu,
             'akurasi' => round(($tepat / max(1, $total)) * 100, 1),
+        ];
+    }
+
+    /**
+     * Metrik "kecerdasan lokal": berapa giliran yang ditangani tanpa API
+     * (hemat token) dan berapa yang diteruskan ke model.
+     *
+     * @return array{lokal: int, model: int, hemat: float}
+     */
+    public function localStats(): array
+    {
+        if (! Schema::hasTable('ai_usages')) {
+            return ['lokal' => 0, 'model' => 0, 'hemat' => 0.0];
+        }
+
+        $lokal = AiUsage::query()->where('provider', 'like', 'Lokal%')->count();
+        $model = AiUsage::query()->where('provider', 'not like', 'Lokal%')->count();
+        $total = $lokal + $model;
+
+        return [
+            'lokal' => $lokal,
+            'model' => $model,
+            'hemat' => $total > 0 ? round(($lokal / $total) * 100, 1) : 0.0,
         ];
     }
 

@@ -81,6 +81,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Kecerdasan lokal (deterministik, tanpa LLM)
+    |--------------------------------------------------------------------------
+    | Jalur cepat untuk perintah belanja yang JELAS & terstruktur: resolusi
+    | supplier + barang dilakukan deterministik, draft disiapkan TANPA memanggil
+    | API model. Hemat token & lebih akurat (tak mengarang). Bila ragu sedikit
+    | pun, otomatis diteruskan ke model API. Default ON dan aman.
+    */
+    'local_intelligence' => [
+        'enabled' => (bool) env('AI_LOCAL_INTELLIGENCE', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Path endpoint (relatif terhadap base_url)
     |--------------------------------------------------------------------------
     | Dipisah agar mudah disesuaikan bila format gateway berbeda dari OpenAI.

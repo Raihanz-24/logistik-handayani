@@ -1,6 +1,7 @@
 <x-filament-panels::page>
     @php
         $stats = $this->recognitionStats();
+        $local = $this->localStats();
         $patterns = $this->supplierPatterns();
         $recent = $this->recentSearches();
         $ambiguous = $this->ambiguousKeywords();
@@ -31,6 +32,11 @@
                 <span class="kai-card__label">Supplier ber-pola</span>
                 <span class="kai-card__value">{{ count($patterns) }}</span>
                 <span class="kai-card__hint">punya pola urutan terpelajar</span>
+            </div>
+            <div class="kai-card">
+                <span class="kai-card__label">Kecerdasan lokal</span>
+                <span class="kai-card__value">{{ $local['hemat'] }}%</span>
+                <span class="kai-card__hint">{{ $local['lokal'] }} ditangani tanpa API (hemat token)</span>
             </div>
         </section>
 
