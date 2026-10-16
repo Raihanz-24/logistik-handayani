@@ -35,6 +35,52 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Driver & Profil Model (lokal vs cloud)
+    |--------------------------------------------------------------------------
+    | AI_DRIVER menentukan model mana yang dipakai:
+    |   cloud  → HANYA profil cloud (perilaku lama; default, aman).
+    |   local  → HANYA profil lokal (Xcode AI sendiri, tanpa API key cloud).
+    |   auto   → coba LOKAL dulu; bila gagal/tak terpasang, otomatis ke cloud.
+    |
+    | Profil 'cloud' memakai kunci legacy (AI_BASE_URL/AI_API_KEY/AI_MODEL).
+    | Profil 'local' menunjuk ke server model OpenAI-compatible di mesin sendiri
+    | (Ollama/vLLM/LM Studio/llama.cpp). Semua additive & default aman.
+    */
+    'driver' => env('AI_DRIVER', 'cloud'),
+
+    'profiles' => [
+        'local' => [
+            'label' => (string) env('AI_LOCAL_LABEL', 'Xcode AI (Lokal)'),
+            'base_url' => rtrim((string) env('AI_LOCAL_BASE_URL', 'http://127.0.0.1:11434/v1'), '/'),
+            'api_key' => (string) env('AI_LOCAL_API_KEY', 'local'),
+            'model' => (string) env('AI_LOCAL_MODEL', 'qwen2.5:14b-instruct'),
+            'chat_path' => (string) env('AI_LOCAL_CHAT_PATH', '/chat/completions'),
+            'models_path' => (string) env('AI_LOCAL_MODELS_PATH', '/models'),
+            // Utamakan ini saat AI_DRIVER=auto. Biarkan true; ubah bila perlu.
+            'primary' => (bool) env('AI_LOCAL_PRIMARY', true),
+        ],
+        'cloud' => [
+            'label' => (string) env('AI_CLOUD_LABEL', 'Cloud (KryptonLab)'),
+            // Diisi dinamis dari kunci legacy (AI_BASE_URL dst) saat runtime.
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Distilasi (belajar mandiri dari model cloud)
+    |--------------------------------------------------------------------------
+    | Saat model cloud yang menjawab, kita simpan pasangan (perintah -> aksi ->
+    | jawaban) ke tabel ai_training_examples. Data ini bisa diekspor (JSONL)
+    | untuk fine-tune model lokal. Tidak mengubah perilaku generasi.
+    */
+    'training' => [
+        'capture' => (bool) env('AI_TRAINING_CAPTURE', true),
+        // Simpan hanya giliran yang memakai tool (lebih bernilai & hemat baris).
+        'only_with_tools' => (bool) env('AI_TRAINING_ONLY_WITH_TOOLS', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Path endpoint (relatif terhadap base_url)
     |--------------------------------------------------------------------------
     | Dipisah agar mudah disesuaikan bila format gateway berbeda dari OpenAI.
@@ -175,7 +221,6 @@ return [
             'trim',
             explode(',', (string) env('AI_VOICE_NAMES', 'google indonesian,andika,gadis,damayanti,indonesian')),
         ))),
-
         // Kata perintah suara (dinormalkan ke huruf kecil, tanpa tanda baca).
         'commands' => [
             'confirm' => ['ya', 'iya', 'betul', 'benar', 'simpan', 'konfirmasi', 'lanjut', 'ok', 'oke', 'setuju'],

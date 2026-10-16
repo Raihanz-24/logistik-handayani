@@ -5,10 +5,12 @@ namespace App\Services\Ai;
 use App\Models\AiConversation;
 use App\Models\AiMessage;
 use App\Models\AiSetting;
+use App\Models\AiTrainingExample;
 use App\Models\AiUsage;
 use App\Models\User;
 use App\Services\Ai\Tools\ToolException;
 use App\Services\Ai\Tools\ToolRegistry;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -22,8 +24,7 @@ class AiChatService
     public function __construct(
         private readonly DeepSeekClient $client,
         private readonly SystemPromptBuilder $promptBuilder,
-    ) {
-    }
+    ) {}
 
     /** Pastikan fitur aktif sebelum dipakai. */
     public function assertEnabled(): void
@@ -77,12 +78,16 @@ class AiChatService
         $usage = ['prompt_tokens' => 0, 'completion_tokens' => 0, 'total_tokens' => 0];
         $toolCallCount = 0;
         $iterations = 0;
+        $usedProvider = (string) config('ai.provider');
+        $usedModel = (string) config('ai.model');
 
         try {
             for ($iteration = 1; $iteration <= $maxIterations; $iteration++) {
                 $iterations = $iteration;
-                $response = $this->client->chat($messages, $tools, $this->overrides($setting));
+                $response = $this->client->chatRouted($messages, $tools, $this->overrides($setting));
                 $usage = $this->addUsage($usage, $response['usage'] ?? []);
+                $usedProvider = (string) ($response['provider_label'] ?? $response['provider_name'] ?? $usedProvider);
+                $usedModel = (string) ($response['model'] ?? $usedModel);
 
                 $assistant = $response['message'];
                 $content = trim((string) ($assistant['content'] ?? ''));
@@ -94,7 +99,8 @@ class AiChatService
                         'content' => $content !== '' ? AiTextFormatter::toPlain($content) : '(tidak ada balasan)',
                     ]);
 
-                    $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_SUCCESS);
+                    $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_SUCCESS, null, $usedProvider, $usedModel);
+                    $this->captureTrainingExamples($user, $conversation, $usedProvider);
 
                     return $reply;
                 }
@@ -141,15 +147,15 @@ class AiChatService
                 'content' => 'Maaf, permintaan ini butuh terlalu banyak langkah. Mohon diperjelas atau dipecah.',
             ]);
 
-            $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_SUCCESS);
+            $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_SUCCESS, null, $usedProvider, $usedModel);
 
             return $reply;
         } catch (AiClientException $exception) {
-            $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_ERROR, $exception->getMessage());
+            $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_ERROR, $exception->getMessage(), $usedProvider, $usedModel);
 
             throw $exception;
         } catch (Throwable $exception) {
-            $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_ERROR, 'internal_error');
+            $this->recordUsage($user, $conversation, $setting, $usage, $toolCallCount, $iterations, $startedAt, AiUsage::STATUS_ERROR, 'internal_error', $usedProvider, $usedModel);
 
             throw $exception;
         }
@@ -248,7 +254,7 @@ class AiChatService
      * sudah keluar dari jendela riwayat: ambil pokok pesan user + ringkasan
      * aksi yang pernah disiapkan. Dibatasi agar hemat token.
      *
-     * @param  \Illuminate\Support\Collection<int, AiMessage>  $older
+     * @param  Collection<int, AiMessage>  $older
      */
     private function summarizeOlderMessages($older): string
     {
@@ -325,6 +331,8 @@ class AiChatService
         float $startedAt,
         string $status,
         ?string $errorMessage = null,
+        ?string $usedProvider = null,
+        ?string $usedModel = null,
     ): void {
         if (! Schema::hasTable('ai_usages')) {
             return;
@@ -334,8 +342,8 @@ class AiChatService
             AiUsage::query()->create([
                 'ai_conversation_id' => $conversation->getKey(),
                 'user_id' => $user->getKey(),
-                'provider' => (string) config('ai.provider'),
-                'model' => (string) config('ai.model'),
+                'provider' => $usedProvider !== null && $usedProvider !== '' ? $usedProvider : (string) config('ai.provider'),
+                'model' => $usedModel !== null && $usedModel !== '' ? $usedModel : (string) config('ai.model'),
                 'prompt_tokens' => $usage['prompt_tokens'],
                 'completion_tokens' => $usage['completion_tokens'],
                 'total_tokens' => $usage['total_tokens'],
@@ -374,6 +382,60 @@ class AiChatService
 
         if ((int) $conversation->user_id !== (int) $user->getKey()) {
             throw new AiClientException('Percakapan ini bukan milik Anda.');
+        }
+    }
+
+    /**
+     * Rekam satu contoh pelatihan (input → aksi/tool → jawaban) untuk distilasi.
+     *
+     * Sifat: additive, senyap, dan HANYA untuk peningkatan kualitas. Tidak pernah
+     * mengganggu jalannya percakapan. Bila bukan model cloud, tetap dicatat agar
+     * kita punya jejak (kolom provider menandai asalnya).
+     */
+    private function captureTrainingExamples(User $user, AiConversation $conversation, string $provider): void
+    {
+        try {
+            if (! (bool) config('ai.training.capture', true) || ! Schema::hasTable('ai_training_examples')) {
+                return;
+            }
+
+            $messages = $conversation->messages()->orderBy('id')->get();
+
+            $lastUser = $messages->where('role', AiMessage::ROLE_USER)->last();
+            $lastReply = $messages->where('role', AiMessage::ROLE_ASSISTANT)->last();
+
+            if (! $lastUser || ! $lastReply) {
+                return;
+            }
+
+            // Ambil semua tool call yang terjadi SETELAH pesan user terakhir.
+            $afterUser = $messages->where('id', '>', $lastUser->getKey());
+            $toolCalls = $afterUser
+                ->where('role', AiMessage::ROLE_ASSISTANT)
+                ->flatMap(fn (AiMessage $m): array => (array) ($m->tool_payload['tool_calls'] ?? []))
+                ->values();
+
+            if ($toolCalls->isEmpty() && (bool) config('ai.training.only_with_tools', true)) {
+                return;
+            }
+
+            $actions = $toolCalls->map(function (array $call): array {
+                return [
+                    'name' => (string) ($call['function']['name'] ?? ''),
+                    'arguments' => $this->decodeArguments($call['function']['arguments'] ?? []),
+                ];
+            })->all();
+
+            AiTrainingExample::query()->create([
+                'ai_conversation_id' => $conversation->getKey(),
+                'user_id' => $user->getKey(),
+                'provider' => $provider,
+                'input' => trim((string) $lastUser->content),
+                'actions' => $actions,
+                'output' => trim((string) $lastReply->content),
+            ]);
+        } catch (Throwable $exception) {
+            Log::debug('Lewati pencatatan contoh pelatihan AI.', ['error' => $exception->getMessage()]);
         }
     }
 }
