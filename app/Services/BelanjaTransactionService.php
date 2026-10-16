@@ -260,13 +260,11 @@ class BelanjaTransactionService
             : 0;
         $expenseId = (int) $expense->getKey();
         $sessionId = (int) $expense->kalkulator_belanja_id;
-        $supplierId = (int) $expense->supplier_id;
         $supplier = $expense->namaSupplier();
         $deleted = (bool) $expense->delete();
 
         if ($deleted) {
             $this->flushCaches();
-            app(AiSupplierBarangStatsService::class)->refreshSupplier((int) $supplierId);
         }
 
         if ($deleted && $releasedPhotoLabelCount > 0) {

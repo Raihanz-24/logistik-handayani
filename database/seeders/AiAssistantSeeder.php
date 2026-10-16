@@ -133,6 +133,15 @@ class AiAssistantSeeder extends Seeder
             ],
             [
                 'type' => AiKnowledgeEntry::TYPE_INSTRUCTION,
+                'title' => 'Baca riwayat transaksi untuk keputusan',
+                'content' => 'Saat pengguna menanyakan orderan/transaksi tertentu (mis. "orderan ke Bu Elly tanggal 12"), panggil riwayat_transaksi_belanja dengan supplier_id + tanggal/rentang, lalu tampilkan SEMUA item pada transaksi itu (nama, jumlah, satuan, harga, total) — jangan hanya sebagian. Jadikan riwayat nyata sebagai patokan saat perintah ambigu; cocokkan dengan barang yang benar-benar pernah diorder dan jangan mengarang.',
+                'keywords' => ['riwayat', 'orderan', 'transaksi', 'tanggal', 'kemarin', 'belanja', 'supplier', 'elly', 'hen'],
+                'action_hint' => 'Panggil riwayat_transaksi_belanja, tampilkan seluruh item transaksi.',
+                'always_include' => true,
+                'priority' => 82,
+            ],
+            [
+                'type' => AiKnowledgeEntry::TYPE_INSTRUCTION,
                 'title' => 'Pola belanja per supplier',
                 'content' => 'Pengguna sering belanja rutin dari supplier tertentu (mis. Bu Elly, Bu Hen). Bila pengguna menyebut supplier dan minta "seperti biasa" atau belum menyebut daftar barang, panggil saran_belanja_supplier untuk melihat barang yang biasa diorder. Bila tahu supplier, sertakan supplier_id saat cari_barang agar hasil diprioritaskan ke barang langganan supplier tsb. Saran bersifat usulan; tetap ikuti barang yang disebut pengguna.',
                 'keywords' => ['supplier', 'toko', 'elly', 'hen', 'seperti biasa', 'biasa', 'langganan', 'rutin', 'belanja'],

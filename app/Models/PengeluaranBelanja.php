@@ -68,6 +68,14 @@ class PengeluaranBelanja extends Model
             $record->audit('delete', 'Menghapus pengeluaran belanja');
             app(BelanjaTransactionService::class)
                 ->refreshPricePairs($record->pricePairsBeforeDelete);
+
+            // Segarkan agregat afinitas juga untuk penghapusan massal (mis. hapus
+            // sesi) yang tidak lewat service — agar pola supplier tetap akurat.
+            $supplierId = (int) $record->supplier_id;
+
+            if ($supplierId > 0) {
+                app(\App\Services\Ai\AiSupplierBarangStatsService::class)->refreshSupplier($supplierId);
+            }
         });
     }
 

@@ -143,6 +143,7 @@ return [
         'cari_rak' => 'view_any_lokasi',
         'cari_supplier' => 'view_any_supplier',
         'saran_belanja_supplier' => 'view_any_supplier',
+        'riwayat_transaksi_belanja' => 'view_any_kalkulator_belanja',
         'buat_draft_mutasi' => 'create_mutasi',
         'buat_sesi_belanja' => 'create_kalkulator_belanja',
         'catat_transaksi_belanja' => 'update_kalkulator_belanja',
