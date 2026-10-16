@@ -57,13 +57,23 @@ class LearnAiAssistant extends Command
             foreach ($suggestions as $item) {
                 $harga = $item['harga_terakhir'] ? 'Rp'.number_format((int) $item['harga_terakhir'], 0, ',', '.') : '-';
                 $satuan = $item['satuan_terakhir'] ?: '-';
+                $urutan = $item['avg_urutan'] !== null ? 'baris~'.(round((float) $item['avg_urutan'], 1) + 1) : 'baris?';
                 $this->line(sprintf(
-                    '  - %s (%dx, %s, %s)',
+                    '  - %s (%dx, %s, %s, %s)',
                     $item['nama_barang'],
                     $item['frekuensi'],
                     $satuan,
                     $harga,
+                    $urutan,
                 ));
+            }
+
+            $pattern = $stats->orderPattern((int) $supplier->id, 5);
+
+            if ($pattern !== []) {
+                $this->line('  <fg=yellow>Pola urutan:</> '.collect($pattern)
+                    ->map(fn (array $p): string => $p['nama_barang'])
+                    ->implode(' → '));
             }
         }
     }

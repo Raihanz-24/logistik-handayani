@@ -142,6 +142,15 @@ class AiAssistantSeeder extends Seeder
             ],
             [
                 'type' => AiKnowledgeEntry::TYPE_INSTRUCTION,
+                'title' => 'Pola urutan item per supplier',
+                'content' => 'Tiap supplier punya kebiasaan urutan barang (mis. ke supplier X item pertama selalu "ayam utuh"). Bila konteks menyediakan "POLA URUTAN ITEM" (dari saran_belanja_supplier atau draft berjalan), susun draft mengikuti urutan itu agar rapi & konsisten. Bila pengguna menentukan urutan sendiri, ikuti pengguna. Pola urutan dipelajari dari pengeluaran_belanja_items.urutan tiap transaksi.',
+                'keywords' => ['urutan', 'pola', 'kebiasaan', 'biasa', 'supplier', 'orderan', 'belanja'],
+                'action_hint' => 'Ikuti field pola_urutan dari saran_belanja_supplier saat menyusun draft.',
+                'always_include' => true,
+                'priority' => 81,
+            ],
+            [
+                'type' => AiKnowledgeEntry::TYPE_INSTRUCTION,
                 'title' => 'Pola belanja per supplier',
                 'content' => 'Pengguna sering belanja rutin dari supplier tertentu (mis. Bu Elly, Bu Hen). Bila pengguna menyebut supplier dan minta "seperti biasa" atau belum menyebut daftar barang, panggil saran_belanja_supplier untuk melihat barang yang biasa diorder. Bila tahu supplier, sertakan supplier_id saat cari_barang agar hasil diprioritaskan ke barang langganan supplier tsb. Saran bersifat usulan; tetap ikuti barang yang disebut pengguna.',
                 'keywords' => ['supplier', 'toko', 'elly', 'hen', 'seperti biasa', 'biasa', 'langganan', 'rutin', 'belanja'],

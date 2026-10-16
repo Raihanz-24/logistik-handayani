@@ -23,6 +23,7 @@ class AiSupplierBarangStat extends Model
         'barang_id',
         'frekuensi',
         'total_jumlah',
+        'avg_urutan',
         'satuan_terakhir',
         'harga_terakhir',
         'tanggal_terakhir',
@@ -33,6 +34,7 @@ class AiSupplierBarangStat extends Model
         return [
             'frekuensi' => 'integer',
             'total_jumlah' => 'decimal:3',
+            'avg_urutan' => 'decimal:2',
             'harga_terakhir' => 'integer',
             'tanggal_terakhir' => 'date',
         ];

@@ -113,6 +113,7 @@ ATURAN PENTING:
 15. HARGA & SATUAN dari histori: bila pengguna TIDAK menyebut satuan, gunakan satuan terakhir yang biasa dipakai untuk barang+supplier tersebut (dari saran_belanja_supplier / histori). Bila pengguna tidak menyebut harga, isi dari harga terakhir supplier itu, lalu BERI TAHU singkat (mis. "harga pakai harga terakhir Rp8.000"). Bila harga yang disebut pengguna berbeda jauh (naik/turun) dari harga terakhir, tetap pakai angka pengguna tapi sebutkan perbedaannya singkat. Jangan ragu berulang kali — putuskan dan jelaskan.
 16. SUPPLIER & POLA BELANJA: bila pengguna menyebut supplier (mis. "Bu Elly", "Bu Hen") dan minta "seperti biasa" atau belum menyebut daftar barang, panggil saran_belanja_supplier untuk melihat barang yang BIASA diorder dari supplier itu. Bila tahu supplier tujuan, sertakan supplier_id saat cari_barang. Hasil saran bersifat usulan; tetap ikuti barang yang pengguna sebut.
 17. RIWAYAT TRANSAKSI (LANDASAN KEPUTUSAN): bila pengguna menanyakan transaksi tertentu ("orderan ke Bu Elly tanggal 12", "belanja kemarin apa saja"), panggil riwayat_transaksi_belanja dengan supplier_id dan tanggal/rentang. SELALU tampilkan SEMUA item pada transaksi tersebut (jangan sebagian) — nama, jumlah, satuan, harga, dan total. Pakai riwayat nyata ini sebagai patokan saat perintah ambigu: cocokkan barang yang diminta dengan yang benar-benar pernah diorder, pilih yang paling sesuai, dan JANGAN mengarang. Pola langganan tiap supplier dibentuk dari seluruh item pada setiap transaksi.
+18. POLA URUTAN ITEM: tiap supplier punya kebiasaan urutan barang (mis. ke supplier X item pertama selalu "ayam utuh"). Bila konteks menyediakan "POLA URUTAN ITEM" (dari saran_belanja_supplier atau draft berjalan), susun draft mengikuti urutan itu agar rapi & konsisten. Bila pengguna menentukan urutan sendiri, ikuti pengguna.
 PROMPT;
     }
 
@@ -178,10 +179,12 @@ PROMPT;
 
             if ($action->type === AiPendingAction::TYPE_PENGELUARAN_BELANJA) {
                 $items = $this->draftBelanjaLines($action->payload ?? []);
+                $orderPattern = $this->draftOrderPattern($action->payload ?? []);
 
                 return "- DRAFT BELANJA (id={$action->getKey()}) BELUM dikonfirmasi:\n"
                     .($items !== '' ? $items : '  (kosong)')
-                    ."\n  Ringkasan: ".($summary !== '' ? $summary : '-');
+                    ."\n  Ringkasan: ".($summary !== '' ? $summary : '-')
+                    .($orderPattern !== '' ? "\n".$orderPattern : '');
             }
 
             return '- DRAFT '.strtoupper((string) $action->type)." (id={$action->getKey()}) BELUM dikonfirmasi: "
@@ -234,6 +237,29 @@ PROMPT;
         $header = $supplier ? '  Supplier: '.$supplier : '  Supplier: (belum dipilih)';
 
         return $header."\n".$lines;
+    }
+
+    /**
+     * Pola urutan item untuk supplier pada draft belanja (bila ada histori).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function draftOrderPattern(array $payload): string
+    {
+        $supplierId = (int) ($payload['supplier_id'] ?? 0);
+
+        if ($supplierId < 1) {
+            return '';
+        }
+
+        try {
+            $service = app(\App\Services\Ai\AiSupplierBarangStatsService::class);
+            $name = $service->supplierName($supplierId) ?? ('#'.$supplierId);
+
+            return $service->orderPatternBlock($supplierId, $name);
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     /**

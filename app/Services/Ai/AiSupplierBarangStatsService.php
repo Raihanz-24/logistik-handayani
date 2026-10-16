@@ -43,7 +43,7 @@ class AiSupplierBarangStatsService
             ->join('pengeluaran_belanjas as p', 'p.id', '=', 'i.pengeluaran_belanja_id')
             ->join('kalkulator_belanjas as k', 'k.id', '=', 'p.kalkulator_belanja_id')
             ->where('p.supplier_id', $supplierId)
-            ->select(['i.barang_id', 'i.jumlah', 'i.harga_satuan', 'i.satuan_snapshot', 'k.tanggal'])
+            ->select(['i.barang_id', 'i.jumlah', 'i.harga_satuan', 'i.satuan_snapshot', 'i.urutan', 'k.tanggal'])
             ->orderBy('k.tanggal')
             ->orderBy('i.id')
             ->get();
@@ -61,6 +61,8 @@ class AiSupplierBarangStatsService
             $agg[$barangId] ??= [
                 'frekuensi' => 0,
                 'total_jumlah' => 0.0,
+                'urutan_sum' => 0,
+                'urutan_count' => 0,
                 'satuan_terakhir' => null,
                 'harga_terakhir' => null,
                 'tanggal_terakhir' => null,
@@ -68,6 +70,11 @@ class AiSupplierBarangStatsService
 
             $agg[$barangId]['frekuensi']++;
             $agg[$barangId]['total_jumlah'] += (float) $row->jumlah;
+
+            if ($row->urutan !== null) {
+                $agg[$barangId]['urutan_sum'] += (int) $row->urutan;
+                $agg[$barangId]['urutan_count']++;
+            }
 
             if ((int) $row->harga_satuan > 0) {
                 $agg[$barangId]['harga_terakhir'] = (int) $row->harga_satuan;
@@ -91,11 +98,16 @@ class AiSupplierBarangStatsService
             $insert = [];
 
             foreach ($agg as $barangId => $data) {
+                $avgUrutan = $data['urutan_count'] > 0
+                    ? round($data['urutan_sum'] / $data['urutan_count'], 2)
+                    : null;
+
                 $insert[] = [
                     'supplier_id' => $supplierId,
                     'barang_id' => $barangId,
                     'frekuensi' => $data['frekuensi'],
                     'total_jumlah' => $data['total_jumlah'],
+                    'avg_urutan' => $avgUrutan,
                     'satuan_terakhir' => $data['satuan_terakhir'],
                     'harga_terakhir' => $data['harga_terakhir'],
                     'tanggal_terakhir' => $data['tanggal_terakhir'],
@@ -170,9 +182,18 @@ class AiSupplierBarangStatsService
 
         $quantity = log(1 + ((float) $stat->total_jumlah) / max(1, (int) $stat->frekuensi));
 
+        // Pola urutan: item yang biasanya muncul lebih awal (avg_urutan kecil)
+        // mendapat bonus lebih besar.
+        $order = 0.0;
+
+        if ($stat->avg_urutan !== null) {
+            $order = 1.0 / (1.0 + (float) $stat->avg_urutan);
+        }
+
         return (float) config('ai.affinity.weight_frequency', 1.0) * $frequency
             + (float) config('ai.affinity.weight_recency', 3.0) * $recency
-            + (float) config('ai.affinity.weight_quantity', 0.5) * $quantity;
+            + (float) config('ai.affinity.weight_quantity', 0.5) * $quantity
+            + (float) config('ai.affinity.weight_order', 2.0) * $order;
     }
 
     /**
@@ -208,11 +229,71 @@ class AiSupplierBarangStatsService
                 'barang_id' => $barangId,
                 'nama_barang' => (string) ($names[$barangId] ?? ('barang #'.$barangId)),
                 'frekuensi' => (int) $stat->frekuensi,
+                'avg_urutan' => $stat->avg_urutan !== null ? (float) $stat->avg_urutan : null,
                 'satuan_terakhir' => $stat->satuan_terakhir,
                 'harga_terakhir' => $stat->harga_terakhir,
                 'terakhir' => $stat->tanggal_terakhir?->toDateString(),
             ];
         })->all();
+    }
+
+    /**
+     * Pola urutan item yang biasa diorder dari supplier: barang yang biasanya
+     * muncul lebih awal (avg_urutan kecil) lebih dulu. Hanya barang dengan
+     * histori cukup (frekuensi >= 2) agar pola tidak menyesatkan.
+     *
+     * @return array<int, array{nama_barang: string, avg_urutan: float, frekuensi: int}>
+     */
+    public function orderPattern(int $supplierId, int $limit = 15): array
+    {
+        if (! $this->available() || $supplierId < 1) {
+            return [];
+        }
+
+        $limit = max(1, min($limit, 50));
+
+        $stats = $this->statsFor($supplierId)->values()
+            ->filter(fn (AiSupplierBarangStat $stat): bool => $stat->avg_urutan !== null && (int) $stat->frekuensi >= 2)
+            ->sortBy(fn (AiSupplierBarangStat $stat): float => (float) $stat->avg_urutan)
+            ->take($limit)
+            ->values();
+
+        if ($stats->isEmpty()) {
+            return [];
+        }
+
+        $names = Barang::query()
+            ->whereKey($stats->pluck('barang_id')->all())
+            ->pluck('nama_barang', 'id');
+
+        return $stats->map(fn (AiSupplierBarangStat $stat): array => [
+            'nama_barang' => (string) ($names[(int) $stat->barang_id] ?? ('barang #'.$stat->barang_id)),
+            'avg_urutan' => (float) $stat->avg_urutan,
+            'frekuensi' => (int) $stat->frekuensi,
+        ])->all();
+    }
+
+    /**
+     * Blok pola urutan untuk disuntik ke prompt. Kosong bila belum ada pola kuat.
+     */
+    public function orderPatternBlock(int $supplierId, string $supplierName): string
+    {
+        $pattern = $this->orderPattern($supplierId, 15);
+
+        if ($pattern === []) {
+            return '';
+        }
+
+        $lines = collect($pattern)->values()->map(function (array $item, int $index): string {
+            return '  '.($index + 1).'. '.$item['nama_barang']
+                .' (rata-rata baris ke-'.(round($item['avg_urutan'], 1) + 1).', '.$item['frekuensi'].'x)';
+        })->implode("\n");
+
+        return <<<PROMPT
+POLA URUTAN ITEM DARI {$supplierName} (dari transaksi sebelumnya):
+{$lines}
+Saat menyusun draft belanja untuk {$supplierName}, utamakan urutan ini agar draft rapi & konsisten (mis. ayam utuh lebih dulu). Tetap sesuaikan bila pengguna menentukan urutan sendiri.
+PROMPT;
     }
 
     /** Satuan terakhir untuk pasangan supplier+barang (bila ada). */

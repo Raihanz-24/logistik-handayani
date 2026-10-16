@@ -55,24 +55,30 @@ class SaranBelanjaSupplierTool extends AiTool
             throw new ToolException('Supplier tidak ditemukan.');
         }
 
-        $items = app(AiSupplierBarangStatsService::class)->suggestions($supplierId, $limit);
+        $stats = app(AiSupplierBarangStatsService::class);
+        $items = $stats->suggestions($supplierId, $limit);
+        $orderPattern = $stats->orderPattern($supplierId, $limit);
+        $supplierName = (string) Supplier::query()->whereKey($supplierId)->value('nama_supplier');
 
         // Tanpa saran yang bermakna, katakan jelas agar model tidak mengarang.
         if ($items === [] || collect($items)->every(fn (array $item): bool => (int) $item['frekuensi'] < 2)) {
             return [
                 'supplier_id' => $supplierId,
-                'nama_supplier' => Supplier::query()->whereKey($supplierId)->value('nama_supplier'),
+                'nama_supplier' => $supplierName,
                 'jumlah' => count($items),
                 'barang' => $items,
+                'pola_urutan' => $orderPattern,
                 'catatan' => 'Riwayat masih sedikit; belum ada pola kuat. Tetap boleh menyusun draft manual.',
             ];
         }
 
         return $this->limitPayload([
             'supplier_id' => $supplierId,
-            'nama_supplier' => Supplier::query()->whereKey($supplierId)->value('nama_supplier'),
+            'nama_supplier' => $supplierName,
             'jumlah' => count($items),
             'barang' => $items,
+            'pola_urutan' => $orderPattern,
+            'instruksi_urutan' => 'Saat menyusun draft, ikuti pola_urutan bila pengguna tidak menentukan urutan sendiri.',
         ]);
     }
 }

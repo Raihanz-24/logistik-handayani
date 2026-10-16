@@ -89,6 +89,7 @@ return [
         'weight_frequency' => (float) env('AI_AFFINITY_WEIGHT_FREQUENCY', 1.0),
         'weight_recency' => (float) env('AI_AFFINITY_WEIGHT_RECENCY', 3.0),
         'weight_quantity' => (float) env('AI_AFFINITY_WEIGHT_QUANTITY', 0.5),
+        'weight_order' => (float) env('AI_AFFINITY_WEIGHT_ORDER', 2.0),
         'frequency_cap' => (int) env('AI_AFFINITY_FREQUENCY_CAP', 10),
         'recency_days' => (int) env('AI_AFFINITY_RECENCY_DAYS', 60),
         'suggestion_limit' => (int) env('AI_AFFINITY_SUGGESTION_LIMIT', 15),

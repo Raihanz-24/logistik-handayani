@@ -218,4 +218,57 @@ class AiAffinityVariantTest extends TestCase
             'barang_id' => $tempe->getKey(),
         ]);
     }
+
+    public function test_pola_urutan_item_per_supplier_dipelajari(): void
+    {
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Bu Elly', 'aktif' => true]);
+        $ayam = Barang::query()->create(['nama_barang' => 'Ayam Utuh', 'satuan' => '-']);
+        $tempe = Barang::query()->create(['nama_barang' => 'Tempe', 'satuan' => '-']);
+        $cabai = Barang::query()->create(['nama_barang' => 'Cabai', 'satuan' => 'kg']);
+        $user = $this->userWithPermissions(['view_any_barang']);
+
+        // Dua transaksi dengan urutan konsisten: ayam(0), tempe(1), cabai(2).
+        foreach ([1, 2] as $i) {
+            $this->buatTransaksi($supplier, $user, [
+                ['barang_id' => $ayam->getKey(), 'jumlah' => 1, 'harga_satuan' => 35000, 'satuan' => '-'],
+                ['barang_id' => $tempe->getKey(), 'jumlah' => 1, 'harga_satuan' => 8000, 'satuan' => '-'],
+                ['barang_id' => $cabai->getKey(), 'jumlah' => 1, 'harga_satuan' => 25000, 'satuan' => 'kg'],
+            ]);
+        }
+
+        $stats = app(AiSupplierBarangStatsService::class);
+        $pattern = $stats->orderPattern($supplier->getKey(), 10);
+
+        $this->assertNotEmpty($pattern);
+        // Ayam utuh harus menjadi item pertama pada pola.
+        $this->assertSame('Ayam Utuh', $pattern[0]['nama_barang']);
+        $this->assertSame(0.0, $pattern[0]['avg_urutan']);
+    }
+
+    public function test_pola_urutan_disuntik_ke_prompt_draft(): void
+    {
+        $supplier = Supplier::query()->create(['nama_supplier' => 'Bu Elly', 'aktif' => true]);
+        $ayam = Barang::query()->create(['nama_barang' => 'Ayam Utuh', 'satuan' => '-']);
+        $tempe = Barang::query()->create(['nama_barang' => 'Tempe', 'satuan' => '-']);
+        $user = $this->userWithPermissions(['create_kalkulator_belanja', 'update_kalkulator_belanja']);
+
+        foreach ([1, 2] as $i) {
+            $this->buatTransaksi($supplier, $user, [
+                ['barang_id' => $ayam->getKey(), 'jumlah' => 1, 'harga_satuan' => 35000, 'satuan' => '-'],
+                ['barang_id' => $tempe->getKey(), 'jumlah' => 1, 'harga_satuan' => 8000, 'satuan' => '-'],
+            ]);
+        }
+
+        $conversation = \App\Models\AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        app(\App\Services\Ai\Tools\CatatTransaksiBelanjaTool::class)->execute([
+            'supplier_id' => $supplier->getKey(),
+            'items' => [['barang_id' => $tempe->getKey(), 'jumlah' => 1, 'harga_satuan' => 8000, 'satuan' => '-']],
+        ], $user, $conversation);
+
+        $prompt = app(\App\Services\Ai\SystemPromptBuilder::class)->build($user, 'tambah ayam', $conversation);
+
+        $this->assertStringContainsString('POLA URUTAN ITEM', $prompt);
+        $this->assertStringContainsString('Ayam Utuh', $prompt);
+    }
 }
