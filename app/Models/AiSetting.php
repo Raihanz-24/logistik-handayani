@@ -16,6 +16,14 @@ class AiSetting extends Model
 {
     protected $fillable = [
         'enabled',
+        'provider_label',
+        'provider_local_enabled',
+        'provider_local_base_url',
+        'provider_local_model',
+        'provider_local_api_key',
+        'training_capture',
+        'training_local_enabled',
+        'uploaded_model_path',
         'assistant_name',
         'persona',
         'scope_description',
@@ -32,6 +40,9 @@ class AiSetting extends Model
     {
         return [
             'enabled' => 'boolean',
+            'provider_local_enabled' => 'boolean',
+            'training_capture' => 'boolean',
+            'training_local_enabled' => 'boolean',
             'restrict_to_listed_topics' => 'boolean',
             'always_include_rules' => 'boolean',
             'temperature' => 'float',

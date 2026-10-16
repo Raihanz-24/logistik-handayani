@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Models\AiSetting;
+
 /**
  * Resolusi PROFIL provider AI (lokal vs cloud) + urutan percobaan.
  *
@@ -22,12 +24,14 @@ class AiProviderConfig
         if ($name === 'local') {
             $local = (array) config('ai.profiles.local', []);
 
+            $override = $this->databaseOverride('local');
+
             return [
                 'name' => 'local',
-                'label' => (string) ($local['label'] ?? 'Xcode AI (Lokal)'),
-                'base_url' => rtrim((string) ($local['base_url'] ?? ''), '/'),
-                'api_key' => (string) ($local['api_key'] ?? 'local'),
-                'model' => (string) ($local['model'] ?? ''),
+                'label' => (string) ($override['label'] ?? $local['label'] ?? 'Xcode AI (Lokal)'),
+                'base_url' => rtrim((string) ($override['base_url'] ?? $local['base_url'] ?? ''), '/'),
+                'api_key' => (string) ($override['api_key'] ?? $local['api_key'] ?? 'local'),
+                'model' => (string) ($override['model'] ?? $local['model'] ?? ''),
                 'chat_path' => (string) ($local['chat_path'] ?? '/chat/completions'),
                 'models_path' => (string) ($local['models_path'] ?? '/models'),
                 'local' => true,
@@ -47,13 +51,45 @@ class AiProviderConfig
     }
 
     /**
+     * Override profil lokal dari tabel ai_settings (bila diisi). Kosong = pakai
+     * config. Aman: bila tabel/kolom belum ada, kembalikan array kosong.
+     *
+     * @return array{label?: string, base_url?: string, api_key?: string, model?: string}
+     */
+    private function databaseOverride(string $name): array
+    {
+        if ($name !== 'local' || ! (bool) config('ai.provider_settings_from_db', true)) {
+            return [];
+        }
+
+        try {
+            $setting = AiSetting::current();
+
+            if (! $setting) {
+                return [];
+            }
+
+            return array_filter([
+                'base_url' => (string) ($setting->provider_local_base_url ?? ''),
+                'model' => (string) ($setting->provider_local_model ?? ''),
+                'api_key' => (string) ($setting->provider_local_api_key ?? ''),
+            ], fn (string $value): bool => $value !== '');
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
      * Profil utama sesuai AI_DRIVER.
      *
      * @return array<string, mixed>
      */
     public function primary(): array
     {
-        return $this->profile(in_array($this->driver(), ['local', 'auto'], true) ? 'local' : 'cloud');
+        $preferLocal = $this->driver() === 'local'
+            || ($this->driver() === 'auto' && ! $this->localDisabled());
+
+        return $this->profile($preferLocal ? 'local' : 'cloud');
     }
 
     /**
@@ -65,11 +101,35 @@ class AiProviderConfig
      */
     public function fallback(): ?array
     {
-        if ($this->driver() === 'auto') {
-            return $this->profile('cloud');
+        if ($this->driver() !== 'auto') {
+            return null;
         }
 
-        return null;
+        // Bila pengguna mematikan profil lokal dari UI, jangan coba lokal sama sekali.
+        if ($this->localDisabled()) {
+            return null;
+        }
+
+        return $this->profile('cloud');
+    }
+
+    /**
+     * Apakah profil lokal dinonaktifkan lewat UI (ai_settings.provider_local_enabled).
+     * Bila kolom belum ada / belum diisi, anggap aktif (default aman).
+     */
+    public function localDisabled(): bool
+    {
+        if (! (bool) config('ai.provider_settings_from_db', true)) {
+            return false;
+        }
+
+        try {
+            $setting = AiSetting::current();
+
+            return $setting !== null && ! (bool) ($setting->provider_local_enabled ?? true);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function driver(): string

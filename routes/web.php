@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AiTrainingDownloadController;
 use App\Http\Controllers\BackupDownloadController;
 use App\Http\Controllers\FotoBarangMediaController;
 use App\Http\Controllers\PublicStorageController;
@@ -23,6 +24,10 @@ Route::redirect('/admin/shield/roles/{legacyPath?}', '/admin/peran')
 Route::middleware('auth')->get('/backup/{backup}/{file}', BackupDownloadController::class)
     ->whereIn('file', ['database', 'files'])
     ->name('backup.download');
+
+// Unduh dataset pelatihan AI (JSONL) untuk fine-tune di komputer lain.
+Route::middleware('auth')->get('/ai-training/download', AiTrainingDownloadController::class)
+    ->name('ai-training.download');
 
 Route::middleware('auth')->prefix('foto-barang-media')->group(function (): void {
     Route::post('/{session}/upload', [FotoBarangMediaController::class, 'store'])

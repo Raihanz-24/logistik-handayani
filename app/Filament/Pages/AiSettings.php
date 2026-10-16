@@ -78,6 +78,14 @@ class AiSettings extends Page implements HasForms
             'temperature' => $setting?->temperature,
             'max_tokens' => $setting?->max_tokens,
             'max_tool_iterations' => $setting?->max_tool_iterations,
+            'provider_label' => $setting?->provider_label ?? 'Xcode AI (Lokal)',
+            'provider_local_enabled' => $setting?->provider_local_enabled ?? true,
+            'provider_local_base_url' => $setting?->provider_local_base_url ?? config('ai.profiles.local.base_url'),
+            'provider_local_model' => $setting?->provider_local_model ?? config('ai.profiles.local.model'),
+            'provider_local_api_key' => $setting?->provider_local_api_key,
+            'training_capture' => $setting?->training_capture ?? (bool) config('ai.training.capture', true),
+            'training_local_enabled' => $setting?->training_local_enabled ?? (bool) config('ai.training.local_enabled', false),
+            'uploaded_model_path' => $setting?->uploaded_model_path,
         ];
     }
 
@@ -160,6 +168,61 @@ class AiSettings extends Page implements HasForms
                             ->label('Sertakan aturan wajib')
                             ->helperText('Menyertakan entri pengetahuan bertanda "selalu sertakan".'),
                     ]),
+
+                Section::make('Provider AI (Xcode AI Lokal)')
+                    ->description('Setelan model lokal (OpenAI-compatible: Ollama/vLLM/LM Studio). Tersimpan di aplikasi — TANPA mengubah .env. Kosongkan untuk memakai nilai default. Mengubah driver (cloud/local/auto) tetap lewat .env AI_DRIVER.')
+                    ->columns(['default' => 1, 'md' => 2])
+                    ->schema([
+                        TextInput::make('provider_label')
+                            ->label('Nama tampilan')
+                            ->maxLength(60)
+                            ->placeholder('Xcode AI (Lokal)'),
+                        Toggle::make('provider_local_enabled')
+                            ->label('Profil lokal aktif')
+                            ->helperText('Bila dimatikan, mode auto tidak akan mencoba model lokal.')
+                            ->default(true),
+                        TextInput::make('provider_local_base_url')
+                            ->label('Base URL lokal')
+                            ->maxLength(200)
+                            ->placeholder('http://127.0.0.1:11434/v1')
+                            ->helperText('Alamat server model lokal, OpenAI-compatible.'),
+                        TextInput::make('provider_local_model')
+                            ->label('Nama model lokal')
+                            ->maxLength(120)
+                            ->placeholder('qwen2.5:14b-instruct'),
+                        TextInput::make('provider_local_api_key')
+                            ->label('API key lokal (opsional)')
+                            ->maxLength(200)
+                            ->password()
+                            ->revealable()
+                            ->helperText('Biasanya "local"/kosong untuk server lokal.'),
+                    ]),
+
+                Section::make('Pelatihan Mandiri (Distilasi)')
+                    ->description('Rekam contoh perintah→aksi→jawaban untuk fine-tune model di komputer lain. Tidak melatih model di server ini.')
+                    ->columns(['default' => 1, 'md' => 2])
+                    ->schema([
+                        Toggle::make('training_capture')
+                            ->label('Rekam data pelatihan')
+                            ->helperText('Menyimpan contoh ke tabel ai_training_examples. Matikan bila tidak ingin menyimpan.')
+                            ->default(true),
+                        Toggle::make('training_local_enabled')
+                            ->label('Izinkan rekam saat pakai model lokal')
+                            ->helperText('Default: nonaktif (server tetap bersih saat memakai Xcode AI lokal).')
+                            ->default(false),
+                    ]),
+
+                Section::make('Model Lokal yang Dilatih di Komputer Lain')
+                    ->description('Setelah Anda fine-tune model di komputer lain, jalankan model itu di server ini (Ollama/vLLM/LM Studio) lalu isi alamat & nama modelnya di bagian "Provider AI" di atas. Kolom di bawah hanya mencatat lokasi/berkas model agar terdokumentasi di aplikasi.')
+                    ->columns(['default' => 1, 'md' => 2])
+                    ->schema([
+                        TextInput::make('uploaded_model_path')
+                            ->label('Lokasi / nama model hasil latih')
+                            ->maxLength(300)
+                            ->placeholder('contoh: /opt/models/xcode-ai-ft-v1.gguf atau xcode-ai-ft:latest')
+                            ->helperText('Opsional. Catatan agar tim lain tahu model mana yang dipakai. Untuk mengaktifkannya, arahkan "Nama model lokal" ke sini.')
+                            ->columnSpanFull(),
+                    ]),
             ])
             ->statePath('data');
     }
@@ -182,6 +245,14 @@ class AiSettings extends Page implements HasForms
                 'temperature' => $state['temperature'] === null || $state['temperature'] === '' ? null : (float) $state['temperature'],
                 'max_tokens' => $state['max_tokens'] === null || $state['max_tokens'] === '' ? null : (int) $state['max_tokens'],
                 'max_tool_iterations' => $state['max_tool_iterations'] === null || $state['max_tool_iterations'] === '' ? null : (int) $state['max_tool_iterations'],
+                'provider_label' => $state['provider_label'] ?: null,
+                'provider_local_enabled' => (bool) ($state['provider_local_enabled'] ?? true),
+                'provider_local_base_url' => $state['provider_local_base_url'] ?: null,
+                'provider_local_model' => $state['provider_local_model'] ?: null,
+                'provider_local_api_key' => $state['provider_local_api_key'] ?: null,
+                'training_capture' => (bool) ($state['training_capture'] ?? true),
+                'training_local_enabled' => (bool) ($state['training_local_enabled'] ?? false),
+                'uploaded_model_path' => $state['uploaded_model_path'] ?: null,
             ]);
             $setting->save();
 

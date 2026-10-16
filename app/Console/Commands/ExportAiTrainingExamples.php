@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\AiTrainingExample;
+use App\Services\Ai\AiTrainingExporter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -29,7 +30,7 @@ class ExportAiTrainingExamples extends Command
 
     protected $description = 'Ekspor contoh pelatihan AI ke JSONL (untuk fine-tune model lokal).';
 
-    public function handle(): int
+    public function handle(AiTrainingExporter $exporter): int
     {
         if (! Schema::hasTable('ai_training_examples')) {
             $this->warn('Tabel ai_training_examples belum ada. Jalankan: php artisan migrate');
@@ -37,24 +38,16 @@ class ExportAiTrainingExamples extends Command
             return self::SUCCESS;
         }
 
-        $query = AiTrainingExample::query()->orderBy('id');
+        $onlyCloud = (bool) $this->option('only-cloud');
+        $limit = (int) $this->option('limit');
 
-        if ($this->option('only-cloud')) {
-            $query->where('provider', 'like', '%Cloud%');
-        }
-
-        if ((int) $this->option('limit') > 0) {
-            $query->limit((int) $this->option('limit'));
-        }
-
-        $examples = $query->get();
-
-        if ($examples->isEmpty()) {
+        if ($exporter->count($onlyCloud) === 0) {
             $this->warn('Belum ada contoh pelatihan. Pakai Asisten dulu (dengan model cloud) agar data terkumpul.');
 
             return self::SUCCESS;
         }
 
+        $jsonl = $exporter->toJsonl($onlyCloud, $limit);
         $path = (string) $this->option('path');
 
         if (! str_starts_with($path, '/') && ! preg_match('/^[A-Za-z]:[\\\\\\/]/', $path)) {
@@ -74,45 +67,16 @@ class ExportAiTrainingExamples extends Command
                 throw new \RuntimeException('Tidak bisa menulis berkas: '.$path);
             }
 
-            $baris = 0;
-
-            foreach ($examples as $example) {
-                $toolCalls = collect($example->actions ?? [])
-                    ->filter(fn (array $a): bool => filled($a['name'] ?? null))
-                    ->map(fn (array $a): array => [
-                        'type' => 'function',
-                        'function' => [
-                            'name' => (string) $a['name'],
-                            'arguments' => json_encode($a['arguments'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                        ],
-                    ])
-                    ->values()
-                    ->all();
-
-                $assistant = ['role' => 'assistant', 'content' => (string) ($example->output ?? '')];
-
-                if ($toolCalls !== []) {
-                    $assistant['tool_calls'] = $toolCalls;
-                }
-
-                $line = json_encode([
-                    'messages' => [
-                        ['role' => 'user', 'content' => (string) $example->input],
-                        $assistant,
-                    ],
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-                fwrite($handle, $line."\n");
-                $baris++;
-            }
-
+            fwrite($handle, $jsonl);
             fclose($handle);
 
             if ($this->option('mark-exported')) {
                 AiTrainingExample::query()
-                    ->whereIn('id', $examples->pluck('id'))
+                    ->when($onlyCloud, fn ($q) => $q->where('provider', 'like', '%Cloud%'))
                     ->update(['exported' => true]);
             }
+
+            $baris = $jsonl === '' ? 0 : substr_count($jsonl, "\n");
 
             $this->info("Selesai. {$baris} contoh diekspor ke: {$path}");
 

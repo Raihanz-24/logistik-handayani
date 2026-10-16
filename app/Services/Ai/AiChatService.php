@@ -419,7 +419,13 @@ class AiChatService
     private function captureTrainingExamples(User $user, AiConversation $conversation, string $provider): void
     {
         try {
-            if (! (bool) config('ai.training.capture', true) || ! Schema::hasTable('ai_training_examples')) {
+            if (! $this->trainingCaptureEnabled() || ! Schema::hasTable('ai_training_examples')) {
+                return;
+            }
+
+            // Saat menjawab pakai model LOKAL, jangan simpan data latih di server
+            // kecuali pengguna mengizinkannya lewat UI (privasi/penyimpanan).
+            if (str_contains(mb_strtolower($provider), 'lokal') && ! $this->trainingLocalAllowed()) {
                 return;
             }
 
@@ -460,6 +466,34 @@ class AiChatService
             ]);
         } catch (Throwable $exception) {
             Log::debug('Lewati pencatatan contoh pelatihan AI.', ['error' => $exception->getMessage()]);
+        }
+    }
+
+    /** Aktif/nonaktif pencatatan contoh pelatihan (UI mengalahkan config). */
+    private function trainingCaptureEnabled(): bool
+    {
+        try {
+            $setting = AiSetting::current();
+
+            if ($setting && $setting->training_capture !== null) {
+                return (bool) $setting->training_capture;
+            }
+        } catch (Throwable) {
+            // Abaikan; pakai default config.
+        }
+
+        return (bool) config('ai.training.capture', true);
+    }
+
+    /** Bila menjawab pakai model lokal, apakah boleh menyimpan data latih? */
+    private function trainingLocalAllowed(): bool
+    {
+        try {
+            $setting = AiSetting::current();
+
+            return $setting !== null && (bool) ($setting->training_local_enabled ?? false);
+        } catch (Throwable) {
+            return (bool) config('ai.training.local_enabled', false);
         }
     }
 }

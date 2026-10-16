@@ -3,6 +3,9 @@
         $status = $this->status();
         $primary = $status['primary'];
         $fallback = $status['fallback'];
+        $local = $this->profile('local');
+        $cloud = $this->profile('cloud');
+        $training = $this->training();
     @endphp
 
     <div class="aips-page">
@@ -47,10 +50,11 @@
                 </span>
             </div>
             <dl class="aips-dl">
-                <dt>Base URL</dt><dd>{{ config('ai.profiles.local.base_url') }}</dd>
-                <dt>Model</dt><dd>{{ config('ai.profiles.local.model') }}</dd>
-                <dt>API key</dt><dd>{{ config('ai.profiles.local.api_key') === '' ? '—' : 'terisi (lokal)' }}</dd>
+                <dt>Base URL</dt><dd>{{ $local['base_url'] ?: '—' }}</dd>
+                <dt>Model</dt><dd>{{ $local['model'] ?: '—' }}</dd>
+                <dt>API key</dt><dd>{{ $local['api_key'] === '' ? '—' : 'terisi (lokal)' }}</dd>
             </dl>
+            <p class="aips-muted">Nilai ini bisa diubah tanpa <code>.env</code> melalui menu <strong>Pengaturan Asisten AI</strong>.</p>
             <x-filament::button color="gray" icon="heroicon-m-signal" wire:click="testLocal" wire:loading.attr="disabled" wire:target="testLocal">
                 <span wire:loading.remove wire:target="testLocal">Uji Koneksi Lokal</span>
                 <span wire:loading wire:target="testLocal">Menguji…</span>
@@ -66,14 +70,42 @@
                 </span>
             </div>
             <dl class="aips-dl">
-                <dt>Base URL</dt><dd>{{ config('ai.base_url') }}</dd>
-                <dt>Model</dt><dd>{{ config('ai.model') }}</dd>
-                <dt>API key</dt><dd>{{ filled(config('ai.api_key')) ? 'terisi' : 'kosong' }}</dd>
+                <dt>Base URL</dt><dd>{{ $cloud['base_url'] ?: '—' }}</dd>
+                <dt>Model</dt><dd>{{ $cloud['model'] ?: '—' }}</dd>
+                <dt>API key</dt><dd>{{ $cloud['api_key'] === '' ? 'kosong' : 'terisi' }}</dd>
             </dl>
             <x-filament::button color="gray" icon="heroicon-m-signal" wire:click="testCloud" wire:loading.attr="disabled" wire:target="testCloud">
                 <span wire:loading.remove wire:target="testCloud">Uji Koneksi Cloud</span>
                 <span wire:loading wire:target="testCloud">Menguji…</span>
             </x-filament::button>
+        </section>
+
+        {{-- Pelatihan & unduh dataset --}}
+        <section class="aips-section">
+            <div class="aips-section__head">
+                <h2 class="aips-section__title">Pelatihan Mandiri (Distilasi)</h2>
+                <span class="aips-badge {{ $training['capture'] ? 'aips-badge--ok' : 'aips-badge--warn' }}">
+                    {{ $training['capture'] ? 'merekam' : 'nonaktif' }}
+                </span>
+            </div>
+            @if (! $training['available'])
+                <p class="aips-muted">Tabel <code>ai_training_examples</code> belum ada. Jalankan <code>php artisan migrate</code>.</p>
+            @else
+                <dl class="aips-dl">
+                    <dt>Total contoh</dt><dd>{{ number_format($training['count'], 0, ',', '.') }} baris</dd>
+                    <dt>Dari cloud</dt><dd>{{ number_format($training['count_cloud'], 0, ',', '.') }} baris</dd>
+                    <dt>Perekaman</dt><dd>{{ $training['capture'] ? 'aktif' : 'nonaktif' }} — ubah di <strong>Pengaturan Asisten AI</strong></dd>
+                </dl>
+                <div class="aips-actions">
+                    <x-filament::button tag="a" href="{{ $this->downloadUrl() }}" icon="heroicon-m-arrow-down-tray" target="_blank">
+                        Unduh Dataset (JSONL)
+                    </x-filament::button>
+                    <x-filament::button tag="a" href="{{ $this->downloadUrl(true) }}" color="gray" icon="heroicon-m-arrow-down-tray" target="_blank">
+                        Unduh Hanya Cloud
+                    </x-filament::button>
+                </div>
+                <p class="aips-muted">Berkas JSONL bisa dipakai melatih/fine-tune model di komputer lain. Setelah selesai, jalankan model itu di server lokal (Ollama/vLLM) lalu arahkan <strong>Base URL &amp; Model</strong> profil lokal dari menu Pengaturan Asisten AI — tanpa mengubah <code>.env</code>.</p>
+            @endif
         </section>
 
         {{-- Panduan --}}
@@ -110,6 +142,7 @@
         .aips-badge--ok { background: rgba(34, 197, 94, .15); color: rgb(21 128 61); }
         .aips-badge--warn { background: rgba(245, 158, 11, .18); color: rgb(180 83 9); }
         .aips-list { margin: 0 0 .5rem; padding-left: 1.1rem; font-size: .84rem; line-height: 1.6; }
-        .aips-muted { font-size: .82rem; color: rgb(100 116 139); margin: 0; }
+        .aips-muted { font-size: .82rem; color: rgb(100 116 139); margin: .4rem 0 0; }
+        .aips-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .3rem; }
     </style>
 </x-filament-panels::page>

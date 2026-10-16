@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\User;
 use App\Services\Ai\AiClientException;
 use App\Services\Ai\AiProviderConfig;
+use App\Services\Ai\AiTrainingExporter;
 use App\Services\Ai\DeepSeekClient;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -63,6 +64,45 @@ class AiProviderStatus extends Page
     public function ready(string $name): bool
     {
         return app(AiProviderConfig::class)->isConfigured($name);
+    }
+
+    /** Profil ter-resolusi (termasuk override dari UI/DB). */
+    public function profile(string $name): array
+    {
+        return app(AiProviderConfig::class)->profile($name);
+    }
+
+    /** Ringkasan status perekaman & jumlah contoh pelatihan. */
+    public function training(): array
+    {
+        $exporter = app(AiTrainingExporter::class);
+        $setting = \App\Models\AiSetting::current();
+
+        return [
+            'available' => $exporter->available(),
+            'count' => $exporter->count(),
+            'count_cloud' => $exporter->count(true),
+            'capture' => $setting !== null && $setting->training_capture !== null
+                ? (bool) $setting->training_capture
+                : (bool) config('ai.training.capture', true),
+            'url' => route('ai-training.download'),
+        ];
+    }
+
+    /** URL unduhan dataset (opsional hanya cloud). */
+    public function downloadUrl(bool $onlyCloud = false, int $limit = 0): string
+    {
+        $params = [];
+
+        if ($onlyCloud) {
+            $params['only_cloud'] = 1;
+        }
+
+        if ($limit > 0) {
+            $params['limit'] = $limit;
+        }
+
+        return route('ai-training.download', $params);
     }
 
     public function testLocal(): void

@@ -77,7 +77,20 @@ return [
         'capture' => (bool) env('AI_TRAINING_CAPTURE', true),
         // Simpan hanya giliran yang memakai tool (lebih bernilai & hemat baris).
         'only_with_tools' => (bool) env('AI_TRAINING_ONLY_WITH_TOOLS', true),
+        // Saat menjawab pakai model lokal, apakah data latih boleh disimpan?
+        // Default false agar server tidak dipenuhi data; bisa diaktifkan dari UI.
+        'local_enabled' => (bool) env('AI_TRAINING_LOCAL_ENABLED', false),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pengaturan provider dari UI (database)
+    |--------------------------------------------------------------------------
+    | Bila true, nilai profil "lokal" (base_url/api_key/model) & izin merekam
+    | data latih diambil dari tabel ai_settings sehingga bisa diubah via UI tanpa
+    | menyentuh .env. Nilai kosong tetap jatuh ke config/ai.php.
+    */
+    'provider_settings_from_db' => (bool) env('AI_PROVIDER_SETTINGS_FROM_DB', true),
 
     /*
     |--------------------------------------------------------------------------
