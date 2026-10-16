@@ -266,6 +266,15 @@ return [
         // Baca ulang otomatis ringkasan draft yang menunggu konfirmasi.
         'read_summary' => (bool) env('AI_VOICE_READ_SUMMARY', true),
 
+        // Mikrofon TETAP hidup selama sesi (tidak diputus saat Anda berjeda).
+        // Bila false, mesin berhenti tiap kali Anda diam sesaat — inilah yang
+        // membuat AWALAN ucapan berikutnya sering terpotong. Default true.
+        'continuous' => (bool) env('AI_VOICE_CONTINUOUS', true),
+
+        // Jeda (milidetik) sebelum mesin dinyalakan ulang BILA browser tetap
+        // memutusnya (mis. Chrome Android). Kecil = awalan tidak terpotong.
+        'restart_delay_ms' => (int) env('AI_VOICE_RESTART_DELAY_MS', 0),
+
         // Nama voice TTS yang diprioritaskan (cocok sebagian, huruf kecil).
         // Contoh: "google indonesian", "andika", "gadis", "damayanti".
         // Bila kosong, sistem otomatis memilih voice Bahasa Indonesia terbaik.

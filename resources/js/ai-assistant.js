@@ -132,6 +132,8 @@ const readConfig = (root) => ({
     confirmWords: splitWords(root?.dataset.aiConfirm),
     cancelWords: splitWords(root?.dataset.aiCancel),
     voiceNames: splitWords(root?.dataset.aiVoiceNames),
+    continuous: (root?.dataset.aiContinuous || '1') === '1',
+    restartDelay: Math.max(0, parseInt(root?.dataset.aiRestartDelay || '0', 10) || 0),
 });
 
 /** Pisahkan daftar kata perintah (dipisah koma) menjadi array huruf kecil. */
@@ -1139,7 +1141,11 @@ const armRecognition = (micButton, config) => {
     recognition = new SR();
     recognition.lang = micButton?.dataset.lang || config.lang;
     recognition.interimResults = true;
-    recognition.continuous = false;
+    // continuous=true menjaga mic tetap hidup saat Anda berjeda, sehingga AWALAN
+    // kalimat berikutnya tidak terpotong. Sebagian browser (Chrome Android)
+    // mengabaikannya dan tetap berhenti → onend menyalakannya ulang secepat
+    // mungkin (lihat restartDelay, default 0 ms).
+    recognition.continuous = config.continuous !== false;
     recognition.maxAlternatives = 3;
 
     window.__aiChat.starting = true;
@@ -1211,13 +1217,16 @@ const armRecognition = (micButton, config) => {
 
             window.__aiChat.starting = false;
 
-            // Beri jeda kecil agar tidak membebani CPU & mic tidak "berebut".
+            // Nyalakan ulang SEKECEPATAN mungkin (default tanpa jeda) supaya
+            // awalan ucapan tidak hilang saat machine berhenti di tengah jeda.
+            const delay = config.continuous === false ? Math.max(config.restartDelay || 0, 180) : (config.restartDelay || 0);
+
             clearTimeout(window.__aiChat.rearmTimer);
             window.__aiChat.rearmTimer = setTimeout(() => {
                 if (voiceSession.intent) {
                     armRecognition(micButton, config);
                 }
-            }, 180);
+            }, delay);
 
             return;
         }
