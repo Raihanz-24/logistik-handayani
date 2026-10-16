@@ -5,11 +5,21 @@ namespace App\Services\Ai\Tools;
 use App\Models\AiConversation;
 use App\Models\Barang;
 use App\Models\User;
+use App\Services\Ai\AiSupplierBarangStatsService;
+use App\Services\Ai\AiUserMemoryService;
+use App\Services\Ai\BarangVariantResolver;
 use Illuminate\Support\Facades\Schema;
 
 /**
  * Mencari master barang berdasarkan kata kunci nama atau kode.
  * READ-ONLY.
+ *
+ * Pencocokan deterministik:
+ * - Skor nama/alias/kode (cocok persis menang, lalu awalan, lalu mengandung).
+ * - Bonus afinitas supplier (barang yang biasa diorder dari supplier tsb).
+ * - Bonus memori pribadi pengguna (frasa yang pernah dipetakan).
+ * - Aturan varian: penanda terkonfigurasi (mis. "karyawan") dipakai untuk
+ *   menyaring kandidat agar tidak salah pilih.
  */
 class CariBarangTool extends AiTool
 {
@@ -22,8 +32,10 @@ class CariBarangTool extends AiTool
     {
         return 'Mencari barang pada master data berdasarkan sebagian nama atau kode barang. '
             .'Gunakan ini untuk mendapatkan barang_id sebelum melakukan mutasi atau mencatat belanja. '
+            .'Bila tahu supplier tujuan (mis. belanja ke Bu Elly), kirim supplier_id agar hasil '
+            .'diprioritaskan ke barang yang biasa diorder dari supplier itu. '
             .'Hasil sudah diurutkan dari yang paling cocok; field "pilihan_terbaik" diisi bila ada '
-            .'satu kandidat yang jelas (mis. cocok persis nama/alias) — pakai itu tanpa bertanya. '
+            .'satu kandidat yang jelas — pakai itu tanpa bertanya. '
             .'Hanya tanyakan ke user bila beberapa kandidat benar-benar mirip/setara dan tidak ada pilihan terbaik.';
     }
 
@@ -35,6 +47,10 @@ class CariBarangTool extends AiTool
                 'kata_kunci' => [
                     'type' => 'string',
                     'description' => 'Sebagian nama atau kode barang. Kosongkan untuk melihat daftar terbaru.',
+                ],
+                'supplier_id' => [
+                    'type' => 'integer',
+                    'description' => 'Opsional. ID supplier tujuan; hasil diprioritaskan ke barang yang biasa diorder dari supplier ini.',
                 ],
                 'limit' => [
                     'type' => 'integer',
@@ -50,6 +66,7 @@ class CariBarangTool extends AiTool
     public function execute(array $arguments, User $user, ?AiConversation $conversation = null): array
     {
         $keyword = trim((string) ($arguments['kata_kunci'] ?? ''));
+        $supplierId = (int) ($arguments['supplier_id'] ?? 0);
         $limit = (int) ($arguments['limit'] ?? 10);
         $limit = max(1, min($limit, 25));
 
@@ -78,15 +95,58 @@ class CariBarangTool extends AiTool
         }
 
         // Ambil kandidat lebih banyak dari limit agar bisa diberi skor lalu diurutkan.
-        $candidates = $query->orderBy('nama_barang')->limit(max($limit * 5, 50))->get();
+        $candidates = $query->orderBy('nama_barang')->limit(max($limit * 5, 60))->get();
+
+        $resolver = app(BarangVariantResolver::class);
+        $allNames = $candidates
+            ->map(fn (Barang $barang): string => (string) $barang->nama_barang)
+            ->all();
+
+        // Hanya penanda TERKONFIGURASI yang menyaring keras (aman). Penanda
+        // otomatis hanya untuk awareness: hindari memilih varian ber-penanda
+        // saat user tidak menyebutnya (mis. "tempe" jangan jatuh ke "tempe karyawan").
+        $configMarkers = $resolver->configuredMarkers();
+        $mentionedMarker = $resolver->mentionedMarker($keyword, $configMarkers);
+        $autoMarkers = $resolver->detectedAutoMarkers($allNames);
+
+        $hasVariant = ($configMarkers !== [] || $autoMarkers !== [])
+            && $resolver->hasAnyMarker($allNames, array_values(array_unique([...$configMarkers, ...$autoMarkers])));
+
+        $affinity = app(AiSupplierBarangStatsService::class);
+        $memoryIds = app(AiUserMemoryService::class)->barangIdsFor($user, $keyword);
+
+        // Filter varian harus dijamin tidak mengosongkan hasil: pilih sisi yang
+        // diharapkan; bila sisi itu kosong, biarkan hasil apa adanya (fallback).
+        $passesVariant = function (string $nama) use ($resolver, $mentionedMarker, $configMarkers, $hasVariant): bool {
+            if (! $hasVariant) {
+                return true;
+            }
+
+            $hasConfigMarker = $resolver->hasMarker($nama, $configMarkers);
+
+            if ($mentionedMarker !== null) {
+                // User menyebut penanda -> hanya barang ber-penanda.
+                return $hasConfigMarker;
+            }
+
+            // User tidak menyebut -> jangan sentuh barang ber-penanda.
+            return ! $hasConfigMarker;
+        };
 
         $ranked = $candidates
-            ->map(fn (Barang $barang): array => $this->presentBarang($barang, $keyword, $hasAlias))
+            ->map(fn (Barang $barang): array => $this->presentBarang($barang, $keyword, $hasAlias, $supplierId, $affinity, $memoryIds))
             ->sortBy([
                 fn (array $a, array $b): int => $b['_score'] <=> $a['_score'],
                 fn (array $a, array $b): int => strcmp($a['nama_barang'], $b['nama_barang']),
             ])
             ->values();
+
+        $filtered = $ranked->filter(fn (array $item): bool => $passesVariant($item['nama_barang']));
+
+        // Fallback: jangan pernah mengosongkan hasil karena aturan varian.
+        if ($filtered->isNotEmpty()) {
+            $ranked = $filtered;
+        }
 
         $bestPick = $this->bestPick($ranked->all());
 
@@ -97,24 +157,40 @@ class CariBarangTool extends AiTool
 
                 return $item;
             })
+            ->values()
             ->all();
 
-        return $this->limitPayload([
+        $payload = [
             'jumlah' => count($items),
             'pilihan_terbaik' => $bestPick,
             'barang' => $items,
-        ]);
+        ];
+
+        if ($mentionedMarker !== null) {
+            $payload['penanda_varian_dipakai'] = $mentionedMarker;
+        }
+
+        return $this->limitPayload($payload);
     }
 
     /**
      * Susun payload satu barang + skor internal (dibuang sebelum dikirim).
      *
+     * @param  array<int, int>  $memoryIds
      * @return array<string, mixed>
      */
-    private function presentBarang(Barang $barang, string $keyword, bool $hasAlias): array
-    {
+    private function presentBarang(
+        Barang $barang,
+        string $keyword,
+        bool $hasAlias,
+        int $supplierId,
+        AiSupplierBarangStatsService $affinity,
+        array $memoryIds,
+    ): array {
+        $barangId = (int) $barang->getKey();
+
         return [
-            'barang_id' => (int) $barang->getKey(),
+            'barang_id' => $barangId,
             'nama_barang' => (string) $barang->nama_barang,
             'kode_barang' => (string) $barang->kode_barang,
             'satuan' => (string) $barang->satuan,
@@ -124,20 +200,48 @@ class CariBarangTool extends AiTool
             'catatan' => $barang->isBarangPasar()
                 ? 'Barang pasar: hanya untuk transaksi belanja, tidak untuk mutasi/stok gudang.'
                 : null,
-            '_score' => $this->scoreBarang($barang, $keyword, $hasAlias),
+            '_score' => $this->scoreBarang($barang, $keyword, $hasAlias, $supplierId, $affinity, $memoryIds, $barangId),
         ];
     }
 
     /**
      * Skor relevansi: cocok persis menang, lalu awalan, lalu mengandung.
-     * Nama & alias mendapat prioritas di atas kode barang.
+     * Ditambah bonus afinitas supplier & memori pribadi pengguna.
+     *
+     * @param  array<int, int>  $memoryIds
      */
-    private function scoreBarang(Barang $barang, string $keyword, bool $hasAlias): int
-    {
-        if ($keyword === '') {
-            return 1;
+    private function scoreBarang(
+        Barang $barang,
+        string $keyword,
+        bool $hasAlias,
+        int $supplierId,
+        AiSupplierBarangStatsService $affinity,
+        array $memoryIds,
+        int $barangId,
+    ): int {
+        $score = $keyword === ''
+            ? 1
+            : $this->nameScore($barang, $keyword, $hasAlias);
+
+        if ($supplierId > 0) {
+            $affinityValue = $affinity->affinityScore($supplierId, $barangId);
+
+            if ($affinityValue > 0) {
+                $score += (int) config('ai.search.affinity_bonus', 300)
+                    + (int) round($affinityValue * 10);
+            }
         }
 
+        if (in_array($barangId, $memoryIds, true)) {
+            $score += (int) config('ai.search.memory_bonus', 200);
+        }
+
+        return $score;
+    }
+
+    /** Skor berbasis nama/alias/kode saja. */
+    private function nameScore(Barang $barang, string $keyword, bool $hasAlias): int
+    {
         $needle = mb_strtolower($keyword);
         $nama = mb_strtolower(trim((string) $barang->nama_barang));
         $kode = mb_strtolower(trim((string) $barang->kode_barang));
@@ -147,7 +251,6 @@ class CariBarangTool extends AiTool
 
         $score = 0;
 
-        // Nama / alias cocok persis = paling kuat.
         if ($nama === $needle) {
             $score = max($score, 1000);
         }
@@ -158,7 +261,6 @@ class CariBarangTool extends AiTool
             }
         }
 
-        // Awalan nama / alias.
         if (str_starts_with($nama, $needle)) {
             $score = max($score, 700);
         }
@@ -169,7 +271,6 @@ class CariBarangTool extends AiTool
             }
         }
 
-        // Mengandung kata (word boundary) di nama / alias.
         if (preg_match('/\b'.preg_quote($needle, '/').'/u', $nama)) {
             $score = max($score, 500);
         }
@@ -180,14 +281,12 @@ class CariBarangTool extends AiTool
             }
         }
 
-        // Kode barang (lebih rendah).
         if ($kode === $needle) {
             $score = max($score, 400);
         } elseif (str_contains($kode, $needle)) {
             $score = max($score, 150);
         }
 
-        // Mengandung substring biasa di nama (fallback terakhir).
         if ($score === 0 && str_contains($nama, $needle)) {
             $score = 100;
         }
@@ -197,8 +296,7 @@ class CariBarangTool extends AiTool
 
     /**
      * Kandidat terbaik bila ada yang benar-benar unggul (skor tinggi & tak
-     * tertandingi). Mengembalikan null bila ambigu (beberapa kandidat setara),
-     * agar model bisa bertanya. Skor internal dibuang dari hasil.
+     * tertandingi). Mengembalikan null bila ambigu (beberapa kandidat setara).
      *
      * @param  array<int, array<string, mixed>>  $items  sudah terurut skor menurun
      * @return array<string, mixed>|null
@@ -212,12 +310,10 @@ class CariBarangTool extends AiTool
         $top = $items[0];
         $topScore = (int) ($top['_score'] ?? 0);
 
-        // Skor rendah = hanya cocok samar; jangan paksa pilih.
         if ($topScore < 400) {
             return null;
         }
 
-        // Bila kandidat kedua setara (selisih kecil), anggap ambigu.
         if (isset($items[1]) && ($topScore - (int) ($items[1]['_score'] ?? 0)) < 100) {
             return null;
         }

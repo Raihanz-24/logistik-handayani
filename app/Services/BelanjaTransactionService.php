@@ -8,6 +8,7 @@ use App\Models\HargaBarangSupplier;
 use App\Models\KalkulatorBelanja;
 use App\Models\PengeluaranBelanja;
 use App\Models\PengeluaranBelanjaItem;
+use App\Services\Ai\AiSupplierBarangStatsService;
 use App\Support\BarangSatuan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -225,6 +226,16 @@ class BelanjaTransactionService
 
         $this->refreshPricePairs([...$oldPairs, ...$newPairs]);
 
+        // Segarkan agregat afinitas supplier<->barang (Asisten AI "belajar" dari
+        // transaksi). Bila supplier berubah saat edit, segarkan keduanya.
+        $affinity = app(AiSupplierBarangStatsService::class);
+        $affectedSuppliers = collect([$expense?->getRawOriginal('supplier_id'), (int) $validated['supplier_id']])
+            ->filter(fn ($id): bool => (int) $id > 0)
+            ->unique()
+            ->values();
+
+        $affectedSuppliers->each(fn ($id) => $affinity->refreshSupplier((int) $id));
+
         app(AuditLogger::class)->activity(
             $expense ? 'pengeluaran_belanja_detail_update' : 'pengeluaran_belanja_detail_create',
             ($expense ? 'Memperbarui' : 'Membuat').' detail transaksi belanja: '.$saved->namaSupplier(),
@@ -249,11 +260,13 @@ class BelanjaTransactionService
             : 0;
         $expenseId = (int) $expense->getKey();
         $sessionId = (int) $expense->kalkulator_belanja_id;
+        $supplierId = (int) $expense->supplier_id;
         $supplier = $expense->namaSupplier();
         $deleted = (bool) $expense->delete();
 
         if ($deleted) {
             $this->flushCaches();
+            app(AiSupplierBarangStatsService::class)->refreshSupplier((int) $supplierId);
         }
 
         if ($deleted && $releasedPhotoLabelCount > 0) {

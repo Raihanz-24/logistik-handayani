@@ -107,16 +107,42 @@ class CatatTransaksiBelanjaTool extends AiTool
             throw new ToolException('Supplier tidak ditemukan atau tidak aktif.');
         }
 
+        // Lengkapi harga/satuan yang belum diisi dari histori supplier (afinitas),
+        // agar Asisten tidak ragu/berhenti bertanya. Satuan hanya dipakai bila
+        // pengguna memang tidak menyebutkannya.
+        $affinity = app(\App\Services\Ai\AiSupplierBarangStatsService::class);
+        $autoFilled = [];
+
         $payload = [
             'supplier_id' => $data['supplier_id'],
             'keterangan' => $data['keterangan'],
-            'items' => collect($items)->values()->map(fn (array $item): array => [
-                'barang_id' => (int) ($item['barang_id'] ?? 0),
-                'jumlah' => (float) ($item['jumlah'] ?? 0),
-                'harga_satuan' => (int) ($item['harga_satuan'] ?? 0),
-                'satuan' => filled($item['satuan'] ?? null) ? trim((string) $item['satuan']) : null,
-                'keterangan' => filled($item['keterangan'] ?? null) ? trim((string) $item['keterangan']) : null,
-            ])->all(),
+            'items' => collect($items)->values()->map(function (array $item) use ($data, $affinity, &$autoFilled): array {
+                $barangId = (int) ($item['barang_id'] ?? 0);
+
+                $harga = (int) ($item['harga_satuan'] ?? 0);
+                $satuan = filled($item['satuan'] ?? null) ? trim((string) $item['satuan']) : null;
+
+                if ($harga <= 0) {
+                    $lastPrice = $affinity->lastPrice((int) $data['supplier_id'], $barangId);
+
+                    if ($lastPrice !== null && $lastPrice > 0) {
+                        $harga = $lastPrice;
+                        $autoFilled[] = $barangId;
+
+                        if ($satuan === null) {
+                            $satuan = $affinity->lastUnit((int) $data['supplier_id'], $barangId);
+                        }
+                    }
+                }
+
+                return [
+                    'barang_id' => $barangId,
+                    'jumlah' => (float) ($item['jumlah'] ?? 0),
+                    'harga_satuan' => $harga,
+                    'satuan' => $satuan,
+                    'keterangan' => filled($item['keterangan'] ?? null) ? trim((string) $item['keterangan']) : null,
+                ];
+            })->all(),
         ];
 
         $summary = $this->summary($payload);
@@ -141,7 +167,9 @@ class CatatTransaksiBelanjaTool extends AiTool
         return [
             'pending_action_id' => (int) $action->getKey(),
             'ringkasan' => $summary,
-            'instruksi' => 'Minta pengguna menekan tombol "Catat Transaksi Belanja" pada kartu konfirmasi.',
+            'harga_otomatis_dari_histori' => $autoFilled !== [],
+            'instruksi' => 'Minta pengguna menekan tombol "Catat Transaksi Belanja" pada kartu konfirmasi. '
+                .($autoFilled !== [] ? 'Sebagian harga diisi otomatis dari harga terakhir; beri tahu pengguna singkat.' : ''),
         ];
     }
 

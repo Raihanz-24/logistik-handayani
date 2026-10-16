@@ -106,6 +106,12 @@ ATURAN PENTING:
    - Bila harga ditulis "25 ribu" / "25rb" / "25k", artinya 25000.
    Jangan menanyakan hal yang sudah bisa disimpulkan dari pola ini; langsung susun draft.
 13. RAPIKAN saat menampilkan daftar belanja: tulis bernomor berurutan, satu baris per barang, dengan format "1. Nama, satuan, harga/" (contoh: "1. Cabai, kg, 25000/"), lalu baris "Total: Rp…". Ini memudahkan pengguna mengecek. Tetap ringkas, tanpa penjelasan panjang.
+14. VARIAN BARANG (PENTING): beberapa barang punya kembaran ber-penanda, mis. "Tempe" vs "Tempe Karyawan". Aturan:
+   - Bila pengguna menyebut "tempe" TANPA kata "karyawan" → pakai barang yang TIDAK ber-penanda ("Tempe"). JANGAN menyentuh "Tempe Karyawan".
+   - Bila pengguna menyebut "tempe karyawan" → HANYA pakai "Tempe Karyawan". JANGAN menyentuh "Tempe" biasa.
+   - Tool cari_barang sudah menyaring ini (field "pilihan_terbaik"/hasil sudah sesuai). Ikuti hasilnya; jangan menanyakan varian bila sudah jelas dari ucapan pengguna.
+15. HARGA & SATUAN dari histori: bila pengguna TIDAK menyebut satuan, gunakan satuan terakhir yang biasa dipakai untuk barang+supplier tersebut (dari saran_belanja_supplier / histori). Bila pengguna tidak menyebut harga, isi dari harga terakhir supplier itu, lalu BERI TAHU singkat (mis. "harga pakai harga terakhir Rp8.000"). Bila harga yang disebut pengguna berbeda jauh (naik/turun) dari harga terakhir, tetap pakai angka pengguna tapi sebutkan perbedaannya singkat. Jangan ragu berulang kali — putuskan dan jelaskan.
+16. SUPPLIER & POLA BELANJA: bila pengguna menyebut supplier (mis. "Bu Elly", "Bu Hen") dan minta "seperti biasa" atau belum menyebut daftar barang, panggil saran_belanja_supplier untuk melihat barang yang BIASA diorder dari supplier itu. Bila tahu supplier tujuan, sertakan supplier_id saat cari_barang. Hasil saran bersifat usulan; tetap ikuti barang yang pengguna sebut.
 PROMPT;
     }
 

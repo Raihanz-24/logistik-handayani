@@ -79,6 +79,56 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Pembelajaran afinitas supplier <-> barang
+    |--------------------------------------------------------------------------
+    | Asisten "belajar" dari transaksi belanja yang sudah ada: barang apa yang
+    | biasanya diorder dari tiap supplier (mis. Bu Elly / Bu Hen). Bobot dipakai
+    | untuk menghitung skor afinitas (frekuensi + kebaruan + kuantitas).
+    */
+    'affinity' => [
+        'weight_frequency' => (float) env('AI_AFFINITY_WEIGHT_FREQUENCY', 1.0),
+        'weight_recency' => (float) env('AI_AFFINITY_WEIGHT_RECENCY', 3.0),
+        'weight_quantity' => (float) env('AI_AFFINITY_WEIGHT_QUANTITY', 0.5),
+        'frequency_cap' => (int) env('AI_AFFINITY_FREQUENCY_CAP', 10),
+        'recency_days' => (int) env('AI_AFFINITY_RECENCY_DAYS', 60),
+        'suggestion_limit' => (int) env('AI_AFFINITY_SUGGESTION_LIMIT', 15),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Penanda varian barang
+    |--------------------------------------------------------------------------
+    | Kata yang membedakan barang "serupa" (mis. "tempe" vs "tempe karyawan").
+    | Aturan: bila user TIDAK menyebut penanda, jangan sentuh barang ber-penanda;
+    | bila user MENYEBUT penanda, jangan sentuh barang tanpa penanda. Daftar ini
+    | juga diperkaya otomatis dari nama master (lihat BarangVariantResolver).
+    */
+    'variant_markers' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('AI_VARIANT_MARKERS', 'karyawan')),
+    ))),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pencocokan & keputusan (agar AI tidak ragu / tidak salah pilih)
+    |--------------------------------------------------------------------------
+    | search.* : bonus skor saat menentukan kandidat terbaik.
+    | price.*  : toleransi perbedaan harga dianggap wajar (fluktuasi normal).
+    */
+    'search' => [
+        'affinity_bonus' => (int) env('AI_SEARCH_AFFINITY_BONUS', 300),
+        'memory_bonus' => (int) env('AI_SEARCH_MEMORY_BONUS', 200),
+        'variant_bonus' => (int) env('AI_SEARCH_VARIANT_BONUS', 150),
+    ],
+
+    'price' => [
+        // Perbedaan <= persen ini dari harga terakhir dianggap wajar (bukan
+        // kenaikan/penurunan yang perlu ditanyakan).
+        'tolerance_percent' => (float) env('AI_PRICE_TOLERANCE_PERCENT', 15),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Permission per-tool (Shield)
     |--------------------------------------------------------------------------
     | Setiap tool dicek terhadap permission user yang login. Bila user tidak
@@ -92,6 +142,7 @@ return [
         'cari_lokasi' => 'view_any_lokasi',
         'cari_rak' => 'view_any_lokasi',
         'cari_supplier' => 'view_any_supplier',
+        'saran_belanja_supplier' => 'view_any_supplier',
         'buat_draft_mutasi' => 'create_mutasi',
         'buat_sesi_belanja' => 'create_kalkulator_belanja',
         'catat_transaksi_belanja' => 'update_kalkulator_belanja',
