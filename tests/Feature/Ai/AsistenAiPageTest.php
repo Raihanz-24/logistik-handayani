@@ -544,6 +544,28 @@ class AsistenAiPageTest extends TestCase
     }
 
     /**
+     * Pemisah otomatis: setiap frasa yang selesai (setelah jeda) dipisah spasi,
+     * dan diberi tanda titik bila belum ada — agar kata tidak menempel.
+     */
+    public function test_ucapan_otomatis_dipisah_dan_diberi_titik(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+        $html = (string) file_get_contents(resource_path('views/filament/pages/asisten-ai.blade.php'));
+        $config = (string) file_get_contents(base_path('config/ai.php'));
+
+        // Fungsi penggabung dengan spasi tunggal antar segmen.
+        $this->assertStringContainsString('joinSpeechSegments', $script);
+
+        // Sisipkan titik pada frasa final yang belum berakhir tanda baca.
+        $this->assertStringContainsString('autoPunctuation', $script);
+        $this->assertStringContainsString('finalTranscript = joinSpeechSegments', $script);
+
+        // Konfigurasi server + disuntik ke halaman.
+        $this->assertStringContainsString('auto_punctuation', $config);
+        $this->assertStringContainsString('data-ai-auto-punctuation=', $html);
+    }
+
+    /**
      * TTS di mobile: buka izin audio (prime) + ucapkan langsung dari gesture,
      * karena TTS Android akan senyap bila dipicu dari setTimeout.
      */

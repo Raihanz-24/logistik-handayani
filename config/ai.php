@@ -275,6 +275,10 @@ return [
         // memutusnya (mis. Chrome Android). Kecil = awalan tidak terpotong.
         'restart_delay_ms' => (int) env('AI_VOICE_RESTART_DELAY_MS', 0),
 
+        // Sisipkan tanda titik + spasi otomatis di setiap jeda/frasa selesai,
+        // sehingga hasil suara tidak menempel ("halo. apa kabar."). Default true.
+        'auto_punctuation' => (bool) env('AI_VOICE_AUTO_PUNCTUATION', true),
+
         // Nama voice TTS yang diprioritaskan (cocok sebagian, huruf kecil).
         // Contoh: "google indonesian", "andika", "gadis", "damayanti".
         // Bila kosong, sistem otomatis memilih voice Bahasa Indonesia terbaik.

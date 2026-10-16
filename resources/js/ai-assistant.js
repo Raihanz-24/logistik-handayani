@@ -99,6 +99,25 @@ const joinVoiceText = (base, spoken) => {
     return cleanSpoken;
 };
 
+/**
+ * Gabungkan dua potongan ucapan dengan spasi tunggal. Tidak menempelkan kata,
+ * dan mengembalikan potongan yang ada bila salah satunya kosong.
+ */
+const joinSpeechSegments = (base, piece) => {
+    const a = (base || '').replace(/\s+$/u, '');
+    const b = (piece || '').replace(/^\s+/u, '');
+
+    if (a === '') {
+        return b;
+    }
+
+    if (b === '') {
+        return a;
+    }
+
+    return a + ' ' + b;
+};
+
 /** Kirim form composer (dipakai fitur auto-kirim). */
 const submitComposer = () => {
     const form = document.querySelector('.ai-composer');
@@ -134,6 +153,7 @@ const readConfig = (root) => ({
     voiceNames: splitWords(root?.dataset.aiVoiceNames),
     continuous: (root?.dataset.aiContinuous || '1') === '1',
     restartDelay: Math.max(0, parseInt(root?.dataset.aiRestartDelay || '0', 10) || 0),
+    autoPunctuation: (root?.dataset.aiAutoPunctuation || '1') === '1',
 });
 
 /** Pisahkan daftar kata perintah (dipisah koma) menjadi array huruf kecil. */
@@ -1268,26 +1288,41 @@ const armRecognition = (micButton, config) => {
 
     recognition.onresult = (event) => {
         let interim = '';
-        let final = '';
+        const finalParts = [];
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             const text = result[0]?.transcript || '';
 
             if (result.isFinal) {
-                final += text;
+                const piece = text.trim();
+
+                if (piece !== '') {
+                    finalParts.push(piece);
+                }
             } else {
                 interim += text;
             }
         }
 
-        if (final) {
-            finalTranscript += final;
+        if (finalParts.length) {
+            // Setiap frasa yang selesai (setelah jeda) dipisah sebagai segmen
+            // tersendiri: beri tanda titik bila belum ada, lalu gabung dengan
+            // spasi — agar kata tidak menempel ("halo. apa kabar.").
+            for (const part of finalParts) {
+                let piece = part;
+
+                if (config.autoPunctuation !== false && ! /[.,!?;:…]$/u.test(piece)) {
+                    piece += '.';
+                }
+
+                finalTranscript = joinSpeechSegments(finalTranscript, piece);
+            }
         }
 
         // Perintah suara cepat: bila ucapan PERSIS "ya/simpan/batal" dan ada
         // tepat satu kartu konfirmasi, jalankan tanpa menyentuh kotak pesan.
-        if (final) {
+        if (finalParts.length) {
             const command = matchVoiceCommand(finalTranscript, config);
 
             if (command && triggerPendingAction(command === 'confirm' ? 'confirm' : 'cancel')) {
@@ -1298,8 +1333,9 @@ const armRecognition = (micButton, config) => {
             }
         }
 
-        // Hasil suara digabung dengan teks lama bila toggle "tambahkan" aktif.
-        const spoken = (finalTranscript || interim).trim();
+        // Gabungkan hasil pasti + interim (yang sedang didengar) agar ketikan
+        // terasa mengalir sebelum frasa difinalkan.
+        const spoken = joinSpeechSegments(finalTranscript, interim.trim());
         const combined = joinVoiceText(voiceSession.baseText, spoken);
 
         if (spoken) {
@@ -1313,7 +1349,7 @@ const armRecognition = (micButton, config) => {
             preview.textContent = combined;
         }
 
-        if (final) {
+        if (finalParts.length) {
             // Hanya sinkronkan ke Livewire saat hasil final agar tidak spam request.
             syncTranscriptToField(combined);
         } else if (spoken) {

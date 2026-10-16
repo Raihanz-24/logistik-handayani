@@ -12,6 +12,7 @@
     @php($voiceNames = implode(',', (array) config('ai.voice.voice_names', [])))
     @php($voiceContinuous = (bool) config('ai.voice.continuous', true))
     @php($voiceRestartDelay = (int) config('ai.voice.restart_delay_ms', 0))
+    @php($voiceAutoPunctuation = (bool) config('ai.voice.auto_punctuation', true))
 
     <div
         class="ai-page"
@@ -24,6 +25,7 @@
         data-ai-voice-names="{{ $voiceNames }}"
         data-ai-continuous="{{ $voiceContinuous ? '1' : '0' }}"
         data-ai-restart-delay="{{ $voiceRestartDelay }}"
+        data-ai-auto-punctuation="{{ $voiceAutoPunctuation ? '1' : '0' }}"
     >
         @unless ($configured)
             <div class="ai-alert">
