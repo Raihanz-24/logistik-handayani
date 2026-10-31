@@ -150,6 +150,13 @@ const appendSentencePunctuation = () => {
     }
 
     finalTranscript = current + '.';
+    // Sertakan titik ke teks "dikomit" agar kata berikutnya menyambung setelah
+    // titik, bukan menempel ulang ke kalimat sebelumnya.
+    voiceSession.committed = finalTranscript;
+
+    // PENTING: kosongkan teks objek aktif. Tanpa ini, event berikutnya akan
+    // menghitung (committed bertitik) + (objectText lama) → teks DOBEL.
+    voiceSession.objectText = '';
 
     const spoken = finalTranscript.trim();
     const combined = joinVoiceText(voiceSession.baseText, spoken);
@@ -163,6 +170,20 @@ const appendSentencePunctuation = () => {
     }
 
     syncTranscriptToField(combined);
+
+    // SEAL objek recognition ini: karena teks objek aktif sudah dipindahkan ke
+    // `committed` (bertitik), bila objek yang sama melanjutkan, hasil lama akan
+    // terhitung lagi → DOBEL. Hentikan mesin; onend akan mengomit teks & menyalakan
+    // ulang objek BARU yang bersih (hanya mendengar ucapan berikutnya).
+    if (voiceSession.intent && voiceSession.sealed !== true) {
+        voiceSession.sealed = true;
+
+        try {
+            recognition?.stop();
+        } catch (e) {
+            /* diabaikan */
+        }
+    }
 };
 
 /** Kirim form composer (dipakai fitur auto-kirim). */
@@ -748,8 +769,11 @@ const beginVoiceSession = (micButton) => {
     voiceSession.startedAt = Date.now();
     voiceSession.finalized = false;
     voiceSession.commandMatched = false;
-    // Kursor hasil: berapa banyak hasil yang sudah diproses (anti-dobel).
-    voiceSession.processedResults = 0;
+    // Teks yang sudah "dikomit" dari objek recognition sebelumnya (anti-dobel).
+    voiceSession.committed = '';
+    voiceSession.objectText = '';
+    voiceSession.hasFinal = false;
+    voiceSession.sealed = false;
 
     // "Tambahkan" = pertahankan teks lama lalu sambung hasil mic.
     // "Ganti" = mulai dari kosong (hapus teks sebelumnya).
@@ -1245,9 +1269,10 @@ const armRecognition = (micButton, config) => {
         showLockHint(! voiceSession.locked);
         noteVoiceDiagnostic('start', { lang: recognition.lang });
 
-        // Objek recognition BARU punya daftar hasil yang baru → reset kursor
-        // anti-dobel agar hasil dari objek sebelumnya tidak terhitung ulang.
-        voiceSession.processedResults = 0;
+        // Objek recognition BARU punya daftar hasil yang baru → mulai dari nol.
+        voiceSession.objectText = '';
+        voiceSession.hasFinal = false;
+        voiceSession.sealed = false;
 
         // Ukur level mikrofon secara paralel (opsional & non-blocking) untuk
         // memberi diagnosa tepat bila tidak ada teks sama sekali.
@@ -1286,6 +1311,16 @@ const armRecognition = (micButton, config) => {
 
     recognition.onend = () => {
         clearWatchdog();
+
+        // "Komit" teks objek recognition ini: simpan agar objek berikutnya
+        // menyambung, bukan mengulang. Ini kunci anti-dobel antar-restart.
+        const committed = joinSpeechSegments(voiceSession.committed || '', voiceSession.objectText || '').trim();
+
+        if (committed !== '') {
+            voiceSession.committed = committed;
+        }
+
+        voiceSession.objectText = '';
 
         // Selama sesi masih diinginkan (masih ditahan atau sedang terkunci),
         // nyalakan lagi otomatis. Ini penting karena `continuous` sering
@@ -1352,51 +1387,58 @@ const armRecognition = (micButton, config) => {
     };
 
     recognition.onresult = (event) => {
-        let interim = '';
-        const freshFinal = [];
+        // ============================================================
+        // ANTI-DOBEL: susun teks dengan MENGIKUTI URUTAN event.results.
+        //
+        // Jangan menggabung "semua final" lalu "semua interim" — di Chrome,
+        // hasil interim sering SUDAH memuat kata yang baru difinalkan, sehingga
+        // penggabungan itu membuat tiap kata muncul DUA kali. Dengan menyusun
+        // sesuai urutan slot, setiap kata muncul tepat sekali.
+        // ============================================================
+        const parts = [];
+        let hasFinal = false;
 
-        // PENTING: dengan continuous=true, Chrome mengirim SEMUA hasil (kumulatif)
-        // dan resultIndex sering tetap 0. Bila kita membaca dari event.resultIndex
-        // setiap kali, hasil lama diproses ulang → teks DOBEL. Karena itu kita
-        // simpan kursor: hanya proses hasil final yang belum pernah diambil.
-        if (typeof voiceSession.processedResults !== 'number' || voiceSession.processedResults > event.results.length) {
-            voiceSession.processedResults = 0;
-        }
-
-        for (let i = voiceSession.processedResults; i < event.results.length; i++) {
+        for (let i = 0; i < event.results.length; i++) {
             const result = event.results[i];
-            const text = result[0]?.transcript || '';
+            const text = (result[0]?.transcript || '').trim();
+
+            if (text === '') {
+                continue;
+            }
+
+            parts.push(text);
 
             if (result.isFinal) {
-                const piece = text.trim();
-
-                if (piece !== '') {
-                    freshFinal.push(piece);
-                }
-
-                voiceSession.processedResults = i + 1;
-            } else {
-                // Interim: digabung untuk pratinjau, TIDAK menaikkan kursor agar
-                // hasil final menyusul di event berikutnya.
-                interim += text;
+                hasFinal = true;
             }
         }
 
-        // Segmen final: sisipkan spasi antar potongan. Titik TIDAK ditambahkan di
-        // sini — ditunda ke timer jeda-panjang (lihat armPunctuationTimer) agar
-        // jeda pendek hanya diberi spasi.
-        freshFinal.forEach((part) => {
-            finalTranscript = joinSpeechSegments(finalTranscript, part);
-        });
+        // Teks objek recognition SAAT INI (final + interim dalam urutan asli).
+        const objectText = parts.join(' ').trim();
 
-        if (freshFinal.length) {
-            voiceSession.lastFinalAt = Date.now();
+        voiceSession.objectText = objectText;
+        voiceSession.hasFinal = hasFinal;
+
+        // Teks total = objek-objek sebelumnya (sudah dikomit) + objek ini.
+        const spoken = joinSpeechSegments(voiceSession.committed || '', objectText).trim();
+
+        finalTranscript = spoken;
+
+        const combined = joinVoiceText(voiceSession.baseText, spoken);
+
+        if (spoken) {
+            voiceSession.gotResult = true;
+            voiceSession.lastCombined = combined;
+
+            // Selama masih ada suara/teks, tunda titik. Titik baru muncul
+            // setelah benar-benar sepi selama ambang jeda.
+            armPunctuationTimer(config);
         }
 
         // Perintah suara cepat: bila ucapan PERSIS "ya/simpan/batal" dan ada
         // tepat satu kartu konfirmasi, jalankan tanpa menyentuh kotak pesan.
-        if (freshFinal.length) {
-            const command = matchVoiceCommand(finalTranscript, config);
+        if (hasFinal) {
+            const command = matchVoiceCommand(spoken, config);
 
             if (command && triggerPendingAction(command === 'confirm' ? 'confirm' : 'cancel')) {
                 voiceSession.commandMatched = true;
@@ -1406,31 +1448,18 @@ const armRecognition = (micButton, config) => {
             }
         }
 
-        // Gabungkan hasil pasti + interim (yang sedang didengar) agar ketikan
-        // terasa mengalir sebelum frasa difinalkan.
-        const spoken = joinSpeechSegments(finalTranscript, interim.trim());
-        const combined = joinVoiceText(voiceSession.baseText, spoken);
-
-        if (spoken) {
-            voiceSession.gotResult = true;
-            voiceSession.lastCombined = combined;
-
-            // Selama masih ada suara/teks (interim maupun final), tunda titik.
-            // Titik baru muncul setelah benar-benar sepi selama ambang jeda.
-            armPunctuationTimer(config);
-        }
-
         const preview = document.getElementById('ai-voice-preview');
 
         if (combined && preview) {
             preview.textContent = combined;
         }
 
-        if (freshFinal.length) {
-            // Hanya sinkronkan ke Livewire saat hasil final agar tidak spam request.
+        if (hasFinal) {
+            // Sinkronkan ke field/Livewire saat ada hasil final agar pasti tersimpan.
             syncTranscriptToField(combined);
         } else if (spoken) {
             const field = document.getElementById('ai-message-input');
+
             if (field) {
                 field.value = combined;
                 field.dispatchEvent(new Event('input', { bubbles: true }));

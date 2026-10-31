@@ -556,8 +556,12 @@ class AsistenAiPageTest extends TestCase
         // Fungsi penggabung dengan spasi tunggal antar segmen.
         $this->assertStringContainsString('joinSpeechSegments', $script);
 
-        // Anti-dobel: proses hanya hasil final yang belum diambil (kursor).
-        $this->assertStringContainsString('processedResults', $script);
+        // Anti-dobel: susun teks mengikuti URUTAN event.results (bukan
+        // final-lalu-interim yang membuat kata muncul dua kali).
+        $this->assertStringContainsString('voiceSession.objectText', $script);
+        $this->assertStringContainsString('joinSpeechSegments(voiceSession.committed', $script);
+        $this->assertStringContainsString('parts.push(text)', $script);
+        $this->assertStringNotContainsString('processedResults', $script);
 
         // Titik berbasis jeda panjang, bukan tiap frasa.
         $this->assertStringContainsString('armPunctuationTimer', $script);
