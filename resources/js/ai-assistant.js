@@ -14,7 +14,7 @@ const AI_ROOT = '.ai-page';
  * hipotesis kumulatif beruntun dalam hitungan milidetik; ucapan baru selalu
  * datang setelah jeda yang jauh lebih panjang.
  */
-const ECHO_BURST_MS = 400;
+const ECHO_BURST_MS = 800;
 
 /**
  * Preferensi suara (disimpan di localStorage):
@@ -1579,19 +1579,30 @@ const armRecognition = (micButton, config) => {
                 const prevSeenAt = slotState[i - 1]?.seenAt ?? 0;
                 const sameBurst = (now - prevSeenAt) <= ECHO_BURST_MS;
 
+                // Dua slot IDENTIK bersebelahan SELALU echo Chrome, bukan dua
+                // ucapan terpisah. Inilah penyebab "saya akan" → "saya akan saya
+                // akan". Berlaku juga bila echo datang di event berbeda, karena
+                // Chrome mengirim daftar hasil KUMULATIF.
+                //
+                // TRADE-OFF (disengaja): mengucapkan frasa yang PERSIS sama dua
+                // kali berturut-turut akan dilipat menjadi satu. Untuk aplikasi
+                // ini (mendikte pesan & daftar barang) itu jauh lebih jarang
+                // terjadi daripada echo, dan dobel jauh lebih mengganggu.
                 if (sameWords) {
-                    // final+interim atau interim+interim = echo -> buang.
-                    // final+final = pengguna benar-benar mengulang -> simpan.
-                    if (! (prev.isFinal && isFinal)) {
-                        continue;
-                    }
-                } else if (sameBurst && isExtension) {
+                    continue;
+                }
+
+                // Bentuk echo lain (perpanjangan/pemendekan) hanya dilipat bila
+                // masih dalam burst yang sama; di luar itu dianggap ucapan baru.
+                if (sameBurst && isExtension) {
                     // Slot terbaru memuat ulang kata sebelumnya + kata baru:
                     // ganti, jangan ditempel (menghindari "beli beli sabun").
                     parts[parts.length - 1] = { text, isFinal, seenAt };
 
                     continue;
-                } else if (sameBurst && isTruncation) {
+                }
+
+                if (sameBurst && isTruncation) {
                     // Hipotesis lama yang lebih panjang lalu memendek: buang.
                     continue;
                 }

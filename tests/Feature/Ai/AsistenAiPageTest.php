@@ -680,9 +680,11 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('parts.push({ text, isFinal, seenAt })', $script);
         $this->assertStringNotContainsString("parts.join(' ')", $script);
 
-        // Echo identik dibuang; ucapan yang benar-benar diulang dipertahankan.
-        $this->assertStringContainsString('if (! (prev.isFinal && isFinal))', $script);
+        // Slot identik bersebelahan SELALU echo (dulu final+final sengaja
+        // dipertahankan sehingga menghasilkan "saya akan saya akan").
         $this->assertStringContainsString('const sameWords = pw.join(\' \') === nw.join(\' \')', $script);
+        $this->assertStringContainsString('if (sameWords) {', $script);
+        $this->assertStringNotContainsString('if (! (prev.isFinal && isFinal))', $script);
 
         // Mode "Tambah" membuang tumpang-tindih di persimpangan.
         $this->assertStringContainsString('return mergeSpeechText(cleanBase, cleanSpoken);', $script);
