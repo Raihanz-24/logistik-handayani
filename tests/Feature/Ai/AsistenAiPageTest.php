@@ -8,6 +8,7 @@ use App\Models\AiMessage;
 use App\Models\AiPendingAction;
 use App\Models\Barang;
 use App\Models\Lokasi;
+use App\Models\Mutasi;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Ai\Tools\BuatDraftMutasiTool;
@@ -266,6 +267,44 @@ class AsistenAiPageTest extends TestCase
             ->assertHasNoErrors();
 
         $this->assertDatabaseHas('mutasis', ['barang_id' => $barang->getKey(), 'status' => 'pending']);
+        $this->assertSame(AiPendingAction::STATUS_CONFIRMED, $action->fresh()->status);
+    }
+
+    public function test_kartu_konfirmasi_batch_mutasi_tampil_dan_sekali_klik_membuat_semua(): void
+    {
+        $this->enableAi();
+
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $supplier = Supplier::query()->create(['nama_supplier' => 'PT Sumber', 'aktif' => true]);
+        $galon = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+        $sabun = Barang::query()->create(['nama_barang' => 'Sabun Cuci', 'satuan' => 'buah']);
+
+        $user = $this->userWithPermissions(['view_any_barang', 'create_mutasi']);
+        $this->actingAs($user);
+
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        app(\App\Services\Ai\Tools\BuatBatchMutasiTool::class)->execute([
+            'items' => [
+                ['jenis_mutasi' => 'masuk', 'barang_id' => $galon->getKey(), 'jumlah' => 4, 'lokasi_id' => $gudang->getKey(), 'supplier_id' => $supplier->getKey()],
+                ['jenis_mutasi' => 'masuk', 'barang_id' => $sabun->getKey(), 'jumlah' => 2, 'lokasi_id' => $gudang->getKey(), 'supplier_id' => $supplier->getKey()],
+            ],
+        ], $user, $conversation);
+
+        $action = AiPendingAction::query()->firstOrFail();
+
+        Livewire::test(AsistenAi::class)
+            ->call('openConversation', $conversation->getKey())
+            ->assertSee('Konfirmasi 2 draft mutasi')
+            ->assertSee('Buat Semua Draft')
+            ->call('confirmAction', $action->getKey())
+            ->assertHasNoErrors();
+
+        $this->assertSame(2, Mutasi::query()->where('status', 'pending')->count());
         $this->assertSame(AiPendingAction::STATUS_CONFIRMED, $action->fresh()->status);
     }
 

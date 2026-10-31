@@ -88,7 +88,9 @@ class ToolRegistry
             app(CariSupplierTool::class),
             app(SaranBelanjaSupplierTool::class),
             app(RiwayatTransaksiBelanjaTool::class),
+            app(RiwayatMutasiTool::class),
             app(BuatDraftMutasiTool::class),
+            app(BuatBatchMutasiTool::class),
             app(CatatTransaksiBelanjaTool::class),
             app(TambahItemBelanjaTool::class),
         ];

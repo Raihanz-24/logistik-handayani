@@ -423,4 +423,212 @@ class AiWriteFlowTest extends TestCase
             ->where('status', AiPendingAction::STATUS_PENDING)
             ->count());
     }
+
+    // ------------------------------------------------------------------
+    // Riwayat mutasi (read-only) + batch mutasi dalam satu konfirmasi.
+    // ------------------------------------------------------------------
+
+    public function test_tool_riwayat_mutasi_mengembalikan_data_nyata(): void
+    {
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $barang = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+
+        $user = $this->userWithPermissions(['view_any_mutasi']);
+
+        Mutasi::query()->create([
+            'tanggal' => now()->toDateString(),
+            'jenis_mutasi' => 'masuk',
+            'jumlah' => 7,
+            'status' => 'pending',
+            'barang_id' => $barang->getKey(),
+            'lokasi_id' => $gudang->getKey(),
+            'user_id' => $user->getKey(),
+            'created_by' => $user->getKey(),
+        ]);
+
+        $result = app(\App\Services\Ai\Tools\RiwayatMutasiTool::class)
+            ->execute(['barang_id' => $barang->getKey()], $user);
+
+        $this->assertSame(1, $result['jumlah_mutasi']);
+        $this->assertSame('Galon Aqua', $result['mutasi'][0]['nama_barang']);
+        $this->assertSame(7, $result['mutasi'][0]['jumlah']);
+        $this->assertSame('pending', $result['mutasi'][0]['status']);
+    }
+
+    public function test_riwayat_mutasi_tanpa_data_mengembalikan_kosong(): void
+    {
+        $user = $this->userWithPermissions(['view_any_mutasi']);
+
+        $result = app(\App\Services\Ai\Tools\RiwayatMutasiTool::class)->execute([], $user);
+
+        $this->assertSame(0, $result['jumlah_mutasi']);
+        $this->assertSame([], $result['mutasi']);
+    }
+
+    public function test_batch_mutasi_membuat_satu_pending_dan_konfirmasi_membuat_semua_mutasi(): void
+    {
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $supplier = Supplier::query()->create(['nama_supplier' => 'PT Sumber', 'aktif' => true]);
+        $galon = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+        $sabun = Barang::query()->create(['nama_barang' => 'Sabun Cuci', 'satuan' => 'buah']);
+
+        $user = $this->userWithPermissions(['create_mutasi']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        $result = app(\App\Services\Ai\Tools\BuatBatchMutasiTool::class)->execute([
+            'items' => [
+                [
+                    'jenis_mutasi' => 'masuk',
+                    'barang_id' => $galon->getKey(),
+                    'jumlah' => 5,
+                    'lokasi_id' => $gudang->getKey(),
+                    'supplier_id' => $supplier->getKey(),
+                    'tanggal' => '2026-01-02',
+                ],
+                [
+                    'jenis_mutasi' => 'masuk',
+                    'barang_id' => $sabun->getKey(),
+                    'jumlah' => 3,
+                    'lokasi_id' => $gudang->getKey(),
+                    'supplier_id' => $supplier->getKey(),
+                    'tanggal' => '2026-01-05',
+                ],
+            ],
+        ], $user, $conversation);
+
+        // Satu kartu konfirmasi (satu aksi pending) untuk dua mutasi.
+        $this->assertSame(1, AiPendingAction::query()->count());
+        $this->assertSame(0, Mutasi::query()->count());
+
+        $action = AiPendingAction::query()->findOrFail($result['pending_action_id']);
+        $this->assertSame(AiPendingAction::TYPE_MUTASI_BATCH, $action->type);
+        $this->assertStringContainsString('Draft 2 mutasi sekaligus', $action->summary);
+
+        $confirm = app(AiActionService::class)->confirm($action, $user);
+
+        // Satu konfirmasi -> dua mutasi pending, tanggal sesuai tiap item.
+        $this->assertSame(2, Mutasi::query()->count());
+        $this->assertSame('mutasi_batch', $confirm['type']);
+
+        $this->assertDatabaseHas('mutasis', [
+            'barang_id' => $galon->getKey(),
+            'jumlah' => 5,
+            'status' => 'pending',
+            'tanggal' => '2026-01-02 00:00:00',
+        ]);
+        $this->assertDatabaseHas('mutasis', [
+            'barang_id' => $sabun->getKey(),
+            'jumlah' => 3,
+            'status' => 'pending',
+            'tanggal' => '2026-01-05 00:00:00',
+        ]);
+        $this->assertSame(AiPendingAction::STATUS_CONFIRMED, $action->fresh()->status);
+
+        // Stok belum berubah karena masih pending.
+        $this->assertSame(0, BarangLokasi::query()->count());
+    }
+
+    public function test_batch_mutasi_menolak_total_stok_kumulatif_melebihi(): void
+    {
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $tujuan = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Cabang',
+            'kode_lokasi' => 'GC01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $barang = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+
+        BarangLokasi::query()->create([
+            'barang_id' => $barang->getKey(),
+            'lokasi_id' => $gudang->getKey(),
+            'stok' => 10,
+            'stok_baik' => 10,
+            'stok_rusak' => 0,
+            'stok_hilang' => 0,
+        ]);
+
+        $user = $this->userWithPermissions(['create_mutasi']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        // Dua item keluar masing-masing 6 dari stok 10 → total 12 melebihi stok.
+        $this->expectException(\App\Services\Ai\Tools\ToolException::class);
+        $this->expectExceptionMessage('tidak mencukupi');
+
+        app(\App\Services\Ai\Tools\BuatBatchMutasiTool::class)->execute([
+            'items' => [
+                [
+                    'jenis_mutasi' => 'keluar',
+                    'barang_id' => $barang->getKey(),
+                    'jumlah' => 6,
+                    'lokasi_id' => $gudang->getKey(),
+                    'lokasi_tujuan_id' => $tujuan->getKey(),
+                    'kondisi_asal' => 'baik',
+                ],
+                [
+                    'jenis_mutasi' => 'keluar',
+                    'barang_id' => $barang->getKey(),
+                    'jumlah' => 6,
+                    'lokasi_id' => $gudang->getKey(),
+                    'lokasi_tujuan_id' => $tujuan->getKey(),
+                    'kondisi_asal' => 'baik',
+                ],
+            ],
+        ], $user, $conversation);
+    }
+
+    public function test_batch_mutasi_menggantikan_draft_mutasi_tunggal(): void
+    {
+        $gudang = Lokasi::query()->create([
+            'nama_lokasi' => 'Gudang Utama',
+            'kode_lokasi' => 'GU01',
+            'jenis_lokasi' => Lokasi::JENIS_GUDANG,
+        ]);
+        $supplier = Supplier::query()->create(['nama_supplier' => 'PT Sumber', 'aktif' => true]);
+        $barang = Barang::query()->create(['nama_barang' => 'Galon Aqua', 'satuan' => 'buah']);
+
+        $user = $this->userWithPermissions(['create_mutasi']);
+        $conversation = AiConversation::query()->create(['user_id' => $user->getKey(), 'status' => 'active']);
+
+        app(BuatDraftMutasiTool::class)->execute([
+            'jenis_mutasi' => 'masuk',
+            'barang_id' => $barang->getKey(),
+            'jumlah' => 5,
+            'lokasi_id' => $gudang->getKey(),
+            'supplier_id' => $supplier->getKey(),
+        ], $user, $conversation);
+
+        app(\App\Services\Ai\Tools\BuatBatchMutasiTool::class)->execute([
+            'items' => [
+                [
+                    'jenis_mutasi' => 'masuk',
+                    'barang_id' => $barang->getKey(),
+                    'jumlah' => 2,
+                    'lokasi_id' => $gudang->getKey(),
+                    'supplier_id' => $supplier->getKey(),
+                ],
+            ],
+        ], $user, $conversation);
+
+        // Hanya kartu batch yang tersisa sebagai pending.
+        $this->assertSame(0, AiPendingAction::query()
+            ->where('type', AiPendingAction::TYPE_MUTASI_DRAFT)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->count());
+        $this->assertSame(1, AiPendingAction::query()
+            ->where('type', AiPendingAction::TYPE_MUTASI_BATCH)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->count());
+    }
 }

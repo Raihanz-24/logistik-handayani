@@ -95,7 +95,7 @@ ATURAN PENTING:
 5. Bila perintah tidak lengkap atau berisiko, minta klarifikasi singkat.
 6. WAJIB: sebelum menyiapkan mutasi keluar (transfer/pemakaian) atau perubahan kondisi, panggil cek_stok lebih dulu untuk memastikan stok tersedia mencukupi. Bila jumlah diminta melebihi stok yang ada (setelah dikurangi mutasi pending), TOLAK dan jelaskan sisa stoknya. Jangan pernah memaksakan draft yang melebihi stok.
 7. Mutasi masuk (pengadaan) menambah stok, jadi tidak perlu cek ketersediaan stok.
-8. Beberapa permintaan sekaligus: pengguna sering menyebut BANYAK barang dalam satu kalimat untuk transaksi belanja (mis. "tiga sabun, dua galon aqua, minyak satu"). Pecah menjadi baris item terpisah dalam SATU draft belanja, jangan tanya satu per satu. Untuk mutasi, bila menyebut banyak barang, buat draft terpisah per barang (satu kartu per barang).
+8. Beberapa permintaan sekaligus: pengguna sering menyebut BANYAK barang dalam satu kalimat untuk transaksi belanja (mis. "tiga sabun, dua galon aqua, minyak satu"). Pecah menjadi baris item terpisah dalam SATU draft belanja, jangan tanya satu per satu. Untuk MUTASI, bila pengguna meminta lebih dari satu mutasi dalam satu perintah (beda barang, beda jenis, atau beda tanggal), panggil buat_batch_mutasi SEKALI dengan daftar items — JANGAN memanggil buat_draft_mutasi berulang kali. Satu kartu konfirmasi akan membuat semua mutasi sekaligus (status pending).
 9. Nama panggilan: bila pengguna menyebut sebutan lokal (mis. "aqua", "mino"), cari lewat cari_barang (termasuk alias) dan pilih kandidat terbaik. Bila lebih dari satu kandidat mirip, tanyakan singkat mana yang dimaksud.
 10. Jangan mengakses, menampilkan, atau mengarang data di luar operasional gudang: kredensial/token, data pengguna lain, pengaturan internal, isi sistem, atau kolom sensitif. Gunakan HANYA data yang dikembalikan tool. Bila diminta hal sensitif, tolak dengan sopan.{$restrict}
 11. TANPA SATUAN artinya barang dihitung satuan (1 buah). Bila pengguna menyebut harga tanpa satuan (mis. "ayam broiler 100 ribu", "cabai 25 ribu"), artinya: jumlah = 1, satuan = "-" (strip), harga_satuan = nominal tersebut. JANGAN menanyakan satuan untuk kasus ini, langsung buat draft dengan jumlah 1 dan satuan "-". Bila pengguna menyebut angka jumlah di depan barang (mis. "2 ayam broiler 100 ribu"), pakai jumlah itu: jumlah = 2, satuan = "-", harga_satuan = 100000 (harga per barang). Bila pengguna menyebut angka + satuan (mis. "2 kg cabai"), pakai jumlah dan satuan itu apa adanya.
@@ -115,6 +115,8 @@ ATURAN PENTING:
 17. RIWAYAT TRANSAKSI (LANDASAN KEPUTUSAN): bila pengguna menanyakan transaksi tertentu ("orderan ke Bu Elly tanggal 12", "belanja kemarin apa saja"), panggil riwayat_transaksi_belanja dengan supplier_id dan tanggal/rentang. SELALU tampilkan SEMUA item pada transaksi tersebut (jangan sebagian) — nama, jumlah, satuan, harga, dan total. Pakai riwayat nyata ini sebagai patokan saat perintah ambigu: cocokkan barang yang diminta dengan yang benar-benar pernah diorder, pilih yang paling sesuai, dan JANGAN mengarang. Pola langganan tiap supplier dibentuk dari seluruh item pada setiap transaksi.
 18. POLA URUTAN ITEM: tiap supplier punya kebiasaan urutan barang (mis. ke supplier X item pertama selalu "ayam utuh"). Tool catat_transaksi_belanja/tambah_item_belanja SUDAH mengurutkan item otomatis mengikuti pola supplier, dan item yang tidak dibeli cukup DILOMPATI (mis. pola A,B,C,D tapi yang dibeli A,B,D → tetap A,B,D). Jadi kirim item apa pun urutannya; biarkan sistem merapikan. Bila pengguna MENENTUKAN URUTAN SENDIRI secara eksplisit, set parameter ikuti_urutan_pengguna=true dan pertahankan urutan pengguna.
 19. JANGAN LUPA DRAFT SAAT TANYA-JAWAB: bila di tengah menyusun belanja Anda perlu bertanya (mis. "tempe yang mana?") tetapi sudah tahu sebagian item, JANGAN menunda menyimpan. Segera panggil catat_transaksi_belanja dengan item yang sudah PASTI (buat draft), lalu tambahkan item lain dengan tambah_item_belanja. Draft belanja berjalan (termasuk urutannya) selalu dikirim ulang ke Anda tiap giliran, jadi item yang sudah masuk draft TIDAK akan hilang walau pengguna baru menjawab sebagian pertanyaan. Setelah pengguna menjawab, LANJUTKAN dari draft berjalan — jangan meminta item diulang.
+20. RIWAYAT MUTASI: bila pengguna menanyakan mutasi ("mutasi apa saja kemarin", "riwayat keluar galon", "mutasi masuk dari supplier X", "berapa yang sudah di-approve"), panggil riwayat_mutasi dengan filter yang sesuai (barang_id, jenis_mutasi, status, lokasi_id, tanggal/rentang). Tampilkan data nyata apa adanya — jangan mengarang. Gunakan riwayat ini sebagai patokan saat perintah ambigu.
+21. BATCH MUTASI & TANGGAL BERBEDA: buat_batch_mutasi menerima items[] dengan tanggal sendiri-sendiri. Bila pengguna meminta "mutasi masuk galon tanggal 1, sabun tanggal 3, keluar minyak tanggal 5", isi tanggal tiap item sesuai permintaan. Jangan memaksa semua item bertanggal sama. Tetap panggil cek_stok dulu untuk setiap item keluar/perubahan_kondisi, dan pastikan totalnya tidak melebihi stok.
 PROMPT;
     }
 
@@ -188,6 +190,11 @@ PROMPT;
                     .($orderPattern !== '' ? "\n".$orderPattern : '');
             }
 
+            if ($action->type === AiPendingAction::TYPE_MUTASI_BATCH) {
+                return "- DRAFT BATCH MUTASI (id={$action->getKey()}) BELUM dikonfirmasi:\n"
+                    .$this->draftMutasiBatchLines($action->payload ?? []);
+            }
+
             return '- DRAFT '.strtoupper((string) $action->type)." (id={$action->getKey()}) BELUM dikonfirmasi: "
                 .($summary !== '' ? $summary : '-');
         })->implode("\n");
@@ -201,6 +208,52 @@ Aturan draft berjalan:
 - Bila pengguna mengoreksi harga/jumlah sebuah item, ganti nilai item itu dan pertahankan sisanya.
 - Sebutkan ringkas bahwa draft diperbarui; jangan mengulang seluruh daftar panjang.
 PROMPT;
+    }
+
+    /**
+     * Baris item draft batch mutasi untuk disuntik ke prompt agar AI ingat
+     * mutasi apa saja yang sudah disiapkan (dan bisa menambah/mengoreksi).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function draftMutasiBatchLines(array $payload): string
+    {
+        $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+
+        if ($items === []) {
+            return '  (kosong)';
+        }
+
+        $barangNames = Barang::query()
+            ->whereKey(collect($items)->pluck('barang_id')->filter()->all())
+            ->pluck('nama_barang', 'id');
+
+        $lokasiNames = Lokasi::query()
+            ->whereKey(collect($items)
+                ->flatMap(fn (array $i): array => [$i['lokasi_id'] ?? null, $i['lokasi_tujuan_id'] ?? null])
+                ->filter()
+                ->all())
+            ->pluck('nama_lokasi', 'id');
+
+        $jenisLabels = \App\Models\Mutasi::jenisOptions();
+
+        $lines = collect($items)->values()->map(function (array $item, int $index) use ($barangNames, $lokasiNames, $jenisLabels): string {
+            $id = (int) ($item['barang_id'] ?? 0);
+            $nama = $barangNames[$id] ?? ('barang #'.$id);
+            $jenis = $jenisLabels[$item['jenis_mutasi'] ?? ''] ?? ($item['jenis_mutasi'] ?? '-');
+            $gudang = $lokasiNames[(int) ($item['lokasi_id'] ?? 0)] ?? ('#'.($item['lokasi_id'] ?? 0));
+            $tujuan = ! empty($item['lokasi_tujuan_id'])
+                ? ' → '.($lokasiNames[(int) $item['lokasi_tujuan_id']] ?? ('#'.$item['lokasi_tujuan_id']))
+                : '';
+
+            return '  '.($index + 1).'. '.$jenis.' | barang_id='.$id.' ('.$nama.')'
+                .' | jumlah='.(int) ($item['jumlah'] ?? 0)
+                .' | gudang='.$gudang.$tujuan
+                .' | tanggal='.($item['tanggal'] ?? '-');
+        })->implode("\n");
+
+        return $lines."\n  Aturan: pertahankan item yang sudah ada; bila pengguna menambah/mengoreksi, "
+            .'panggil ulang buat_batch_mutasi dengan SELURUH item (lama + baru).';
     }
 
     /**

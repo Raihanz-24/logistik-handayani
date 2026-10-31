@@ -129,6 +129,7 @@ class BuatDraftMutasiTool extends AiTool
     {
         // Draft mutasi lama pada percakapan ini digantikan draft terbaru.
         $this->supersedePendingActions($conversation, AiPendingAction::TYPE_MUTASI_DRAFT);
+        $this->supersedePendingActions($conversation, AiPendingAction::TYPE_MUTASI_BATCH);
 
         return AiPendingAction::query()->create([
             'ai_conversation_id' => $conversation?->getKey(),

@@ -9,6 +9,9 @@ class AiPendingAction extends Model
 {
     public const TYPE_MUTASI_DRAFT = 'mutasi_draft';
 
+    /** Beberapa draft mutasi sekaligus dalam satu konfirmasi. */
+    public const TYPE_MUTASI_BATCH = 'mutasi_batch';
+
     public const TYPE_PENGELUARAN_BELANJA = 'pengeluaran_belanja';
 
     public const STATUS_PENDING = 'pending';
@@ -62,5 +65,37 @@ class AiPendingAction extends Model
     public function isPending(): bool
     {
         return $this->status === self::STATUS_PENDING;
+    }
+
+    /** Jumlah item pada draft batch mutasi (0 bila bukan batch). */
+    public function itemCount(): int
+    {
+        if ($this->type !== self::TYPE_MUTASI_BATCH) {
+            return 0;
+        }
+
+        $items = $this->payload['items'] ?? [];
+
+        return is_array($items) ? count($items) : 0;
+    }
+
+    /** Judul kartu konfirmasi sesuai jenis aksi. */
+    public function confirmTitle(): string
+    {
+        return match ($this->type) {
+            self::TYPE_MUTASI_DRAFT => 'Konfirmasi draft mutasi',
+            self::TYPE_MUTASI_BATCH => 'Konfirmasi '.$this->itemCount().' draft mutasi',
+            default => 'Konfirmasi transaksi belanja',
+        };
+    }
+
+    /** Label tombol konfirmasi sesuai jenis aksi. */
+    public function confirmButtonLabel(): string
+    {
+        return match ($this->type) {
+            self::TYPE_MUTASI_DRAFT => 'Buat Draft',
+            self::TYPE_MUTASI_BATCH => 'Buat Semua Draft',
+            default => 'Catat Transaksi',
+        };
     }
 }

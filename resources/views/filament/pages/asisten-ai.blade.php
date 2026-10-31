@@ -126,7 +126,7 @@
                     <div class="ai-confirm" wire:key="action-{{ $action->id }}">
                         <div class="ai-confirm__head">
                             <span class="ai-confirm__icon"><x-filament::icon icon="heroicon-m-shield-exclamation" /></span>
-                            <span>{{ $action->type === 'mutasi_draft' ? 'Konfirmasi draft mutasi' : 'Konfirmasi transaksi belanja' }}</span>
+                            <span>{{ $action->confirmTitle() }}</span>
                         </div>
                         <p class="ai-confirm__summary">{{ $action->summary }}</p>
                         <div class="ai-confirm__actions">
@@ -139,7 +139,7 @@
                             >
                                 <span wire:loading.remove wire:target="confirmAction({{ (int) $action->id }})" class="ai-confirm__btn-label">
                                     <x-filament::icon icon="heroicon-m-check" />
-                                    {{ $action->type === 'mutasi_draft' ? 'Buat Draft' : 'Catat Transaksi' }}
+                                    {{ $action->confirmButtonLabel() }}
                                 </span>
                                 <span wire:loading wire:target="confirmAction({{ (int) $action->id }})" class="ai-confirm__spinner" aria-hidden="true"></span>
                             </button>
@@ -380,7 +380,7 @@
         .ai-confirm__head { display: flex; align-items: center; gap: .4rem; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: rgb(217 119 6); }
         .ai-confirm__icon { display: inline-grid; place-items: center; flex: 0 0 auto; }
         .ai-confirm__icon svg { width: .95rem; height: .95rem; }
-        .ai-confirm__summary { margin: .35rem 0 .5rem; font-size: .85rem; line-height: 1.4; }
+        .ai-confirm__summary { margin: .35rem 0 .5rem; font-size: .85rem; line-height: 1.4; white-space: pre-line; }
         .ai-confirm__actions { display: flex; gap: .4rem; flex-wrap: wrap; }
         .ai-confirm__btn { display: inline-flex; align-items: center; gap: .3rem; padding: .35rem .65rem; border-radius: 999px; border: 1px solid rgba(148,163,184,.4); background: transparent; color: inherit; font-size: .76rem; font-weight: 600; cursor: pointer; transition: background-color .15s ease, transform .15s ease; }
         .ai-confirm__btn:hover { background: rgba(148,163,184,.15); }

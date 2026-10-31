@@ -7,6 +7,7 @@ use App\Models\KalkulatorBelanja;
 use App\Models\Mutasi;
 use App\Models\PengeluaranBelanja;
 use App\Models\User;
+use App\Services\Ai\MutasiBatchService;
 use App\Services\AuditLogger;
 use App\Services\BelanjaTransactionService;
 use App\Services\MutasiDataService;
@@ -36,6 +37,7 @@ class AiActionService
 
         return match ($action->type) {
             AiPendingAction::TYPE_MUTASI_DRAFT => $this->confirmMutasi($action, $user),
+            AiPendingAction::TYPE_MUTASI_BATCH => $this->confirmMutasiBatch($action, $user),
             AiPendingAction::TYPE_PENGELUARAN_BELANJA => $this->confirmBelanja($action, $user),
             default => throw new RuntimeException('Jenis aksi tidak dikenal.'),
         };
@@ -99,6 +101,73 @@ class AiActionService
             'id' => (int) $record->getKey(),
             'label' => 'Draft mutasi dibuat dan menunggu persetujuan.',
             'url' => $this->mutasiUrl($record),
+        ];
+    }
+
+    /**
+     * Konfirmasi BANYAK draft mutasi sekaligus. Semua item dibuat dalam SATU
+     * transaksi: bila salah satu gagal, tidak ada yang tersimpan (tidak
+     * setengah jadi). Semua record mutasi berstatus 'pending'.
+     *
+     * @return array{type: string, id: int, label: string, url: string|null}
+     */
+    private function confirmMutasiBatch(AiPendingAction $action, User $user): array
+    {
+        $payload = $action->payload ?? [];
+        $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+
+        if ($items === []) {
+            throw new RuntimeException('Draft batch mutasi kosong.');
+        }
+
+        // Validasi kumulatif lebih dulu (di luar transaksi) agar pesan error jelas.
+        app(MutasiBatchService::class)->validate($items, (int) $user->getKey());
+
+        $records = DB::transaction(function () use ($items, $user): array {
+            $created = [];
+
+            foreach ($items as $item) {
+                $prepared = app(MutasiDataService::class)->prepare([
+                    ...$item,
+                    'user_id' => $user->getKey(),
+                ]);
+
+                $created[] = Mutasi::query()->create([
+                    ...$prepared,
+                    'status' => 'pending',
+                    'user_id' => $user->getKey(),
+                    'created_by' => $user->getKey(),
+                ]);
+            }
+
+            return $created;
+        });
+
+        $first = $records[0] ?? null;
+
+        $action->update([
+            'status' => AiPendingAction::STATUS_CONFIRMED,
+            'result_type' => Mutasi::class,
+            'result_id' => $first?->getKey(),
+            'confirmed_at' => now(),
+        ]);
+
+        app(AuditLogger::class)->activity(
+            'ai_action_mutasi_batch',
+            'Asisten AI membuat '.count($records).' draft mutasi sekaligus.',
+            $user,
+            [
+                'pending_action_id' => $action->getKey(),
+                'mutasi_ids' => array_map(fn (Mutasi $m): int => (int) $m->getKey(), $records),
+                'jumlah' => count($records),
+            ],
+        );
+
+        return [
+            'type' => 'mutasi_batch',
+            'id' => (int) ($first?->getKey() ?? 0),
+            'label' => count($records).' draft mutasi dibuat dan menunggu persetujuan.',
+            'url' => $first ? $this->mutasiUrl($first) : null,
         ];
     }
 
