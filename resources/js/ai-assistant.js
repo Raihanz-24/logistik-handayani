@@ -9,6 +9,14 @@
 const AI_ROOT = '.ai-page';
 
 /**
+ * Jendela waktu (ms) untuk menganggap dua slot hasil sebagai bagian dari
+ * ucapan yang SAMA (echo Chrome), bukan dua ucapan terpisah. Chrome mengirim
+ * hipotesis kumulatif beruntun dalam hitungan milidetik; ucapan baru selalu
+ * datang setelah jeda yang jauh lebih panjang.
+ */
+const ECHO_BURST_MS = 400;
+
+/**
  * Preferensi suara (disimpan di localStorage):
  * - append  : hasil mic DITAMBAHKAN ke teks yang sudah ada (tidak menghapus).
  * - autoSend: begitu selesai bicara, pesan langsung dikirim otomatis.
@@ -837,6 +845,7 @@ const beginVoiceSession = (micButton) => {
     voiceSession.hasFinal = false;
     voiceSession.sealed = false;
     voiceSession.restartRetries = 0;
+    voiceSession.slotState = {};
 
     // "Tambahkan" = pertahankan teks lama lalu sambung hasil mic.
     // "Ganti" = mulai dari kosong (hapus teks sebelumnya).
@@ -1367,6 +1376,7 @@ const armRecognition = (micButton, config) => {
         voiceSession.hasFinal = false;
         voiceSession.sealed = false;
         voiceSession.restartRetries = 0;
+        voiceSession.slotState = {};
 
         // Ukur level mikrofon secara paralel (opsional & non-blocking) untuk
         // memberi diagnosa tepat bila tidak ada teks sama sekali.
@@ -1513,6 +1523,13 @@ const armRecognition = (micButton, config) => {
         // ============================================================
         const parts = [];
         let hasFinal = false;
+        const now = Date.now();
+
+        // Waktu kapan tiap SLOT hasil terakhir berubah, dilacak lintas event.
+        // Ini yang membedakan echo Chrome (beruntun, milidetik) dari ucapan baru
+        // (selalu setelah jeda). Tanpa ini, penjaga burst tidak berfungsi karena
+        // `parts` dibangun ulang pada setiap event.
+        const slotState = voiceSession.slotState || (voiceSession.slotState = {});
 
         for (let i = 0; i < event.results.length; i++) {
             const result = event.results[i];
@@ -1528,31 +1545,59 @@ const armRecognition = (micButton, config) => {
                 hasFinal = true;
             }
 
+            const prevSlot = slotState[i];
+            const changed = ! prevSlot || prevSlot.text !== text;
+            const seenAt = changed ? now : prevSlot.seenAt;
+
+            slotState[i] = { text, seenAt };
+
             // ============================================================
             // BUANG ECHO DI DALAM SATU OBJEK (penyebab "1 kata jadi 2 kata").
             //
-            // Chrome sering mengirim slot final lalu slot INTERIM dengan teks
-            // yang SAMA (mis. final "halo" diikuti interim "halo"). Keduanya
-            // bukan dua ucapan — yang kedua hanyalah pengulangan mesin.
-            // Aturannya memakai status slot, BUKAN teks saja, supaya ucapan
-            // yang memang diulang pengguna tetap utuh:
-            //   final + interim  teks sama -> buang interim (echo)
-            //   interim + interim teks sama -> buang yang kedua (churn)
-            //   final + final     teks sama -> PERTAHANKAN (benar-benar diucap 2x)
+            // Chrome mengirim daftar hasil KUMULATIF, sehingga sering muncul
+            // slot yang sebenarnya ucapan yang SAMA dalam tahap berbeda:
+            //   a) final "halo" lalu interim "halo"        -> echo identik
+            //   b) final "beli" lalu final "beli sabun"    -> PERPANJANGAN
+            //   c) final "beli sabun" lalu final "beli"    -> PEMENDEKAN
+            // Semuanya bukan dua ucapan.
+            //
+            // (b) dan (c) hanya dilipat bila kedua slot lahir dalam burst yang
+            // sama (ECHO_BURST_MS). Bila pengguna berjeda lalu mengucap kalimat
+            // baru yang kebetulan berawalan sama, keduanya dipertahankan.
+            // Ucapan yang memang diulang ("sabun" + "sabun") juga tetap utuh
+            // karena bukan perpanjangan/pemendekan.
             // ============================================================
             const prev = parts[parts.length - 1];
 
-            if (prev && speechWords(prev.text).join(' ') === speechWords(text).join(' ')) {
-                if (prev.isFinal && ! isFinal) {
-                    continue;
-                }
+            if (prev) {
+                const pw = speechWords(prev.text);
+                const nw = speechWords(text);
+                const sameWords = pw.join(' ') === nw.join(' ');
+                const isExtension = nw.length > pw.length && pw.every((word, idx) => nw[idx] === word);
+                const isTruncation = nw.length < pw.length && nw.every((word, idx) => pw[idx] === word);
+                // Kapan slot SEBELUMNYA (di event.results) terakhir berubah.
+                const prevSeenAt = slotState[i - 1]?.seenAt ?? 0;
+                const sameBurst = (now - prevSeenAt) <= ECHO_BURST_MS;
 
-                if (! prev.isFinal && ! isFinal) {
+                if (sameWords) {
+                    // final+interim atau interim+interim = echo -> buang.
+                    // final+final = pengguna benar-benar mengulang -> simpan.
+                    if (! (prev.isFinal && isFinal)) {
+                        continue;
+                    }
+                } else if (sameBurst && isExtension) {
+                    // Slot terbaru memuat ulang kata sebelumnya + kata baru:
+                    // ganti, jangan ditempel (menghindari "beli beli sabun").
+                    parts[parts.length - 1] = { text, isFinal, seenAt };
+
+                    continue;
+                } else if (sameBurst && isTruncation) {
+                    // Hipotesis lama yang lebih panjang lalu memendek: buang.
                     continue;
                 }
             }
 
-            parts.push({ text, isFinal });
+            parts.push({ text, isFinal, seenAt });
         }
 
         // Teks objek recognition SAAT INI (final + interim dalam urutan asli).

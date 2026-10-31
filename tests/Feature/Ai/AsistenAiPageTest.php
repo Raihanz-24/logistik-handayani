@@ -600,7 +600,7 @@ class AsistenAiPageTest extends TestCase
         // dengan pembuang tumpang-tindih kata (mergeSpeechText).
         $this->assertStringContainsString('voiceSession.objectText', $script);
         $this->assertStringContainsString('mergeSpeechText(voiceSession.committed', $script);
-        $this->assertStringContainsString('parts.push({ text, isFinal })', $script);
+        $this->assertStringContainsString('parts.push({ text, isFinal, seenAt })', $script);
         $this->assertStringNotContainsString('processedResults', $script);
 
         // PENTING (regresi mic mati): menyisipkan titik TIDAK boleh menghentikan
@@ -677,13 +677,12 @@ class AsistenAiPageTest extends TestCase
         $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
 
         // parts kini menyimpan status final, bukan hanya teks.
-        $this->assertStringContainsString('parts.push({ text, isFinal })', $script);
+        $this->assertStringContainsString('parts.push({ text, isFinal, seenAt })', $script);
         $this->assertStringNotContainsString("parts.join(' ')", $script);
 
-        // Echo final→interim dan interim→interim dibuang; final→final dipertahankan.
-        $this->assertStringContainsString('prev.isFinal && ! isFinal', $script);
-        $this->assertStringContainsString('! prev.isFinal && ! isFinal', $script);
-        $this->assertStringContainsString('if (prev && speechWords(prev.text)', $script);
+        // Echo identik dibuang; ucapan yang benar-benar diulang dipertahankan.
+        $this->assertStringContainsString('if (! (prev.isFinal && isFinal))', $script);
+        $this->assertStringContainsString('const sameWords = pw.join(\' \') === nw.join(\' \')', $script);
 
         // Mode "Tambah" membuang tumpang-tindih di persimpangan.
         $this->assertStringContainsString('return mergeSpeechText(cleanBase, cleanSpoken);', $script);
@@ -691,6 +690,34 @@ class AsistenAiPageTest extends TestCase
             "return cleanBase.replace(/\\s+$/, '') + ' ' + cleanSpoken;",
             $script,
         );
+    }
+
+    /**
+     * ANTI-DOBEL lanjutan: Chrome mengirim hasil KUMULATIF, sehingga satu kata
+     * bisa terulang lewat perpanjangan/pemendekan slot — bukan hanya slot identik.
+     *
+     * Pola nyata yang terbukti lewat harness jsdom:
+     *   final "beli" + final "beli sabun"  -> dulu "beli beli sabun"
+     *   final "beli sabun" + final "beli"  -> dulu "beli sabun beli"
+     *
+     * Pelipatan dibatasi jendela waktu (ECHO_BURST_MS) supaya ucapan baru
+     * setelah jeda yang kebetulan berawalan sama tetap dipertahankan.
+     */
+    public function test_echo_kumulatif_tidak_menggandakan_kata(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // Deteksi perpanjangan & pemendekan berbasis kata.
+        $this->assertStringContainsString('isExtension', $script);
+        $this->assertStringContainsString('isTruncation', $script);
+        $this->assertStringContainsString('sameBurst', $script);
+
+        // Penjaga waktu burst (echo beruntun vs ucapan baru setelah jeda).
+        $this->assertStringContainsString('ECHO_BURST_MS', $script);
+        $this->assertStringContainsString('slotState', $script);
+
+        // Slot yang diperpanjang MENGGANTI slot sebelumnya, bukan ditempel.
+        $this->assertStringContainsString('parts[parts.length - 1] = { text, isFinal, seenAt };', $script);
     }
 
     /**
