@@ -118,10 +118,74 @@ const joinSpeechSegments = (base, piece) => {
     return a + ' ' + b;
 };
 
+/** Pecah teks menjadi daftar kata (huruf kecil, tanpa tanda baca). */
+const speechWords = (text) =>
+    (text || '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .split(/\s+/u)
+        .filter((word) => word !== '');
+
 /**
- * Timer "jeda panjang": dipasang ulang setiap ada frasa final. Bila TIDAK ada
+ * Gabungkan teks ucapan DENGAN MEMBUANG TUMPANG-TINDIH.
+ *
+ * Ini kunci anti-dobel yang aman: Chrome (terutama dengan continuous=true)
+ * sering mengirim ulang kata/frasa yang sudah ada — baik sebagai interim yang
+ * memuat kata final sebelumnya, maupun saat mesin di-restart lalu mendengar
+ * ekor ucapan yang sama. Alih-alih mematikan mesin, kita bandingkan kata:
+ * bila awal `piece` sama dengan akhir `base`, bagian itu dibuang dan hanya
+ * sisa barunya yang ditambahkan. Hasil: setiap kata muncul tepat sekali.
+ */
+const mergeSpeechText = (base, piece) => {
+    const a = (base || '').trim();
+    const b = (piece || '').trim();
+
+    if (a === '') {
+        return b;
+    }
+
+    if (b === '') {
+        return a;
+    }
+
+    const aw = speechWords(a);
+    const bw = speechWords(b);
+
+    if (aw.length === 0 || bw.length === 0) {
+        return a + ' ' + b;
+    }
+
+    // Cari tumpang-tindih terpanjang: akhiran `a` yang sama dengan awalan `b`.
+    const max = Math.min(aw.length, bw.length);
+
+    for (let n = max; n >= 1; n--) {
+        let match = true;
+
+        for (let k = 0; k < n; k++) {
+            if (aw[aw.length - n + k] !== bw[k]) {
+                match = false;
+                break;
+            }
+        }
+
+        if (match) {
+            const rest = b.split(/\s+/u).slice(n).join(' ').trim();
+
+            return rest === '' ? a : a + ' ' + rest;
+        }
+    }
+
+    return a + ' ' + b;
+};
+
+/**
+ * Timer "jeda panjang": dipasang ulang setiap ada ucapan. Bila TIDAK ada
  * ucapan baru sampai ambang (mis. 2 detik), kita anggap satu kalimat selesai
  * lalu tambahkan titik. Jeda pendek hanya menyisipkan spasi (timer di-reset).
+ *
+ * PENTING: fungsi ini TIDAK boleh memanggil recognition.stop(). Mematikan
+ * mesin di tengah sesi membuat mic berhenti mendeteksi suara (terutama Chrome
+ * Android). Titik dikelola sebagai teks, bukan dengan menghentikan mesin.
  */
 const armPunctuationTimer = (config) => {
     clearTimeout(window.__aiChat?.punctuationTimer);
@@ -141,6 +205,9 @@ const armPunctuationTimer = (config) => {
  * Tutup kalimat berjalan dengan titik bila belum berakhir tanda baca, lalu
  * sinkronkan ke kotak pesan. Dipanggil dari timer jeda panjang atau saat mic
  * berhenti (agar kalimat terakhir tetap bertitik).
+ *
+ * TIDAK menghentikan mesin pengenalan. Titik hanya perubahan teks; mesin tetap
+ * hidup sehingga ucapan berikutnya langsung tertangkap (tanpa perlu restart).
  */
 const appendSentencePunctuation = () => {
     const current = (finalTranscript || '').replace(/\s+$/u, '');
@@ -150,12 +217,11 @@ const appendSentencePunctuation = () => {
     }
 
     finalTranscript = current + '.';
-    // Sertakan titik ke teks "dikomit" agar kata berikutnya menyambung setelah
-    // titik, bukan menempel ulang ke kalimat sebelumnya.
-    voiceSession.committed = finalTranscript;
 
-    // PENTING: kosongkan teks objek aktif. Tanpa ini, event berikutnya akan
-    // menghitung (committed bertitik) + (objectText lama) → teks DOBEL.
+    // Pindahkan teks (bertitik) ke `committed` dan kosongkan teks objek aktif.
+    // Aman dari dobel karena penggabungan berikutnya memakai mergeSpeechText()
+    // yang membuang tumpang-tindih kata — bukan menempel buta.
+    voiceSession.committed = finalTranscript;
     voiceSession.objectText = '';
 
     const spoken = finalTranscript.trim();
@@ -170,20 +236,6 @@ const appendSentencePunctuation = () => {
     }
 
     syncTranscriptToField(combined);
-
-    // SEAL objek recognition ini: karena teks objek aktif sudah dipindahkan ke
-    // `committed` (bertitik), bila objek yang sama melanjutkan, hasil lama akan
-    // terhitung lagi → DOBEL. Hentikan mesin; onend akan mengomit teks & menyalakan
-    // ulang objek BARU yang bersih (hanya mendengar ucapan berikutnya).
-    if (voiceSession.intent && voiceSession.sealed !== true) {
-        voiceSession.sealed = true;
-
-        try {
-            recognition?.stop();
-        } catch (e) {
-            /* diabaikan */
-        }
-    }
 };
 
 /** Kirim form composer (dipakai fitur auto-kirim). */
@@ -774,6 +826,7 @@ const beginVoiceSession = (micButton) => {
     voiceSession.objectText = '';
     voiceSession.hasFinal = false;
     voiceSession.sealed = false;
+    voiceSession.restartRetries = 0;
 
     // "Tambahkan" = pertahankan teks lama lalu sambung hasil mic.
     // "Ganti" = mulai dari kosong (hapus teks sebelumnya).
@@ -1273,6 +1326,7 @@ const armRecognition = (micButton, config) => {
         voiceSession.objectText = '';
         voiceSession.hasFinal = false;
         voiceSession.sealed = false;
+        voiceSession.restartRetries = 0;
 
         // Ukur level mikrofon secara paralel (opsional & non-blocking) untuk
         // memberi diagnosa tepat bila tidak ada teks sama sekali.
@@ -1313,14 +1367,16 @@ const armRecognition = (micButton, config) => {
         clearWatchdog();
 
         // "Komit" teks objek recognition ini: simpan agar objek berikutnya
-        // menyambung, bukan mengulang. Ini kunci anti-dobel antar-restart.
-        const committed = joinSpeechSegments(voiceSession.committed || '', voiceSession.objectText || '').trim();
+        // menyambung, bukan mengulang. mergeSpeechText membuang tumpang-tindih
+        // sehingga restart tidak membuat kata dobel.
+        const committed = mergeSpeechText(voiceSession.committed || '', voiceSession.objectText || '').trim();
 
         if (committed !== '') {
             voiceSession.committed = committed;
         }
 
         voiceSession.objectText = '';
+        voiceSession.sealed = false;
 
         // Selama sesi masih diinginkan (masih ditahan atau sedang terkunci),
         // nyalakan lagi otomatis. Ini penting karena `continuous` sering
@@ -1388,12 +1444,13 @@ const armRecognition = (micButton, config) => {
 
     recognition.onresult = (event) => {
         // ============================================================
-        // ANTI-DOBEL: susun teks dengan MENGIKUTI URUTAN event.results.
-        //
-        // Jangan menggabung "semua final" lalu "semua interim" — di Chrome,
-        // hasil interim sering SUDAH memuat kata yang baru difinalkan, sehingga
-        // penggabungan itu membuat tiap kata muncul DUA kali. Dengan menyusun
-        // sesuai urutan slot, setiap kata muncul tepat sekali.
+        // ANTI-DOBEL (aman, tanpa mematikan mesin):
+        // 1) Susun teks objek ini mengikuti URUTAN event.results — jangan
+        //    menggabung "semua final lalu semua interim" (di Chrome interim
+        //    sering sudah memuat kata yang baru difinalkan).
+        // 2) Gabungkan dengan teks yang sudah dikomit memakai mergeSpeechText()
+        //    yang membuang tumpang-tindih kata, sehingga kata yang diulang
+        //    engine tidak muncul dua kali.
         // ============================================================
         const parts = [];
         let hasFinal = false;
@@ -1419,8 +1476,9 @@ const armRecognition = (micButton, config) => {
         voiceSession.objectText = objectText;
         voiceSession.hasFinal = hasFinal;
 
-        // Teks total = objek-objek sebelumnya (sudah dikomit) + objek ini.
-        const spoken = joinSpeechSegments(voiceSession.committed || '', objectText).trim();
+        // Teks total = teks objek sebelumnya (committed) + objek ini, dengan
+        // tumpang-tindih kata dibuang agar tidak dobel.
+        const spoken = mergeSpeechText(voiceSession.committed || '', objectText).trim();
 
         finalTranscript = spoken;
 
@@ -1435,6 +1493,14 @@ const armRecognition = (micButton, config) => {
             armPunctuationTimer(config);
         }
 
+        // Preview selalu mengikuti hasil terbaru (interim maupun final) agar
+        // pengguna langsung melihat ucapannya dikenali.
+        const preview = document.getElementById('ai-voice-preview');
+
+        if (combined && preview) {
+            preview.textContent = combined;
+        }
+
         // Perintah suara cepat: bila ucapan PERSIS "ya/simpan/batal" dan ada
         // tepat satu kartu konfirmasi, jalankan tanpa menyentuh kotak pesan.
         if (hasFinal) {
@@ -1446,12 +1512,6 @@ const armRecognition = (micButton, config) => {
 
                 return;
             }
-        }
-
-        const preview = document.getElementById('ai-voice-preview');
-
-        if (combined && preview) {
-            preview.textContent = combined;
         }
 
         if (hasFinal) {
@@ -1484,6 +1544,33 @@ const armRecognition = (micButton, config) => {
         }, 3000);
     } catch (e) {
         clearWatchdog();
+
+        // Kasus paling umum saat restart: objek lama belum benar-benar berhenti
+        // sehingga start() melempar "InvalidStateError". Dulu ini mematikan
+        // seluruh sesi (mic berhenti mendeteksi suara). Sekarang: coba lagi
+        // singkat beberapa kali selama sesi masih diinginkan.
+        if (voiceSession.intent) {
+            window.__aiChat.starting = false;
+            voiceSession.restartRetries = (voiceSession.restartRetries || 0) + 1;
+
+            if (voiceSession.restartRetries <= 8) {
+                clearTimeout(window.__aiChat.rearmTimer);
+                window.__aiChat.rearmTimer = setTimeout(() => {
+                    if (voiceSession.intent) {
+                        armRecognition(micButton, config);
+                    }
+                }, 150);
+            } else {
+                endVoiceSession(micButton);
+                notifyVoice(
+                    'Mesin pengenalan suara gagal dinyalakan ulang. Tekan mikrofon sekali lagi.',
+                    { sticky: true },
+                );
+            }
+
+            return;
+        }
+
         endVoiceSession(micButton);
         notifyVoice('Tidak dapat memulai perekaman suara. Coba muat ulang halaman.');
     }

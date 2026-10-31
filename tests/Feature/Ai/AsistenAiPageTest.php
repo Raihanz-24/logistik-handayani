@@ -596,11 +596,23 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString('joinSpeechSegments', $script);
 
         // Anti-dobel: susun teks mengikuti URUTAN event.results (bukan
-        // final-lalu-interim yang membuat kata muncul dua kali).
+        // final-lalu-interim yang membuat kata muncul dua kali), lalu gabung
+        // dengan pembuang tumpang-tindih kata (mergeSpeechText).
         $this->assertStringContainsString('voiceSession.objectText', $script);
-        $this->assertStringContainsString('joinSpeechSegments(voiceSession.committed', $script);
+        $this->assertStringContainsString('mergeSpeechText(voiceSession.committed', $script);
         $this->assertStringContainsString('parts.push(text)', $script);
         $this->assertStringNotContainsString('processedResults', $script);
+
+        // PENTING (regresi mic mati): menyisipkan titik TIDAK boleh menghentikan
+        // mesin pengenalan — dulu recognition.stop() dipanggil di sini dan mic
+        // berhenti mendeteksi suara. Pastikan fungsi titik tidak memanggil stop.
+        $punctuationFn = substr(
+            $script,
+            (int) strpos($script, 'const appendSentencePunctuation'),
+            (int) strpos($script, 'const submitComposer') - (int) strpos($script, 'const appendSentencePunctuation'),
+        );
+        $this->assertStringNotContainsString('recognition?.stop', $punctuationFn);
+        $this->assertStringNotContainsString('recognition.stop', $punctuationFn);
 
         // Titik berbasis jeda panjang, bukan tiap frasa.
         $this->assertStringContainsString('armPunctuationTimer', $script);
