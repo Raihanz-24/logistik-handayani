@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'handayani-pwa-v3';
+const CACHE_VERSION = 'handayani-pwa-v4';
 const OFFLINE_URL = '/offline.html';
 const PRECACHE_ASSETS = [
     OFFLINE_URL,

@@ -661,6 +661,48 @@ class AsistenAiPageTest extends TestCase
         $this->assertStringContainsString("syncTranscriptToField(voiceSession.baseText || '')", $script);
     }
 
+    /**
+     * Liveness mikrofon: sesi TIDAK boleh berhenti diam-diam.
+     *
+     * Regresi nyata: penjaga `window.__aiChat.starting` yang berupa boolean murni
+     * bisa tertinggal `true` selamanya bila mesin mati tanpa memicu onstart/onend.
+     * Akibatnya setiap armRecognition() berikutnya dibatalkan dan mic tampak
+     * hidup tetapi tidak pernah menerima teks. Tes ini mengunci:
+     *  - flag `starting` punya batas umur (startingAt),
+     *  - panel langsung tampil saat mic ditekan (bukan menunggu onstart),
+     *  - ada watchdog yang MENCOBA ULANG, bukan langsung mematikan sesi,
+     *  - hasil suara disimpan sebagai draf agar tidak hilang saat Livewire morph.
+     */
+    public function test_mikrofon_tidak_berhenti_total_dan_draf_suara_dipulihkan(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // Batas umur penjaga "sedang memulai".
+        $this->assertStringContainsString('startingAt', $script);
+        $this->assertStringContainsString('window.__aiChat.starting = false;', $script);
+        $this->assertStringContainsString('4000', $script);
+
+        // Panel tampil segera setelah beginVoiceSession (sebelum onstart).
+        $this->assertStringContainsString('showVoicePanel(true, micButton);', $script);
+        $this->assertStringContainsString('Menyiapkan mikrofon', $script);
+
+        // Watchdog start mencoba ulang alih-alih mematikan sesi.
+        $this->assertStringContainsString('restartRetries', $script);
+        $this->assertStringContainsString("noteVoiceDiagnostic('no-start'", $script);
+
+        // Jaring pengaman mesin yang diam tanpa onend.
+        $this->assertStringContainsString('engineWatchdog', $script);
+        $this->assertStringContainsString('engine-silent', $script);
+
+        // Pemulihan draf suara setelah Livewire morph.
+        $this->assertStringContainsString('voiceDraft', $script);
+        $this->assertStringContainsString('isVoiceActive()', $script);
+
+        // Service worker harus dinaikkan versinya agar aset build baru dipakai.
+        $sw = (string) file_get_contents(public_path('service-worker.js'));
+        $this->assertMatchesRegularExpression("/CACHE_VERSION = 'handayani-pwa-v[4-9]/", $sw);
+    }
+
     public function test_saran_cepat_mengisi_kotak_pesan(): void
     {
         $this->enableAi();

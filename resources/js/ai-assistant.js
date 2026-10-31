@@ -714,6 +714,10 @@ const syncTranscriptToField = (text) => {
 
     text = text || '';
 
+    // Simpan hasil suara terakhir agar bisa dipulihkan bila Livewire melakukan
+    // morph dan mengosongkan textarea di tengah sesi rekaman.
+    window.__aiChat.voiceDraft = text;
+
     field.value = text;
     field.dispatchEvent(new Event('input', { bubbles: true }));
     field.dispatchEvent(new Event('change', { bubbles: true }));
@@ -749,6 +753,10 @@ const voiceSession = {
     gotResult: false,
     error: '',
     cancelled: false,
+    // true bila ada objek SpeechRecognition yang benar-benar sudah "onstart".
+    // Dipakai oleh penjaga liveness: bila mesin mati tanpa memicu onend,
+    // sesi dinyalakan ulang otomatis (mic tidak pernah berhenti total).
+    engineAlive: false,
 };
 
 const isVoiceActive = () => voiceSession.intent === true;
@@ -834,6 +842,9 @@ const beginVoiceSession = (micButton) => {
 
     finalTranscript = '';
 
+    // Draf terakhir untuk pemulihan bila Livewire morph mengosongkan textarea.
+    window.__aiChat.voiceDraft = voiceSession.baseText || '';
+
     clearTimeout(window.__aiChat?.punctuationTimer);
 
     applyMicState(micButton);
@@ -852,7 +863,9 @@ const endVoiceSession = (micButton) => {
     clearTimeout(window.__aiChat?.voiceWatchdog);
     clearTimeout(window.__aiChat?.resultWatchdog);
     clearTimeout(window.__aiChat?.rearmTimer);
+    clearTimeout(window.__aiChat?.engineWatchdog);
     window.__aiChat.starting = false;
+    voiceSession.engineAlive = false;
 
     const wasActive = isVoiceActive();
     const hadResult = voiceSession.gotResult === true;
@@ -1275,6 +1288,17 @@ const startRecognition = (config) => {
     }
 
     beginVoiceSession(micButton);
+    // Tampilkan panel SEGERA (jangan menunggu onstart). Sebelumnya panel baru
+    // muncul di onstart, sehingga bila mesin gagal memulai, pengguna sama sekali
+    // tidak melihat indikator apa pun dan mengira tombol mic tidak bekerja.
+    showVoicePanel(true, micButton);
+
+    const preview = document.getElementById('ai-voice-preview');
+
+    if (preview && ! preview.dataset.heard) {
+        preview.textContent = 'Menyiapkan mikrofon…';
+    }
+
     armRecognition(micButton, config);
 };
 
@@ -1283,8 +1307,19 @@ const startRecognition = (config) => {
  * pada mode KUNCI setiap kali mesin berhenti karena jeda bicara (continuous=false).
  */
 const armRecognition = (micButton, config) => {
+    // Penjaga "sedang memulai": dulu flag boolean murni, sehingga bila onstart &
+    // onend sama-sama tidak terpanggil (mesin mati diam-diam), flag tertinggal
+    // true selamanya dan SEMUA percobaan start berikutnya dibatalkan → mic
+    // tampak hidup tetapi tidak pernah menerima teks. Sekarang dilengkapi batas
+    // waktu: bila sudah lewat 4 detik, anggap basi dan izinkan start baru.
     if (window.__aiChat.starting) {
-        return;
+        const age = Date.now() - (window.__aiChat.startingAt || 0);
+
+        if (age < 4000) {
+            return;
+        }
+
+        window.__aiChat.starting = false;
     }
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1307,16 +1342,19 @@ const armRecognition = (micButton, config) => {
     recognition.maxAlternatives = 3;
 
     window.__aiChat.starting = true;
+    window.__aiChat.startingAt = Date.now();
 
     let started = false;
 
     const clearWatchdog = () => {
         clearTimeout(window.__aiChat.voiceWatchdog);
         clearTimeout(window.__aiChat.resultWatchdog);
+        clearTimeout(window.__aiChat.engineWatchdog);
     };
 
     recognition.onstart = () => {
         started = true;
+        voiceSession.engineAlive = true;
         clearWatchdog();
         showVoicePanel(true, micButton);
         showLockHint(! voiceSession.locked);
@@ -1331,6 +1369,25 @@ const armRecognition = (micButton, config) => {
         // Ukur level mikrofon secara paralel (opsional & non-blocking) untuk
         // memberi diagnosa tepat bila tidak ada teks sama sekali.
         beginMetering();
+
+        // Jaring pengaman "mesin mati diam-diam": pada sebagian Chrome/Edge,
+        // sesi pengenalan berhenti tanpa memicu onend sama sekali. Bila tidak
+        // ada hasil apa pun selama 15 detik, hentikan mesin; onend akan
+        // menyalakannya ulang dengan objek baru yang bersih.
+        clearTimeout(window.__aiChat.engineWatchdog);
+        window.__aiChat.engineWatchdog = setTimeout(() => {
+            if (! voiceSession.intent || voiceSession.gotResult) {
+                return;
+            }
+
+            noteVoiceDiagnostic('engine-silent', { codes: 'restart' });
+
+            try {
+                recognition?.abort();
+            } catch (e) {
+                /* diabaikan */
+            }
+        }, 15000);
 
         // Watchdog "ada audio tapi tak ada teks": umum terjadi bila layanan
         // pengenalan Chrome tidak mengembalikan hasil (mis. jaringan terblokir).
@@ -1518,10 +1575,14 @@ const armRecognition = (micButton, config) => {
             // Sinkronkan ke field/Livewire saat ada hasil final agar pasti tersimpan.
             syncTranscriptToField(combined);
         } else if (spoken) {
+            // Interim ditulis ringan (tanpa set Livewire tiap ~100ms). Bila morph
+            // Livewire sempat mengosongkan textarea, hook morph.updated akan
+            // memulihkannya dari window.__aiChat.voiceDraft.
             const field = document.getElementById('ai-message-input');
 
             if (field) {
                 field.value = combined;
+                window.__aiChat.voiceDraft = combined;
                 field.dispatchEvent(new Event('input', { bubbles: true }));
                 autoGrow(field);
             }
@@ -1532,16 +1593,34 @@ const armRecognition = (micButton, config) => {
         recognition.start();
 
         // Watchdog: sebagian browser (mis. Edge) membuat objeknya tetapi tidak
-        // pernah memulai. Jika tak ada sinyal apa pun, beri tahu pengguna.
+        // pernah memulai. JANGAN langsung mematikan sesi — coba nyalakan ulang
+        // beberapa kali dulu, baru menyerah dengan pesan yang jelas.
         window.__aiChat.voiceWatchdog = setTimeout(() => {
-            if (! started) {
-                endVoiceSession(micButton);
-                notifyVoice(
-                    'Mikrofon tidak merespons. Pastikan Anda mengizinkan akses mikrofon, lalu coba lagi dengan Chrome atau Edge terbaru.',
-                    { sticky: true },
-                );
+            if (started || ! voiceSession.intent) {
+                return;
             }
-        }, 3000);
+
+            window.__aiChat.starting = false;
+            voiceSession.restartRetries = (voiceSession.restartRetries || 0) + 1;
+            noteVoiceDiagnostic('no-start', { codes: 'retry-' + voiceSession.restartRetries });
+
+            if (voiceSession.restartRetries <= 4) {
+                clearTimeout(window.__aiChat.rearmTimer);
+                window.__aiChat.rearmTimer = setTimeout(() => {
+                    if (voiceSession.intent) {
+                        armRecognition(micButton, config);
+                    }
+                }, 200);
+
+                return;
+            }
+
+            endVoiceSession(micButton);
+            notifyVoice(
+                'Mikrofon tidak merespons. Pastikan Anda mengizinkan akses mikrofon, lalu coba lagi dengan Chrome atau Edge terbaru.',
+                { sticky: true },
+            );
+        }, 5000);
     } catch (e) {
         clearWatchdog();
 
@@ -1997,6 +2076,17 @@ const boot = () => {
                 t.hidden = true;
             }
             autoGrow(document.getElementById('ai-message-input'));
+
+            // Pemulihan draf suara: Livewire morph bisa mengembalikan textarea ke
+            // nilai state server (kosong) sehingga teks hasil bicara "hilang".
+            const field = document.getElementById('ai-message-input');
+            const draft = window.__aiChat.voiceDraft;
+
+            if (field && draft && field.value.trim() === '' && isVoiceActive()) {
+                field.value = draft;
+                autoGrow(field);
+            }
+
             setTimeout(scrollToEnd, 50);
             speakPendingSummary();
         });

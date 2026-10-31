@@ -29,7 +29,7 @@ class PwaAssetsTest extends TestCase
         $this->assertStringNotContainsString("'/media/'", $serviceWorker);
         $this->assertStringContainsString('CACHE_APP_ASSETS', $serviceWorker);
         $this->assertStringContainsString('CACHEABLE_ASSET_PATHS', $serviceWorker);
-        $this->assertStringContainsString("CACHE_VERSION = 'handayani-pwa-v3'", $serviceWorker);
+        $this->assertMatchesRegularExpression("/CACHE_VERSION = 'handayani-pwa-v\\d+'/", $serviceWorker);
         $this->assertStringContainsString('isImmutableBuildAsset', $serviceWorker);
         $this->assertStringContainsString('const cachedResponse = await cache.match(request)', $serviceWorker);
     }
