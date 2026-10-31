@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'handayani-pwa-v4';
+const CACHE_VERSION = 'handayani-pwa-v5';
 const OFFLINE_URL = '/offline.html';
 const PRECACHE_ASSETS = [
     OFFLINE_URL,
@@ -111,21 +111,27 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (isImmutableBuildAsset(url)) {
+        // NETWORK-FIRST untuk aset build. Dulu cache-first: bila sebuah aset
+        // pernah tersimpan, versi itu dipakai SELAMANYA — sehingga perbaikan
+        // JS tidak pernah sampai ke pengguna (gejala: bug lama terus muncul
+        // walau sudah pull & hard refresh). Sekarang server selalu ditanya
+        // lebih dulu; cache hanya jaring pengaman saat offline.
         event.respondWith(
-            caches.open(CACHE_VERSION).then(async (cache) => {
-                const cachedResponse = await cache.match(request);
+            fetch(request).then(async (response) => {
+                if (response.ok && response.type === 'basic') {
+                    const cache = await caches.open(CACHE_VERSION);
+                    await cache.put(request, response.clone());
+                }
+
+                return response;
+            }).catch(async () => {
+                const cachedResponse = await caches.match(request);
 
                 if (cachedResponse) {
                     return cachedResponse;
                 }
 
-                const response = await fetch(request);
-
-                if (response.ok && response.type === 'basic') {
-                    await cache.put(request, response.clone());
-                }
-
-                return response;
+                throw new Error('offline');
             }),
         );
 

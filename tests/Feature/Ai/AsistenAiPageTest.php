@@ -692,8 +692,12 @@ class AsistenAiPageTest extends TestCase
         // Slot tidak boleh ditempel buta.
         $this->assertStringNotContainsString("parts.join(' ')", $script);
 
-        // Mode "Tambah" membuang tumpang-tindih di persimpangan.
-        $this->assertStringContainsString('return mergeSpeechText(cleanBase, cleanSpoken);', $script);
+        // Mode "Tambah" membuang tumpang-tindih di persimpangan, lalu tetap
+        // dibersihkan dari deret kumulatif (lapis pengaman terakhir).
+        $this->assertStringContainsString(
+            'collapseCumulativeEcho(mergeSpeechText(cleanBase, cleanSpoken))',
+            $script,
+        );
         $this->assertStringNotContainsString(
             "return cleanBase.replace(/\\s+$/, '') + ' ' + cleanSpoken;",
             $script,
@@ -769,6 +773,48 @@ class AsistenAiPageTest extends TestCase
         // Service worker harus dinaikkan versinya agar aset build baru dipakai.
         $sw = (string) file_get_contents(public_path('service-worker.js'));
         $this->assertMatchesRegularExpression("/CACHE_VERSION = 'handayani-pwa-v[4-9]/", $sw);
+    }
+
+    /**
+     * REGRESI LAPORAN PENGGUNA (paling penting).
+     *
+     * Keluaran nyata yang dilaporkan:
+     *   "saya Saya akan Saya akan beli Saya akan beli sabun ..."
+     * yaitu setiap hipotesis interim ditempel berurutan. Terbukti berasal dari
+     * build lama (94080c6) yang menempel buta hasil kumulatif.
+     *
+     * Kini ada TIGA lapis pertahanan agar tidak bisa kembali:
+     *  1. Lipat per-slot dengan mergeSpeechText.
+     *  2. collapseCumulativeEcho() sebagai pembersih deret kumulatif.
+     *  3. Penanda build + service worker network-first agar aset lama tidak
+     *     pernah tersaji lagi (akar masalah "sudah pull tapi bug tetap muncul").
+     */
+    public function test_deret_kumulatif_tidak_ditempel_berurutan(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // Lapis 1: lipat per-slot.
+        $this->assertStringContainsString('objectText = mergeSpeechText(objectText, part.text);', $script);
+
+        // Lapis 2: pembersih deret kumulatif, dipakai di jalur utama.
+        $this->assertStringContainsString('const collapseCumulativeEcho = (text)', $script);
+        $this->assertStringContainsString('collapseCumulativeEcho(', $script);
+        $this->assertStringContainsString('sameSpeechWord(tokens[len + k], tokens[k])', $script);
+
+        // Lapis 3: penanda build agar versi yang berjalan bisa dipastikan.
+        $this->assertStringContainsString('const AI_BUILD =', $script);
+        $this->assertStringContainsString("console.info('[Asisten AI] build: ' + AI_BUILD)", $script);
+
+        // Service worker TIDAK boleh cache-first untuk aset build.
+        // Blok immutable harus memanggil fetch(request) LANGSUNG (network-first),
+        // bukan membuka cache lebih dulu. Cache hanya dipakai di jalur offline.
+        $sw = (string) file_get_contents(public_path('service-worker.js'));
+        $start = (int) strpos($sw, 'if (isImmutableBuildAsset(url))');
+        $immutableFn = substr($sw, $start, (int) strpos($sw, 'const networkRequest') - $start);
+
+        $this->assertStringContainsString('fetch(request).then(async (response) =>', $immutableFn);
+        $this->assertStringNotContainsString('caches.open(CACHE_VERSION).then(async (cache) => {', $immutableFn);
+        $this->assertStringNotContainsString('const cachedResponse = await cache.match(request);', $immutableFn);
     }
 
     public function test_saran_cepat_mengisi_kotak_pesan(): void

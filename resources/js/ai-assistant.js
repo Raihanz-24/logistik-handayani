@@ -9,6 +9,14 @@
 const AI_ROOT = '.ai-page';
 
 /**
+ * Stempel versi modul. Dicetak ke konsol saat boot agar bisa dipastikan build
+ * mana yang BENAR-BENAR berjalan di browser. Naikkan setiap kali logika voice
+ * berubah — ini satu-satunya cara cepat mendeteksi aset lama yang masih
+ * tersaji (cache PWA / opcache / belum `git pull`).
+ */
+const AI_BUILD = 'voice-2026-11-anti-echo-4';
+
+/**
  * Preferensi suara (disimpan di localStorage):
  * - append  : hasil mic DITAMBAHKAN ke teks yang sudah ada (tidak menghapus).
  * - autoSend: begitu selesai bicara, pesan langsung dikirim otomatis.
@@ -89,16 +97,16 @@ const joinVoiceText = (base, spoken) => {
 
     if (voicePrefs.append && cleanBase) {
         if (! cleanSpoken) {
-            return cleanBase;
+            return collapseCumulativeEcho(cleanBase);
         }
 
         // Sambung dengan spasi, TETAPI buang tumpang-tindih kata di persimpangan.
         // Contoh nyata: kotak sudah berisi "beli sabun" lalu pengguna mengulang
         // "sabun mandi" → hasil "beli sabun mandi", bukan "beli sabun sabun mandi".
-        return mergeSpeechText(cleanBase, cleanSpoken);
+        return collapseCumulativeEcho(mergeSpeechText(cleanBase, cleanSpoken));
     }
 
-    return cleanSpoken;
+    return collapseCumulativeEcho(cleanSpoken);
 };
 
 /**
@@ -140,6 +148,64 @@ const isPrefixOf = (piece, base) => {
     return pw.length > 0
         && pw.length < bw.length
         && pw.every((word, idx) => bw[idx] === word);
+};
+
+/** Bandingkan satu kata tanpa peduli huruf besar/kecil & tanda baca. */
+const sameSpeechWord = (a, b) => {
+    const clean = (word) => (word || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+    return clean(a) === clean(b);
+};
+
+/**
+ * Bersihkan ECHO KUMULATIF: bila awal teks diulang PERSIS pada blok kata
+ * berikutnya, buang blok pertama. Ulangi sampai tidak ada lagi.
+ *
+ * Contoh nyata (keluaran Chrome apa adanya):
+ *   "saya Saya akan Saya akan beli Saya akan beli sabun ..."
+ *     -> "Saya akan beli sabun ..."
+ *
+ * Ini lapisan PENGAMAN TERAKHIR. Idealnya merge per-slot sudah mencegahnya,
+ * tetapi sebagian browser/versi Chrome menyusun hasil dengan cara berbeda dan
+ * tetap bisa menghasilkan deret kumulatif. Fungsi ini deterministik dan tidak
+ * mengubah teks normal, jadi aman dijalankan selalu.
+ */
+const collapseCumulativeEcho = (text) => {
+    let tokens = (text || '').trim().split(/\s+/u).filter((token) => token !== '');
+
+    if (tokens.length < 2) {
+        return tokens.join(' ');
+    }
+
+    let guard = 0;
+
+    while (tokens.length > 1 && guard++ < 500) {
+        let cut = 0;
+
+        for (let len = 1; len <= Math.floor(tokens.length / 2); len++) {
+            let equal = true;
+
+            for (let k = 0; k < len; k++) {
+                if (! sameSpeechWord(tokens[len + k], tokens[k])) {
+                    equal = false;
+                    break;
+                }
+            }
+
+            if (equal) {
+                cut = len;
+                break;
+            }
+        }
+
+        if (cut === 0) {
+            break;
+        }
+
+        tokens = tokens.slice(cut);
+    }
+
+    return tokens.join(' ');
 };
 
 /**
@@ -226,7 +292,7 @@ const armPunctuationTimer = (config) => {
  * hidup sehingga ucapan berikutnya langsung tertangkap (tanpa perlu restart).
  */
 const appendSentencePunctuation = () => {
-    const current = (finalTranscript || '').replace(/\s+$/u, '');
+    const current = collapseCumulativeEcho(finalTranscript || '').replace(/\s+$/u, '');
 
     if (current === '' || /[.,!?;:…]$/u.test(current)) {
         return;
@@ -1442,7 +1508,9 @@ const armRecognition = (micButton, config) => {
         // "Komit" teks objek recognition ini: simpan agar objek berikutnya
         // menyambung, bukan mengulang. mergeSpeechText membuang tumpang-tindih
         // sehingga restart tidak membuat kata dobel.
-        const committed = mergeSpeechText(voiceSession.committed || '', voiceSession.objectText || '').trim();
+        const committed = collapseCumulativeEcho(
+            mergeSpeechText(voiceSession.committed || '', voiceSession.objectText || ''),
+        ).trim();
 
         if (committed !== '') {
             voiceSession.committed = committed;
@@ -1579,8 +1647,11 @@ const armRecognition = (micButton, config) => {
         voiceSession.hasFinal = hasFinal;
 
         // Teks total = teks objek sebelumnya (committed) + objek ini, dengan
-        // tumpang-tindih kata dibuang agar tidak dobel.
-        const spoken = mergeSpeechText(voiceSession.committed || '', objectText).trim();
+        // tumpang-tindih kata dibuang agar tidak dobel. Lapisan pengaman terakhir
+        // membuang deret kumulatif yang mungkin masih lolos.
+        const spoken = collapseCumulativeEcho(
+            mergeSpeechText(voiceSession.committed || '', objectText),
+        ).trim();
 
         finalTranscript = spoken;
 
@@ -2107,6 +2178,9 @@ const setup = () => {
 
 const boot = () => {
     window.__aiChat = window.__aiChat || {};
+    window.__aiChat.build = AI_BUILD;
+
+    console.info('[Asisten AI] build: ' + AI_BUILD);
 
     loadVoicePrefs();
 
