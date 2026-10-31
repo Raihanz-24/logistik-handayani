@@ -92,8 +92,10 @@ const joinVoiceText = (base, spoken) => {
             return cleanBase;
         }
 
-        // Beri spasi pemisah agar kalimat tidak menempel.
-        return cleanBase.replace(/\s+$/, '') + ' ' + cleanSpoken;
+        // Sambung dengan spasi, TETAPI buang tumpang-tindih kata di persimpangan.
+        // Contoh nyata: kotak sudah berisi "beli sabun" lalu pengguna mengulang
+        // "sabun mandi" → hasil "beli sabun mandi", bukan "beli sabun sabun mandi".
+        return mergeSpeechText(cleanBase, cleanSpoken);
     }
 
     return cleanSpoken;
@@ -1520,15 +1522,41 @@ const armRecognition = (micButton, config) => {
                 continue;
             }
 
-            parts.push(text);
+            const isFinal = result.isFinal === true;
 
-            if (result.isFinal) {
+            if (isFinal) {
                 hasFinal = true;
             }
+
+            // ============================================================
+            // BUANG ECHO DI DALAM SATU OBJEK (penyebab "1 kata jadi 2 kata").
+            //
+            // Chrome sering mengirim slot final lalu slot INTERIM dengan teks
+            // yang SAMA (mis. final "halo" diikuti interim "halo"). Keduanya
+            // bukan dua ucapan — yang kedua hanyalah pengulangan mesin.
+            // Aturannya memakai status slot, BUKAN teks saja, supaya ucapan
+            // yang memang diulang pengguna tetap utuh:
+            //   final + interim  teks sama -> buang interim (echo)
+            //   interim + interim teks sama -> buang yang kedua (churn)
+            //   final + final     teks sama -> PERTAHANKAN (benar-benar diucap 2x)
+            // ============================================================
+            const prev = parts[parts.length - 1];
+
+            if (prev && speechWords(prev.text).join(' ') === speechWords(text).join(' ')) {
+                if (prev.isFinal && ! isFinal) {
+                    continue;
+                }
+
+                if (! prev.isFinal && ! isFinal) {
+                    continue;
+                }
+            }
+
+            parts.push({ text, isFinal });
         }
 
         // Teks objek recognition SAAT INI (final + interim dalam urutan asli).
-        const objectText = parts.join(' ').trim();
+        const objectText = parts.map((part) => part.text).join(' ').trim();
 
         voiceSession.objectText = objectText;
         voiceSession.hasFinal = hasFinal;

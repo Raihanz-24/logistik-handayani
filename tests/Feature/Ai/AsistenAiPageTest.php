@@ -600,7 +600,7 @@ class AsistenAiPageTest extends TestCase
         // dengan pembuang tumpang-tindih kata (mergeSpeechText).
         $this->assertStringContainsString('voiceSession.objectText', $script);
         $this->assertStringContainsString('mergeSpeechText(voiceSession.committed', $script);
-        $this->assertStringContainsString('parts.push(text)', $script);
+        $this->assertStringContainsString('parts.push({ text, isFinal })', $script);
         $this->assertStringNotContainsString('processedResults', $script);
 
         // PENTING (regresi mic mati): menyisipkan titik TIDAK boleh menghentikan
@@ -659,6 +659,38 @@ class AsistenAiPageTest extends TestCase
 
         // Saat dibatalkan, teks dikembalikan ke baseText (bukan dikirim).
         $this->assertStringContainsString("syncTranscriptToField(voiceSession.baseText || '')", $script);
+    }
+
+    /**
+     * ANTI-DOBEL: satu kata tidak boleh muncul dua kali.
+     *
+     * Dua regresi nyata yang terbukti lewat harness jsdom:
+     *  1. Chrome mengirim slot final "halo" lalu slot interim "halo" → dulu
+     *     `parts.join(' ')` menghasilkan "halo halo".
+     *  2. Mode "Tambah" menempel buta teks lama + ucapan baru yang berulang.
+     *
+     * Aturan dedupe memakai STATUS slot, bukan teks saja, sehingga ucapan yang
+     * memang diulang pengguna ("sabun sabun") tetap utuh.
+     */
+    public function test_satu_kata_tidak_menjadi_dua_kata(): void
+    {
+        $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
+
+        // parts kini menyimpan status final, bukan hanya teks.
+        $this->assertStringContainsString('parts.push({ text, isFinal })', $script);
+        $this->assertStringNotContainsString("parts.join(' ')", $script);
+
+        // Echo final→interim dan interim→interim dibuang; final→final dipertahankan.
+        $this->assertStringContainsString('prev.isFinal && ! isFinal', $script);
+        $this->assertStringContainsString('! prev.isFinal && ! isFinal', $script);
+        $this->assertStringContainsString('if (prev && speechWords(prev.text)', $script);
+
+        // Mode "Tambah" membuang tumpang-tindih di persimpangan.
+        $this->assertStringContainsString('return mergeSpeechText(cleanBase, cleanSpoken);', $script);
+        $this->assertStringNotContainsString(
+            "return cleanBase.replace(/\\s+$/, '') + ' ' + cleanSpoken;",
+            $script,
+        );
     }
 
     /**
