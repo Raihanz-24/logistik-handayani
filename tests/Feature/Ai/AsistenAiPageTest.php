@@ -600,8 +600,21 @@ class AsistenAiPageTest extends TestCase
         // dengan pembuang tumpang-tindih kata (mergeSpeechText).
         $this->assertStringContainsString('voiceSession.objectText', $script);
         $this->assertStringContainsString('mergeSpeechText(voiceSession.committed', $script);
-        $this->assertStringContainsString('parts.push({ text, isFinal, seenAt })', $script);
+        $this->assertStringContainsString('parts.push({ text })', $script);
         $this->assertStringNotContainsString('processedResults', $script);
+
+        // Setiap slot DILIPAT dengan pembuang tumpang-tindih kata — bukan
+        // ditempel buta (join) dan bukan aturan khusus per bentuk echo.
+        // Ini yang menangani identik, perpanjangan, pemendekan, SEKALIGUS
+        // tumpang-tindih sebagian ("saya akan beli" + "beli sabun").
+        $this->assertStringContainsString('objectText = mergeSpeechText(objectText, part.text);', $script);
+        $this->assertStringNotContainsString("parts.map((part) => part.text).join(' ')", $script);
+
+        // Hipotesis memendek tidak boleh ditempel sebagai ucapan baru, tetapi
+        // aturan itu HANYA berlaku saat melipat slot (bukan di mergeSpeechText)
+        // agar mode "Tambah" tetap bisa menambahkan kata pendek.
+        $this->assertStringContainsString('isPrefixOf(part.text, objectText)', $script);
+        $this->assertStringContainsString('const isPrefixOf = (piece, base)', $script);
 
         // PENTING (regresi mic mati): menyisipkan titik TIDAK boleh menghentikan
         // mesin pengenalan — dulu recognition.stop() dipanggil di sini dan mic
@@ -676,15 +689,8 @@ class AsistenAiPageTest extends TestCase
     {
         $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
 
-        // parts kini menyimpan status final, bukan hanya teks.
-        $this->assertStringContainsString('parts.push({ text, isFinal, seenAt })', $script);
+        // Slot tidak boleh ditempel buta.
         $this->assertStringNotContainsString("parts.join(' ')", $script);
-
-        // Slot identik bersebelahan SELALU echo (dulu final+final sengaja
-        // dipertahankan sehingga menghasilkan "saya akan saya akan").
-        $this->assertStringContainsString('const sameWords = pw.join(\' \') === nw.join(\' \')', $script);
-        $this->assertStringContainsString('if (sameWords) {', $script);
-        $this->assertStringNotContainsString('if (! (prev.isFinal && isFinal))', $script);
 
         // Mode "Tambah" membuang tumpang-tindih di persimpangan.
         $this->assertStringContainsString('return mergeSpeechText(cleanBase, cleanSpoken);', $script);
@@ -695,31 +701,32 @@ class AsistenAiPageTest extends TestCase
     }
 
     /**
-     * ANTI-DOBEL lanjutan: Chrome mengirim hasil KUMULATIF, sehingga satu kata
-     * bisa terulang lewat perpanjangan/pemendekan slot — bukan hanya slot identik.
+     * ANTI-DOBEL pada KALIMAT: slot yang tumpang-tindih sebagian.
      *
-     * Pola nyata yang terbukti lewat harness jsdom:
-     *   final "beli" + final "beli sabun"  -> dulu "beli beli sabun"
-     *   final "beli sabun" + final "beli"  -> dulu "beli sabun beli"
+     * Ini bug yang lolos dari perbaikan "slot identik": ketika pengguna
+     * mengucapkan SATU KATA hasilnya aman, tetapi pada SATU KALIMAT Chrome
+     * mengirim slot yang tumpang-tindih sebagian, mis.
+     *   final "saya akan beli" + interim "beli sabun"
+     * yang dulu menghasilkan "saya akan beli beli sabun".
      *
-     * Pelipatan dibatasi jendela waktu (ECHO_BURST_MS) supaya ucapan baru
-     * setelah jeda yang kebetulan berawalan sama tetap dipertahankan.
+     * Solusinya: lipat semua slot dengan pembuang tumpang-tindih kata.
      */
-    public function test_echo_kumulatif_tidak_menggandakan_kata(): void
+    public function test_kalimat_tumpang_tindih_tidak_menggandakan_kata(): void
     {
         $script = (string) file_get_contents(base_path('resources/js/ai-assistant.js'));
 
-        // Deteksi perpanjangan & pemendekan berbasis kata.
-        $this->assertStringContainsString('isExtension', $script);
-        $this->assertStringContainsString('isTruncation', $script);
-        $this->assertStringContainsString('sameBurst', $script);
+        // Pelipatan tumpang-tindih untuk SELURUH slot (bukan hanya committed).
+        $this->assertStringContainsString('objectText = mergeSpeechText(objectText, part.text);', $script);
 
-        // Penjaga waktu burst (echo beruntun vs ucapan baru setelah jeda).
-        $this->assertStringContainsString('ECHO_BURST_MS', $script);
-        $this->assertStringContainsString('slotState', $script);
+        // mergeSpeechText membuang awalan yang tumpang-tindih dengan akhiran.
+        $mergeFn = substr(
+            $script,
+            (int) strpos($script, 'const mergeSpeechText'),
+            (int) strpos($script, 'const armPunctuationTimer') - (int) strpos($script, 'const mergeSpeechText'),
+        );
 
-        // Slot yang diperpanjang MENGGANTI slot sebelumnya, bukan ditempel.
-        $this->assertStringContainsString('parts[parts.length - 1] = { text, isFinal, seenAt };', $script);
+        $this->assertStringContainsString('aw[aw.length - n + k] !== bw[k]', $mergeFn);
+        $this->assertStringContainsString('return rest === \'\' ? a : a + \' \' + rest;', $mergeFn);
     }
 
     /**

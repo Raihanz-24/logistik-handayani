@@ -9,14 +9,6 @@
 const AI_ROOT = '.ai-page';
 
 /**
- * Jendela waktu (ms) untuk menganggap dua slot hasil sebagai bagian dari
- * ucapan yang SAMA (echo Chrome), bukan dua ucapan terpisah. Chrome mengirim
- * hipotesis kumulatif beruntun dalam hitungan milidetik; ucapan baru selalu
- * datang setelah jeda yang jauh lebih panjang.
- */
-const ECHO_BURST_MS = 800;
-
-/**
  * Preferensi suara (disimpan di localStorage):
  * - append  : hasil mic DITAMBAHKAN ke teks yang sudah ada (tidak menghapus).
  * - autoSend: begitu selesai bicara, pesan langsung dikirim otomatis.
@@ -135,6 +127,20 @@ const speechWords = (text) =>
         .replace(/[^\p{L}\p{N}\s]/gu, ' ')
         .split(/\s+/u)
         .filter((word) => word !== '');
+
+/**
+ * Apakah `piece` hanyalah AWALAN dari `base`? Dipakai untuk mengenali hipotesis
+ * pengenalan yang MEMENDEK (mis. "beli sabun" lalu "beli") agar tidak ditempel
+ * sebagai ucapan baru. Perbandingan berbasis kata, abaikan tanda baca.
+ */
+const isPrefixOf = (piece, base) => {
+    const pw = speechWords(piece);
+    const bw = speechWords(base);
+
+    return pw.length > 0
+        && pw.length < bw.length
+        && pw.every((word, idx) => bw[idx] === word);
+};
 
 /**
  * Gabungkan teks ucapan DENGAN MEMBUANG TUMPANG-TINDIH.
@@ -845,7 +851,6 @@ const beginVoiceSession = (micButton) => {
     voiceSession.hasFinal = false;
     voiceSession.sealed = false;
     voiceSession.restartRetries = 0;
-    voiceSession.slotState = {};
 
     // "Tambahkan" = pertahankan teks lama lalu sambung hasil mic.
     // "Ganti" = mulai dari kosong (hapus teks sebelumnya).
@@ -1376,7 +1381,6 @@ const armRecognition = (micButton, config) => {
         voiceSession.hasFinal = false;
         voiceSession.sealed = false;
         voiceSession.restartRetries = 0;
-        voiceSession.slotState = {};
 
         // Ukur level mikrofon secara paralel (opsional & non-blocking) untuk
         // memberi diagnosa tepat bila tidak ada teks sama sekali.
@@ -1523,13 +1527,6 @@ const armRecognition = (micButton, config) => {
         // ============================================================
         const parts = [];
         let hasFinal = false;
-        const now = Date.now();
-
-        // Waktu kapan tiap SLOT hasil terakhir berubah, dilacak lintas event.
-        // Ini yang membedakan echo Chrome (beruntun, milidetik) dari ucapan baru
-        // (selalu setelah jeda). Tanpa ini, penjaga burst tidak berfungsi karena
-        // `parts` dibangun ulang pada setiap event.
-        const slotState = voiceSession.slotState || (voiceSession.slotState = {});
 
         for (let i = 0; i < event.results.length; i++) {
             const result = event.results[i];
@@ -1539,80 +1536,44 @@ const armRecognition = (micButton, config) => {
                 continue;
             }
 
-            const isFinal = result.isFinal === true;
-
-            if (isFinal) {
+            if (result.isFinal) {
                 hasFinal = true;
             }
 
-            const prevSlot = slotState[i];
-            const changed = ! prevSlot || prevSlot.text !== text;
-            const seenAt = changed ? now : prevSlot.seenAt;
-
-            slotState[i] = { text, seenAt };
-
-            // ============================================================
-            // BUANG ECHO DI DALAM SATU OBJEK (penyebab "1 kata jadi 2 kata").
-            //
-            // Chrome mengirim daftar hasil KUMULATIF, sehingga sering muncul
-            // slot yang sebenarnya ucapan yang SAMA dalam tahap berbeda:
-            //   a) final "halo" lalu interim "halo"        -> echo identik
-            //   b) final "beli" lalu final "beli sabun"    -> PERPANJANGAN
-            //   c) final "beli sabun" lalu final "beli"    -> PEMENDEKAN
-            // Semuanya bukan dua ucapan.
-            //
-            // (b) dan (c) hanya dilipat bila kedua slot lahir dalam burst yang
-            // sama (ECHO_BURST_MS). Bila pengguna berjeda lalu mengucap kalimat
-            // baru yang kebetulan berawalan sama, keduanya dipertahankan.
-            // Ucapan yang memang diulang ("sabun" + "sabun") juga tetap utuh
-            // karena bukan perpanjangan/pemendekan.
-            // ============================================================
-            const prev = parts[parts.length - 1];
-
-            if (prev) {
-                const pw = speechWords(prev.text);
-                const nw = speechWords(text);
-                const sameWords = pw.join(' ') === nw.join(' ');
-                const isExtension = nw.length > pw.length && pw.every((word, idx) => nw[idx] === word);
-                const isTruncation = nw.length < pw.length && nw.every((word, idx) => pw[idx] === word);
-                // Kapan slot SEBELUMNYA (di event.results) terakhir berubah.
-                const prevSeenAt = slotState[i - 1]?.seenAt ?? 0;
-                const sameBurst = (now - prevSeenAt) <= ECHO_BURST_MS;
-
-                // Dua slot IDENTIK bersebelahan SELALU echo Chrome, bukan dua
-                // ucapan terpisah. Inilah penyebab "saya akan" → "saya akan saya
-                // akan". Berlaku juga bila echo datang di event berbeda, karena
-                // Chrome mengirim daftar hasil KUMULATIF.
-                //
-                // TRADE-OFF (disengaja): mengucapkan frasa yang PERSIS sama dua
-                // kali berturut-turut akan dilipat menjadi satu. Untuk aplikasi
-                // ini (mendikte pesan & daftar barang) itu jauh lebih jarang
-                // terjadi daripada echo, dan dobel jauh lebih mengganggu.
-                if (sameWords) {
-                    continue;
-                }
-
-                // Bentuk echo lain (perpanjangan/pemendekan) hanya dilipat bila
-                // masih dalam burst yang sama; di luar itu dianggap ucapan baru.
-                if (sameBurst && isExtension) {
-                    // Slot terbaru memuat ulang kata sebelumnya + kata baru:
-                    // ganti, jangan ditempel (menghindari "beli beli sabun").
-                    parts[parts.length - 1] = { text, isFinal, seenAt };
-
-                    continue;
-                }
-
-                if (sameBurst && isTruncation) {
-                    // Hipotesis lama yang lebih panjang lalu memendek: buang.
-                    continue;
-                }
-            }
-
-            parts.push({ text, isFinal, seenAt });
+            parts.push({ text });
         }
 
-        // Teks objek recognition SAAT INI (final + interim dalam urutan asli).
-        const objectText = parts.map((part) => part.text).join(' ').trim();
+        // ============================================================
+        // ANTI-DOBEL UNIVERSAL: lipat setiap slot dengan pembuang
+        // TUMPANG-TINDIH KATA, bukan menempel buta.
+        //
+        // Chrome mengirim daftar hasil KUMULATIF dengan bentuk yang bervariasi.
+        // Menempel buta (`join(' ')`) membuat kata terulang:
+        //   a) identik        : "saya akan" + "saya akan"
+        //   b) perpanjangan   : "beli" + "beli sabun"
+        //   c) pemendekan     : "beli sabun" + "beli"
+        //   d) TUMPANG-TINDIH : "saya akan beli" + "beli sabun"
+        //                       -> dulu "beli beli" (penyebab dobel pada
+        //                          KALIMAT, bukan pada satu kata)
+        //
+        // Merge berbasis kata menangani keempatnya dengan SATU aturan, dan
+        // tetap menambahkan ucapan yang benar-benar baru
+        // ("... sabun" lalu "... dan gula" -> "... sabun dan gula").
+        // ============================================================
+        let objectText = '';
+
+        for (const part of parts) {
+            // Hipotesis yang MEMENDEK (mis. "beli sabun" lalu "beli") bukan
+            // ucapan baru — lewati. Dicek di sini (bukan di mergeSpeechText)
+            // agar mode "Tambah" tetap bisa menambahkan kata pendek.
+            if (objectText !== '' && isPrefixOf(part.text, objectText)) {
+                continue;
+            }
+
+            objectText = mergeSpeechText(objectText, part.text);
+        }
+
+        objectText = objectText.trim();
 
         voiceSession.objectText = objectText;
         voiceSession.hasFinal = hasFinal;
